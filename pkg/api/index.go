@@ -143,6 +143,19 @@ func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dto
 			Text: "Import", SubTitle: "Import dashboard from file or Grafana.com", Id: "import", Icon: "import",
 			Url: hs.Cfg.AppSubURL + "/dashboard/import",
 		})
+		children = append(children, &dtos.NavLink{
+			Text: "Playlist", SubTitle: "Create a new playlist", Id: "playlist", Icon: "presentation-play",
+			Url: hs.Cfg.AppSubURL + "/playlists/new",
+		})
+		children = append(children, &dtos.NavLink{Text: "Alert rule", Id: "lists", Url: hs.Cfg.AppSubURL + "/alerting/new", Icon: "list-ul"})
+		children = append(children, &dtos.NavLink{Text: "Alert silence", Id: "silences", Url: hs.Cfg.AppSubURL + "/alerting/silence/new?alertmanager=grafana", Icon: "bell-slash"})
+		children = append(children, &dtos.NavLink{
+			Text:        "Data source",
+			Icon:        "database",
+			Description: "Add a new data source",
+			Id:          "datasources",
+			Url:         hs.Cfg.AppSubURL + "/datasources/new",
+		})
 		navTree = append(navTree, &dtos.NavLink{
 			Text:       "Create",
 			Id:         "create",
