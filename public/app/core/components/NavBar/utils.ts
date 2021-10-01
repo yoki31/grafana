@@ -23,7 +23,7 @@ export const isLinkActive = (pathname: string, link: NavModelItem) => {
       // alert channel match
       // TODO refactor routes such that we don't need this custom logic
       return true;
-    } else if (linkPathname === '/' && pathname.startsWith('/d/')) {
+    } else if (linkPathname === '/dashboards' && pathname.startsWith('/d/')) {
       // dashboard match
       // TODO refactor routes such that we don't need this custom logic
       return true;

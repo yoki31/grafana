@@ -421,6 +421,41 @@ func (hs *HTTPServer) dashboardSaveErrorToApiResponse(err error) response.Respon
 }
 
 // GetHomeDashboard returns the home dashboard.
+func (hs *HTTPServer) GetHome(c *models.ReqContext) response.Response {
+	filePath := hs.Cfg.DefaultHomeDashboardPath
+	if filePath == "" {
+		filePath = filepath.Join(hs.Cfg.StaticRootPath, "dashboards/home.json")
+	}
+
+	// It's safe to ignore gosec warning G304 since the variable part of the file path comes from a configuration
+	// variable
+	// nolint:gosec
+	file, err := os.Open(filePath)
+	if err != nil {
+		return response.Error(500, "Failed to load home dashboard", err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			hs.log.Warn("Failed to close dashboard file", "path", filePath, "err", err)
+		}
+	}()
+
+	dash := dtos.DashboardFullWithMeta{}
+	dash.Meta.IsHome = true
+	dash.Meta.CanEdit = c.SignedInUser.HasRole(models.ROLE_EDITOR)
+	dash.Meta.FolderTitle = "General"
+
+	jsonParser := json.NewDecoder(file)
+	if err := jsonParser.Decode(&dash.Dashboard); err != nil {
+		return response.Error(500, "Failed to load home dashboard", err)
+	}
+
+	hs.addGettingStartedPanelToHomeDashboard(c, dash.Dashboard)
+
+	return response.JSON(200, &dash)
+}
+
+// GetHomeDashboard returns the home dashboard.
 func (hs *HTTPServer) GetHomeDashboard(c *models.ReqContext) response.Response {
 	prefsQuery := models.GetPreferencesWithDefaultsQuery{User: c.SignedInUser}
 	homePage := hs.Cfg.HomePage

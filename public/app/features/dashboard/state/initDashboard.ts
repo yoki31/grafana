@@ -43,6 +43,16 @@ async function fetchDashboard(
     switch (args.routeName) {
       case DashboardRoutes.Home: {
         // load home dash
+        const dashDTO: DashboardDTO = await backendSrv.get('/api/home');
+
+        // disable some actions on the default home dashboard
+        dashDTO.meta.canSave = false;
+        dashDTO.meta.canShare = false;
+        dashDTO.meta.canStar = false;
+        return dashDTO;
+      }
+      case DashboardRoutes.HomeDashboard: {
+        // load home dash
         const dashDTO: DashboardDTO = await backendSrv.get('/api/dashboards/home');
 
         // if user specified a custom home dashboard redirect to that
