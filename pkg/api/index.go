@@ -129,6 +129,14 @@ func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dto
 	hasAccess := ac.HasAccess(hs.AccessControl, c)
 	navTree := []*dtos.NavLink{}
 
+	navTree = append(navTree, &dtos.NavLink{
+		Text:       "Home",
+		Id:         "home",
+		Icon:       "home-alt",
+		Url:        hs.Cfg.AppSubURL + "/",
+		SortWeight: dtos.WeightHome,
+	})
+
 	if hasEditPerm {
 		children := []*dtos.NavLink{
 			{Text: "Dashboard", Icon: "apps", Url: hs.Cfg.AppSubURL + "/dashboard/new"},
@@ -181,7 +189,7 @@ func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dto
 		Id:         "dashboards",
 		SubTitle:   "Manage dashboards and folders",
 		Icon:       "apps",
-		Url:        hs.Cfg.AppSubURL + "/",
+		Url:        hs.Cfg.AppSubURL + "/dashboards",
 		SortWeight: dtos.WeightDashboard,
 		Children:   dashboardChildNavs,
 	})
