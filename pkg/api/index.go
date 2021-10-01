@@ -128,6 +128,10 @@ func (hs *HTTPServer) getAppLinks(c *models.ReqContext) ([]*dtos.NavLink, error)
 func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dtos.NavLink, error) {
 	hasAccess := ac.HasAccess(hs.AccessControl, c)
 	navTree := []*dtos.NavLink{}
+	prefsQuery := models.GetPreferencesWithDefaultsQuery{User: c.SignedInUser}
+	homePage := hs.Cfg.HomePage
+
+	hs.Bus.DispatchCtx(c.Req.Context(), &prefsQuery)
 
 	navTree = append(navTree, &dtos.NavLink{
 		Text:       "Home",
@@ -161,12 +165,21 @@ func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dto
 		})
 	}
 
-	dashboardChildNavs := []*dtos.NavLink{
-		{Text: "Home", Id: "home", Url: hs.Cfg.AppSubURL + "/dashboard/home", Icon: "home-alt", HideFromTabs: true},
-		{Text: "Divider", Divider: true, Id: "divider", HideFromTabs: true},
-		{Text: "Manage", Id: "manage-dashboards", Url: hs.Cfg.AppSubURL + "/dashboards", Icon: "sitemap"},
-		{Text: "Playlists", Id: "playlists", Url: hs.Cfg.AppSubURL + "/playlists", Icon: "presentation-play"},
+	dashboardChildNavs := []*dtos.NavLink{}
+	if prefsQuery.Result.HomeDashboardId != 0 || len(homePage) > 0 {
+		dashboardChildNavs = append(dashboardChildNavs, &dtos.NavLink{
+			Text: "Home", Id: "home", Url: hs.Cfg.AppSubURL + "/dashboard/home", Icon: "home-alt", HideFromTabs: true,
+		})
+		dashboardChildNavs = append(dashboardChildNavs, &dtos.NavLink{
+			Text: "Divider", Divider: true, Id: "divider", HideFromTabs: true,
+		})
 	}
+	dashboardChildNavs = append(dashboardChildNavs, &dtos.NavLink{
+		Text: "Manage", Id: "manage-dashboards", Url: hs.Cfg.AppSubURL + "/dashboards", Icon: "sitemap",
+	})
+	dashboardChildNavs = append(dashboardChildNavs, &dtos.NavLink{
+		Text: "Playlists", Id: "playlists", Url: hs.Cfg.AppSubURL + "/playlists", Icon: "presentation-play",
+	})
 
 	if c.IsSignedIn {
 		dashboardChildNavs = append(dashboardChildNavs, &dtos.NavLink{
