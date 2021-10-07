@@ -18,6 +18,8 @@ const (
 	ActionOrgsRead            = "orgs:read"
 	ActionOrgsPreferencesRead = "orgs.preferences:read"
 	ActionOrgsQuotasRead      = "orgs.quotas:read"
+	ActionOrgsDelete          = "orgs:delete"
+	ActionOrgsCreate          = "orgs:create"
 )
 
 // API related scopes
