@@ -148,7 +148,7 @@ func (h *ContextHandler) initContextWithAnonymousUser(reqContext *models.ReqCont
 
 	org, err := h.SQLStore.GetOrgByName(h.Cfg.AnonymousOrgName)
 	if err != nil {
-		log.Errorf(3, "Anonymous access organization error: '%s': %s", h.Cfg.AnonymousOrgName, err)
+		log.Errorf("Anonymous access organization error: '%s': %s", h.Cfg.AnonymousOrgName, err)
 		return false
 	}
 
