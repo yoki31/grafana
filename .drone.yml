@@ -117,7 +117,7 @@ steps:
   commands:
   - ./bin/linux-amd64/grafana-cli cue validate-schema --grafana-root .
   depends_on:
-  - build-backend
+  - build-binary
 
 - name: ensure-cuetsified
   image: grafana/build-container:1.4.3
@@ -417,7 +417,7 @@ steps:
   commands:
   - ./bin/linux-amd64/grafana-cli cue validate-schema --grafana-root .
   depends_on:
-  - build-backend
+  - build-binary
 
 - name: ensure-cuetsified
   image: grafana/build-container:1.4.3
@@ -923,7 +923,7 @@ steps:
   commands:
   - ./bin/linux-amd64/grafana-cli cue validate-schema --grafana-root .
   depends_on:
-  - build-backend
+  - build-binary
 
 - name: ensure-cuetsified
   image: grafana/build-container:1.4.3
@@ -1331,7 +1331,7 @@ steps:
   commands:
   - ./bin/linux-amd64/grafana-cli cue validate-schema --grafana-root .
   depends_on:
-  - build-backend
+  - build-binary
 
 - name: ensure-cuetsified
   image: grafana/build-container:1.4.3
@@ -1947,7 +1947,7 @@ steps:
   commands:
   - ./bin/linux-amd64/grafana-cli cue validate-schema --grafana-root .
   depends_on:
-  - build-backend
+  - build-binary
 
 - name: ensure-cuetsified
   image: grafana/build-container:1.4.3
@@ -2344,7 +2344,7 @@ steps:
   commands:
   - ./bin/linux-amd64/grafana-cli cue validate-schema --grafana-root .
   depends_on:
-  - build-backend
+  - build-binary
 
 - name: ensure-cuetsified
   image: grafana/build-container:1.4.3
@@ -2947,7 +2947,7 @@ steps:
   commands:
   - ./bin/linux-amd64/grafana-cli cue validate-schema --grafana-root .
   depends_on:
-  - build-backend
+  - build-binary
 
 - name: ensure-cuetsified
   image: grafana/build-container:1.4.3
@@ -3312,7 +3312,7 @@ steps:
   commands:
   - ./bin/linux-amd64/grafana-cli cue validate-schema --grafana-root .
   depends_on:
-  - build-backend
+  - build-binary
 
 - name: ensure-cuetsified
   image: grafana/build-container:1.4.3
@@ -3788,6 +3788,6 @@ get:
 
 ---
 kind: signature
-hmac: aab680c8d9f9d189273ee042464bbd51c6db9c7c5b6d2638810d890d11d62ce4
+hmac: 4a697ed18dd7f3f9f91657162a939197307a069c18b077118f694a47a0343ad1
 
 ...
