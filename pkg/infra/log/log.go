@@ -36,26 +36,8 @@ func New(logger string, ctx ...interface{}) Logger {
 	return Root.New(params...)
 }
 
-func Debugf(format string, v ...interface{}) {
-	var message string
-	if len(v) > 0 {
-		message = fmt.Sprintf(format, v...)
-	} else {
-		message = format
-	}
-
-	Root.Debug(message)
-}
-
-func Infof(format string, v ...interface{}) {
-	var message string
-	if len(v) > 0 {
-		message = fmt.Sprintf(format, v...)
-	} else {
-		message = format
-	}
-
-	Root.Info(message)
+func Debug(msg string, args ...interface{}) {
+	Root.Debug(msg, args...)
 }
 
 func Info(msg string, args ...interface{}) {
@@ -64,10 +46,6 @@ func Info(msg string, args ...interface{}) {
 
 func Error(msg string, args ...interface{}) {
 	Root.Error(msg, args...)
-}
-
-func Errorf(skip int, format string, v ...interface{}) {
-	Root.Error(fmt.Sprintf(format, v...))
 }
 
 func Close() error {
