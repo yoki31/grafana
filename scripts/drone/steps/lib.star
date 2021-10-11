@@ -245,7 +245,7 @@ def upload_cdn_step(edition):
         ],
     }
 
-def build_backend_step(edition, ver_mode, variants=None, is_downstream=False):
+def init_backend_step(edition, ver_mode, variants=None, is_downstream=False):
     variants_str = ''
     if variants:
         variants_str = ' --variants {}'.format(','.join(variants))
@@ -256,7 +256,7 @@ def build_backend_step(edition, ver_mode, variants=None, is_downstream=False):
             'GITHUB_TOKEN': from_secret(github_token),
         }
         cmds = [
-            './bin/grabpl build-backend --jobs 8 --edition {} --github-token $${{GITHUB_TOKEN}} --no-pull-enterprise ${{DRONE_TAG}}'.format(
+            './bin/grabpl init-backend --jobs 8 --edition {} --github-token $${{GITHUB_TOKEN}} --no-pull-enterprise ${{DRONE_TAG}}'.format(
                 edition,
             ),
         ]
@@ -265,7 +265,7 @@ def build_backend_step(edition, ver_mode, variants=None, is_downstream=False):
             'GITHUB_TOKEN': from_secret(github_token),
         }
         cmds = [
-            './bin/grabpl build-backend --jobs 8 --edition {} --github-token $${{GITHUB_TOKEN}} --no-pull-enterprise {}'.format(
+            './bin/grabpl init-backend --jobs 8 --edition {} --github-token $${{GITHUB_TOKEN}} --no-pull-enterprise {}'.format(
                 edition, test_release_ver,
             ),
         ]
@@ -276,13 +276,13 @@ def build_backend_step(edition, ver_mode, variants=None, is_downstream=False):
             build_no = '$${SOURCE_BUILD_NUMBER}'
         env = {}
         cmds = [
-            './bin/grabpl build-backend --jobs 8 --edition {} --build-id {}{} --no-pull-enterprise'.format(
+            './bin/grabpl init-backend --jobs 8 --edition {} --build-id {}{} --no-pull-enterprise'.format(
                 edition, build_no, variants_str,
             ),
         ]
 
     return {
-        'name': 'build-backend' + enterprise2_suffix(edition),
+        'name': 'init-backend' + enterprise2_suffix(edition),
         'image': build_image,
         'depends_on': [
             'initialize',
@@ -549,7 +549,7 @@ def shellcheck_step():
 def gen_version_step(ver_mode, include_enterprise2=False, is_downstream=False):
     deps = [
         'build-plugins',
-        'build-backend',
+        'init-backend',
         'build-frontend',
         'codespell',
         'shellcheck',
@@ -557,7 +557,7 @@ def gen_version_step(ver_mode, include_enterprise2=False, is_downstream=False):
     if include_enterprise2:
         sfx = '-enterprise2'
         deps.extend([
-            'build-backend' + sfx,
+            'init-backend' + sfx,
             'test-backend' + sfx,
         ])
 

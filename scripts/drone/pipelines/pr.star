@@ -4,7 +4,7 @@ load(
     'lint_frontend_step',
     'codespell_step',
     'shellcheck_step',
-    'build_backend_step',
+    'init_backend_step',
     'build_binary_step',
     'build_frontend_step',
     'build_plugins_step',
@@ -55,7 +55,7 @@ def pr_pipelines(edition):
         test_backend_step(edition=edition),
         test_backend_integration_step(edition=edition),
         test_frontend_step(),
-        build_backend_step(edition=edition, ver_mode=ver_mode, variants=variants),
+        init_backend_step(edition=edition, ver_mode=ver_mode, variants=variants),
         build_binary_step("grafana-server", edition=edition, ver_mode=ver_mode),
         build_binary_step("grafana-cli", edition=edition, ver_mode=ver_mode),
         build_frontend_step(edition=edition, ver_mode=ver_mode),
@@ -72,8 +72,8 @@ def pr_pipelines(edition):
         steps.extend([
             lint_backend_step(edition=edition2),
             test_backend_step(edition=edition2),
+            init_backend_step(edition=edition2, ver_mode=ver_mode, variants=['linux-x64']),
             test_backend_integration_step(edition=edition2),
-            build_backend_step(edition=edition2, ver_mode=ver_mode, variants=['linux-x64']),
         ])
 
     # Insert remaining steps
