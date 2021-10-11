@@ -64,7 +64,7 @@ func (provider *Provisioner) Provision(ctx context.Context) error {
 		if err := reader.walkDisk(ctx); err != nil {
 			if os.IsNotExist(err) {
 				// don't stop the provisioning service in case the folder is missing. The folder can appear after the startup
-				provider.log.Warn("Failed to provision config", "name", reader.Cfg.Name, "error", err)
+				provider.log.Info("Failed to provision config", "name", reader.Cfg.Name, "error", err)
 				return nil
 			}
 
@@ -85,7 +85,7 @@ func (provider *Provisioner) CleanUpOrphanedDashboards(ctx context.Context) {
 	}
 
 	if err := bus.DispatchCtx(ctx, &models.DeleteOrphanedProvisionedDashboardsCommand{ReaderNames: currentReaders}); err != nil {
-		provider.log.Warn("Failed to delete orphaned provisioned dashboards", "err", err)
+		provider.log.Info("Failed to delete orphaned provisioned dashboards", "err", err)
 	}
 }
 

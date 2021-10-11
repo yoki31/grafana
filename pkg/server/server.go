@@ -186,7 +186,7 @@ func (s *Server) Shutdown(ctx context.Context, reason string) error {
 		case <-s.shutdownFinished:
 			s.log.Debug("Finished waiting for server to shut down")
 		case <-ctx.Done():
-			s.log.Warn("Timed out while waiting for server to shut down")
+			s.log.Info("Timed out while waiting for server to shut down")
 			err = fmt.Errorf("timeout waiting for shutdown")
 		}
 	})
@@ -241,17 +241,17 @@ func (s *Server) notifySystemd(state string) {
 	}
 	conn, err := net.DialUnix(socketAddr.Net, nil, socketAddr)
 	if err != nil {
-		s.log.Warn("Failed to connect to systemd", "err", err, "socket", notifySocket)
+		s.log.Info("Failed to connect to systemd", "err", err, "socket", notifySocket)
 		return
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			s.log.Warn("Failed to close connection", "err", err)
+			s.log.Info("Failed to close connection", "err", err)
 		}
 	}()
 
 	_, err = conn.Write([]byte(state))
 	if err != nil {
-		s.log.Warn("Failed to write notification to systemd", "err", err)
+		s.log.Info("Failed to write notification to systemd", "err", err)
 	}
 }

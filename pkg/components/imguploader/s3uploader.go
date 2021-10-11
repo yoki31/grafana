@@ -85,7 +85,7 @@ func (u *S3Uploader) Upload(ctx context.Context, imageDiskPath string) (string, 
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			u.log.Warn("Failed to close file", "path", imageDiskPath, "err", err)
+			u.log.Info("Failed to close file", "path", imageDiskPath, "err", err)
 		}
 	}()
 

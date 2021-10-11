@@ -172,7 +172,7 @@ func (e *cloudWatchExecutor) getQueue(queueKey string, pluginCtx backend.PluginC
 func (e *cloudWatchExecutor) fetchConcurrentQueriesQuota(region string, pluginCtx backend.PluginContext) int {
 	sess, err := e.newSession(region, pluginCtx)
 	if err != nil {
-		plog.Warn("Could not get service quota client")
+		plog.Info("Could not get service quota client")
 		return defaultConcurrentQueries
 	}
 
@@ -183,7 +183,7 @@ func (e *cloudWatchExecutor) fetchConcurrentQueriesQuota(region string, pluginCt
 		QuotaCode:   aws.String("L-32C48FBB"),
 	})
 	if err != nil {
-		plog.Warn("Could not get service quota")
+		plog.Info("Could not get service quota")
 		return defaultConcurrentQueries
 	}
 
@@ -191,14 +191,14 @@ func (e *cloudWatchExecutor) fetchConcurrentQueriesQuota(region string, pluginCt
 		return int(*concurrentQueriesQuota.Quota.Value)
 	}
 
-	plog.Warn("Could not get service quota")
+	plog.Info("Could not get service quota")
 
 	defaultConcurrentQueriesQuota, err := client.GetAWSDefaultServiceQuota(&servicequotas.GetAWSDefaultServiceQuotaInput{
 		ServiceCode: aws.String("logs"),
 		QuotaCode:   aws.String("L-32C48FBB"),
 	})
 	if err != nil {
-		plog.Warn("Could not get default service quota")
+		plog.Info("Could not get default service quota")
 		return defaultConcurrentQueries
 	}
 
@@ -207,7 +207,7 @@ func (e *cloudWatchExecutor) fetchConcurrentQueriesQuota(region string, pluginCt
 		return int(*defaultConcurrentQueriesQuota.Quota.Value)
 	}
 
-	plog.Warn("Could not get default service quota")
+	plog.Info("Could not get default service quota")
 	return defaultConcurrentQueries
 }
 

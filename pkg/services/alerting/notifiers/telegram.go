@@ -174,7 +174,7 @@ func (tn *TelegramNotifier) generateTelegramCmd(message string, messageField str
 	w := multipart.NewWriter(&body)
 	defer func() {
 		if err := w.Close(); err != nil {
-			tn.log.Warn("Failed to close writer", "err", err)
+			tn.log.Info("Failed to close writer", "err", err)
 		}
 	}()
 

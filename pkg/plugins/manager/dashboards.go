@@ -88,7 +88,7 @@ func (pm *PluginManager) LoadPluginDashboard(pluginID, path string) (*models.Das
 
 	defer func() {
 		if err := reader.Close(); err != nil {
-			plog.Warn("Failed to close file", "path", dashboardFilePath, "err", err)
+			plog.Info("Failed to close file", "path", dashboardFilePath, "err", err)
 		}
 	}()
 

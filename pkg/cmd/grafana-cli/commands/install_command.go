@@ -280,7 +280,7 @@ func extractFiles(archiveFile string, pluginName string, dstDir string, allowSym
 
 		if isSymlink(zf) {
 			if !allowSymlinks {
-				logger.Warnf("%v: plugin archive contains a symlink, which is not allowed. Skipping \n", zf.Name)
+				logger.Infof("%v: plugin archive contains a symlink, which is not allowed. Skipping \n", zf.Name)
 				continue
 			}
 			if err := extractSymlink(zf, dstPath); err != nil {

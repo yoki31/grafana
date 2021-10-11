@@ -141,14 +141,14 @@ func (i *Installer) Install(ctx context.Context, pluginID, version, pluginsDir, 
 	}
 	defer func() {
 		if err := os.Remove(tmpFile.Name()); err != nil {
-			i.log.Warn("Failed to remove temporary file", "file", tmpFile.Name(), "err", err)
+			i.log.Info("Failed to remove temporary file", "file", tmpFile.Name(), "err", err)
 		}
 	}()
 
 	err = i.DownloadFile(pluginID, tmpFile, pluginZipURL, checksum)
 	if err != nil {
 		if err := tmpFile.Close(); err != nil {
-			i.log.Warn("Failed to close file", "err", err)
+			i.log.Info("Failed to close file", "err", err)
 		}
 		return errutil.Wrap("failed to download plugin archive", err)
 	}
@@ -207,7 +207,7 @@ func (i *Installer) DownloadFile(pluginID string, tmpFile *os.File, url string, 
 		}
 		defer func() {
 			if err := f.Close(); err != nil {
-				i.log.Warn("Failed to close file", "err", err)
+				i.log.Info("Failed to close file", "err", err)
 			}
 		}()
 		_, err = io.Copy(tmpFile, f)
@@ -253,7 +253,7 @@ func (i *Installer) DownloadFile(pluginID string, tmpFile *os.File, url string, 
 	}
 	defer func() {
 		if err := bodyReader.Close(); err != nil {
-			i.log.Warn("Failed to close body", "err", err)
+			i.log.Info("Failed to close body", "err", err)
 		}
 	}()
 
@@ -295,7 +295,7 @@ func (i *Installer) sendRequestGetBytes(URL string, subPaths ...string) ([]byte,
 	}
 	defer func() {
 		if err := bodyReader.Close(); err != nil {
-			i.log.Warn("Failed to close stream", "err", err)
+			i.log.Info("Failed to close stream", "err", err)
 		}
 	}()
 	return ioutil.ReadAll(bodyReader)
@@ -355,7 +355,7 @@ func (i *Installer) handleResponse(res *http.Response) (io.ReadCloser, error) {
 		body, err := ioutil.ReadAll(res.Body)
 		defer func() {
 			if err := res.Body.Close(); err != nil {
-				i.log.Warn("Failed to close response body", "err", err)
+				i.log.Info("Failed to close response body", "err", err)
 			}
 		}()
 		if err != nil || len(body) == 0 {
@@ -529,7 +529,7 @@ func (i *Installer) extractFiles(archiveFile string, pluginID string, dest strin
 	r, err := zip.OpenReader(archiveFile)
 	defer func() {
 		if err := r.Close(); err != nil {
-			i.log.Warn("failed to close zip file", "err", err)
+			i.log.Info("failed to close zip file", "err", err)
 		}
 	}()
 	if err != nil {
@@ -574,11 +574,11 @@ func (i *Installer) extractFiles(archiveFile string, pluginID string, dest strin
 
 		if isSymlink(zf) {
 			if !allowSymlinks {
-				i.log.Warnf("%v: plugin archive contains a symlink, which is not allowed. Skipping", zf.Name)
+				i.log.Infof("%v: plugin archive contains a symlink, which is not allowed. Skipping", zf.Name)
 				continue
 			}
 			if err := extractSymlink(zf, dstPath); err != nil {
-				i.log.Warn("failed to extract symlink", "err", err)
+				i.log.Info("failed to extract symlink", "err", err)
 				continue
 			}
 			continue

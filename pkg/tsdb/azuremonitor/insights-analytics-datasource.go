@@ -114,7 +114,7 @@ func (e *InsightsAnalyticsDatasource) executeQuery(ctx context.Context, query *I
 		opentracing.HTTPHeadersCarrier(req.Header))
 
 	if err != nil {
-		azlog.Warn("failed to inject global tracer")
+		azlog.Info("failed to inject global tracer")
 	}
 
 	azlog.Debug("ApplicationInsights", "Request URL", req.URL.String())
@@ -129,7 +129,7 @@ func (e *InsightsAnalyticsDatasource) executeQuery(ctx context.Context, query *I
 	}
 	defer func() {
 		if err := res.Body.Close(); err != nil {
-			azlog.Warn("Failed to close response body", "err", err)
+			azlog.Info("Failed to close response body", "err", err)
 		}
 	}()
 

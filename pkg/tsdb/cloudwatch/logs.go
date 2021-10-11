@@ -58,5 +58,5 @@ func (s *LogsService) DeleteResponseChannel(name string) {
 		return
 	}
 
-	plog.Warn("Channel with name '" + name + "' not found")
+	plog.Info("Channel with name '" + name + "' not found")
 }

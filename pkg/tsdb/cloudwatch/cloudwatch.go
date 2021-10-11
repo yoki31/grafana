@@ -134,9 +134,9 @@ func NewInstanceSettings() datasource.InstanceFactoryFunc {
 			at = awsds.AuthTypeEC2IAMRole
 		case "arn":
 			at = awsds.AuthTypeDefault
-			plog.Warn("Authentication type \"arn\" is deprecated, falling back to default")
+			plog.Info("Authentication type \"arn\" is deprecated, falling back to default")
 		default:
-			plog.Warn("Unrecognized AWS authentication type", "type", jsonData.AuthType)
+			plog.Info("Unrecognized AWS authentication type", "type", jsonData.AuthType)
 		}
 
 		model.authType = at

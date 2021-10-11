@@ -190,7 +190,7 @@ func (dn *DiscordNotifier) embedImage(cmd *models.SendWebhookSync, imagePath str
 	}
 	defer func() {
 		if err := f.Close(); err != nil {
-			dn.log.Warn("Failed to close file", "path", imagePath, "err", err)
+			dn.log.Info("Failed to close file", "path", imagePath, "err", err)
 		}
 	}()
 
@@ -199,7 +199,7 @@ func (dn *DiscordNotifier) embedImage(cmd *models.SendWebhookSync, imagePath str
 	defer func() {
 		if err := w.Close(); err != nil {
 			// Should be OK since we already close it on non-error path
-			dn.log.Warn("Failed to close multipart writer", "err", err)
+			dn.log.Info("Failed to close multipart writer", "err", err)
 		}
 	}()
 	fw, err := w.CreateFormField("payload_json")

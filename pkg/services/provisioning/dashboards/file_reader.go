@@ -50,7 +50,7 @@ func NewDashboardFileReader(cfg *config, log log.Logger, store dboards.Store) (*
 			return nil, fmt.Errorf("failed to load dashboards, path param is not a string")
 		}
 
-		log.Warn("[Deprecated] The folder property is deprecated. Please use path instead.")
+		log.Info("[Deprecated] The folder property is deprecated. Please use path instead.")
 	}
 
 	foldersFromFilesStructure, _ := cfg.Options["foldersFromFilesStructure"].(bool)
@@ -269,7 +269,7 @@ func (fr *FileReader) saveDashboard(path string, folderID int64, fileInfo os.Fil
 			return provisioningMetadata, err
 		}
 	} else {
-		fr.log.Warn("Not saving new dashboard due to restricted database access", "provisioner", fr.Cfg.Name,
+		fr.log.Info("Not saving new dashboard due to restricted database access", "provisioner", fr.Cfg.Name,
 			"file", path, "folderId", dash.Dashboard.FolderId)
 	}
 
@@ -387,7 +387,7 @@ func (fr *FileReader) readDashboardFromFile(path string, lastModified time.Time,
 	}
 	defer func() {
 		if err := reader.Close(); err != nil {
-			fr.log.Warn("Failed to close file", "path", path, "err", err)
+			fr.log.Info("Failed to close file", "path", path, "err", err)
 		}
 	}()
 

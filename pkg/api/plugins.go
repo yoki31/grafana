@@ -273,7 +273,7 @@ func (hs *HTTPServer) getPluginAssets(c *models.ReqContext) {
 	pluginFilePath := filepath.Join(plugin.PluginDir, requestedFile)
 
 	if !plugin.IncludedInSignature(requestedFile) {
-		hs.log.Warn("Access to requested plugin file will be forbidden in upcoming Grafana versions as the file "+
+		hs.log.Info("Access to requested plugin file will be forbidden in upcoming Grafana versions as the file "+
 			"is not included in the plugin signature", "file", requestedFile)
 	}
 

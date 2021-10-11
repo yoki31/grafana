@@ -343,7 +343,7 @@ func (pm *PluginManager) scan(pluginDir string, requireSigned bool) error {
 			return nil
 		}
 		if pluginDir != "data/plugins" {
-			pm.log.Warn("Could not scan dir", "pluginDir", pluginDir, "err", err)
+			pm.log.Info("Could not scan dir", "pluginDir", pluginDir, "err", err)
 		}
 		return err
 	}
@@ -354,7 +354,7 @@ func (pm *PluginManager) scan(pluginDir string, requireSigned bool) error {
 	for scannedPluginPath, scannedPlugin := range scanner.plugins {
 		// Check if scanning found duplicate plugins
 		if _, dupe := pluginsByID[scannedPlugin.Id]; dupe {
-			pm.log.Warn("Skipping plugin as it's a duplicate", "id", scannedPlugin.Id)
+			pm.log.Info("Skipping plugin as it's a duplicate", "id", scannedPlugin.Id)
 			scanner.errors = append(scanner.errors,
 				plugins.DuplicatePluginError{PluginID: scannedPlugin.Id, ExistingPluginDir: scannedPlugin.PluginDir})
 			delete(scanner.plugins, scannedPluginPath)
@@ -419,7 +419,7 @@ func (pm *PluginManager) scan(pluginDir string, requireSigned bool) error {
 				return err
 			}
 			if !exists {
-				scanner.log.Warn("Plugin missing module.js",
+				scanner.log.Info("Plugin missing module.js",
 					"name", plugin.Name,
 					"warning", "Missing module.js, If you loaded this plugin from git, make sure to compile it.",
 					"path", module)
@@ -435,7 +435,7 @@ func (pm *PluginManager) scan(pluginDir string, requireSigned bool) error {
 		}
 		defer func() {
 			if err := reader.Close(); err != nil {
-				scanner.log.Warn("Failed to close JSON file", "path", jsonFPath, "err", err)
+				scanner.log.Info("Failed to close JSON file", "path", jsonFPath, "err", err)
 			}
 		}()
 
@@ -454,7 +454,7 @@ func (pm *PluginManager) scan(pluginDir string, requireSigned bool) error {
 		for _, err := range scanner.errors {
 			errStr = append(errStr, err.Error())
 		}
-		pm.log.Warn("Some plugin scanning errors were found", "errors", strings.Join(errStr, ", "))
+		pm.log.Info("Some plugin scanning errors were found", "errors", strings.Join(errStr, ", "))
 		pm.scanningErrors = scanner.errors
 	}
 
@@ -559,7 +559,7 @@ func (s *PluginScanner) loadPlugin(pluginJSONFilePath string) error {
 	}
 	defer func() {
 		if err := reader.Close(); err != nil {
-			s.log.Warn("Failed to close JSON file", "path", pluginJSONFilePath, "err", err)
+			s.log.Info("Failed to close JSON file", "path", pluginJSONFilePath, "err", err)
 		}
 	}()
 
@@ -576,7 +576,7 @@ func (s *PluginScanner) loadPlugin(pluginJSONFilePath string) error {
 	pluginCommon.PluginDir = filepath.Dir(pluginJSONFilePath)
 	signatureState, err := getPluginSignatureState(s.log, &pluginCommon)
 	if err != nil {
-		s.log.Warn("Could not get plugin signature state", "pluginID", pluginCommon.Id, "err", err)
+		s.log.Info("Could not get plugin signature state", "pluginID", pluginCommon.Id, "err", err)
 		return err
 	}
 	pluginCommon.Signature = signatureState.Status
@@ -632,7 +632,7 @@ func (s *PluginScanner) validateSignature(plugin *plugins.PluginBase) *plugins.P
 				ErrorCode: signatureMissing,
 			}
 		}
-		s.log.Warn("Running an unsigned plugin", "pluginID", plugin.Id, "pluginDir",
+		s.log.Info("Running an unsigned plugin", "pluginID", plugin.Id, "pluginDir",
 			plugin.PluginDir)
 		return nil
 	case plugins.PluginSignatureInvalid:

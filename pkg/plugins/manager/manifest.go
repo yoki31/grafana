@@ -146,7 +146,7 @@ func getPluginSignatureState(log log.Logger, plugin *plugins.PluginBase) (plugin
 		for _, u := range manifest.RootURLs {
 			rootURL, err := url.Parse(u)
 			if err != nil {
-				log.Warn("Could not parse plugin root URL", "plugin", plugin.Id, "rootUrl", rootURL)
+				log.Info("Could not parse plugin root URL", "plugin", plugin.Id, "rootUrl", rootURL)
 				return plugins.PluginSignatureState{}, err
 			}
 
@@ -161,7 +161,7 @@ func getPluginSignatureState(log log.Logger, plugin *plugins.PluginBase) (plugin
 		}
 
 		if !foundMatch {
-			log.Warn("Could not find root URL that matches running application URL", "plugin", plugin.Id,
+			log.Info("Could not find root URL that matches running application URL", "plugin", plugin.Id,
 				"appUrl", appURL, "rootUrls", manifest.RootURLs)
 			return plugins.PluginSignatureState{
 				Status: plugins.PluginSignatureInvalid,
@@ -187,7 +187,7 @@ func getPluginSignatureState(log log.Logger, plugin *plugins.PluginBase) (plugin
 	if manifest.isV2() {
 		pluginFiles, err := pluginFilesRequiringVerification(plugin)
 		if err != nil {
-			log.Warn("Could not collect plugin file information in directory", "pluginID", plugin.Id, "dir", plugin.PluginDir)
+			log.Info("Could not collect plugin file information in directory", "pluginID", plugin.Id, "dir", plugin.PluginDir)
 			return plugins.PluginSignatureState{
 				Status: plugins.PluginSignatureInvalid,
 			}, err
@@ -202,7 +202,7 @@ func getPluginSignatureState(log log.Logger, plugin *plugins.PluginBase) (plugin
 		}
 
 		if len(unsignedFiles) > 0 {
-			log.Warn("The following files were not included in the signature", "plugin", plugin.Id, "files", unsignedFiles)
+			log.Info("The following files were not included in the signature", "plugin", plugin.Id, "files", unsignedFiles)
 			return plugins.PluginSignatureState{
 				Status: plugins.PluginSignatureModified,
 			}, nil
@@ -225,12 +225,12 @@ func verifyHash(pluginID string, path string, hash string) error {
 	// on the path provided in a manifest file for a plugin and not user input.
 	f, err := os.Open(path)
 	if err != nil {
-		log.Warn("Plugin file listed in the manifest was not found", "plugin", pluginID, "path", path)
+		log.Info("Plugin file listed in the manifest was not found", "plugin", pluginID, "path", path)
 		return fmt.Errorf("plugin file listed in the manifest was not found")
 	}
 	defer func() {
 		if err := f.Close(); err != nil {
-			log.Warn("Failed to close plugin file", "path", path, "err", err)
+			log.Info("Failed to close plugin file", "path", path, "err", err)
 		}
 	}()
 
@@ -240,7 +240,7 @@ func verifyHash(pluginID string, path string, hash string) error {
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
 	if sum != hash {
-		log.Warn("Plugin file checksum does not match signature checksum", "plugin", pluginID, "path", path)
+		log.Info("Plugin file checksum does not match signature checksum", "plugin", pluginID, "path", path)
 		return fmt.Errorf("plugin file checksum does not match signature checksum")
 	}
 

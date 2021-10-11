@@ -100,7 +100,7 @@ func (vn *VictoropsNotifier) buildEventPayload(evalContext *alerting.EvalContext
 			case "CRITICAL":
 				messageType = sev
 			default:
-				vn.log.Warn("Ignoring invalid severity tag", "severity", sev)
+				vn.log.Info("Ignoring invalid severity tag", "severity", sev)
 			}
 		}
 	}

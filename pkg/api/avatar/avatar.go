@@ -95,7 +95,7 @@ func (a *CacheServer) Handler(ctx *models.ReqContext) {
 	if avatar.Expired() {
 		// The cache item is either expired or newly created, update it from the server
 		if err := avatar.Update(); err != nil {
-			log.Tracef("avatar update error: %v", err)
+			log.Debugf("avatar update error: %v", err)
 			avatar = a.notFound
 		}
 	}
@@ -104,7 +104,7 @@ func (a *CacheServer) Handler(ctx *models.ReqContext) {
 		avatar = a.notFound
 	} else if !exists {
 		if err := a.cache.Add(hash, avatar, gocache.DefaultExpiration); err != nil {
-			log.Tracef("Error adding avatar to cache: %s", err)
+			log.Debugf("Error adding avatar to cache: %s", err)
 		}
 	}
 
@@ -117,7 +117,7 @@ func (a *CacheServer) Handler(ctx *models.ReqContext) {
 	ctx.Resp.Header().Set("Cache-Control", "private, max-age=3600")
 
 	if err := avatar.Encode(ctx.Resp); err != nil {
-		log.Warnf("avatar encode error: %v", err)
+		log.Infof("avatar encode error: %v", err)
 		ctx.Resp.WriteHeader(500)
 	}
 }
@@ -232,7 +232,7 @@ func (a *thunderTask) fetch() error {
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			log.Warn("Failed to close response body", "err", err)
+			log.Info("Failed to close response body", "err", err)
 		}
 	}()
 

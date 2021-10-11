@@ -185,7 +185,7 @@ func (e *AzureMonitorDatasource) executeQuery(ctx context.Context, query *AzureM
 	}
 	defer func() {
 		if err := res.Body.Close(); err != nil {
-			azlog.Warn("Failed to close response body", "err", err)
+			azlog.Info("Failed to close response body", "err", err)
 		}
 	}()
 

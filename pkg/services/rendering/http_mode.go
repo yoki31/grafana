@@ -64,7 +64,7 @@ func (rs *RenderingService) renderViaHTTP(ctx context.Context, renderKey string,
 	// save response to file
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			rs.log.Warn("Failed to close response body", "err", err)
+			rs.log.Info("Failed to close response body", "err", err)
 		}
 	}()
 
@@ -109,7 +109,7 @@ func (rs *RenderingService) renderCSVViaHTTP(ctx context.Context, renderKey stri
 	// save response to file
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			rs.log.Warn("Failed to close response body", "err", err)
+			rs.log.Info("Failed to close response body", "err", err)
 		}
 	}()
 
@@ -172,7 +172,7 @@ func (rs *RenderingService) readFileResponse(ctx context.Context, resp *http.Res
 	defer func() {
 		if err := out.Close(); err != nil && !errors.Is(err, fs.ErrClosed) {
 			// We already close the file explicitly in the non-error path, so shouldn't be a problem
-			rs.log.Warn("Failed to close file", "path", filePath, "err", err)
+			rs.log.Info("Failed to close file", "path", filePath, "err", err)
 		}
 	}()
 
@@ -208,7 +208,7 @@ func (rs *RenderingService) getRemotePluginVersion() (string, error) {
 
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			rs.log.Warn("Failed to close response body", "err", err)
+			rs.log.Info("Failed to close response body", "err", err)
 		}
 	}()
 

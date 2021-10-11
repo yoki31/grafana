@@ -79,7 +79,7 @@ func (s *AuthService) initKeySet() error {
 		}
 		defer func() {
 			if err := file.Close(); err != nil {
-				s.log.Warn("Failed to close file", "path", keyFilePath, "err", err)
+				s.log.Info("Failed to close file", "path", keyFilePath, "err", err)
 			}
 		}()
 
@@ -132,7 +132,7 @@ func (s *AuthService) initKeySet() error {
 		}
 		defer func() {
 			if err := file.Close(); err != nil {
-				s.log.Warn("Failed to close file", "path", keyFilePath, "err", err)
+				s.log.Info("Failed to close file", "path", keyFilePath, "err", err)
 			}
 		}()
 
@@ -190,7 +190,7 @@ func (ks *keySetHTTP) getJWKS(ctx context.Context) (keySetJWKS, error) {
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			ks.log.Warn("Failed to close response body", "err", err)
+			ks.log.Info("Failed to close response body", "err", err)
 		}
 	}()
 

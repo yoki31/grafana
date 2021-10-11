@@ -52,7 +52,7 @@ func (s *SocialBase) httpGet(client *http.Client, url string) (response httpGetR
 
 	defer func() {
 		if err := r.Body.Close(); err != nil {
-			s.log.Warn("Failed to close response body", "err", err)
+			s.log.Info("Failed to close response body", "err", err)
 		}
 	}()
 
@@ -68,7 +68,7 @@ func (s *SocialBase) httpGet(client *http.Client, url string) (response httpGetR
 		return
 	}
 
-	log.Tracef("HTTP GET %s: %s %s", url, r.Status, string(response.Body))
+	log.Debugf("HTTP GET %s: %s %s", url, r.Status, string(response.Body))
 
 	err = nil
 	return

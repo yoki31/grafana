@@ -146,14 +146,14 @@ func (cfg *configsV1) mapToDatasourceFromConfig(apiVersion int64) *configs {
 		// Using Raw value for the warnings here so that even if it uses env interpolation and the env var is empty
 		// it will still warn
 		if len(ds.Password.Raw) > 0 {
-			cfg.log.Warn(
+			cfg.log.Info(
 				"[Deprecated] the use of password field is deprecated. Please use secureJsonData.password",
 				"datasource name",
 				ds.Name.Value(),
 			)
 		}
 		if len(ds.BasicAuthPassword.Raw) > 0 {
-			cfg.log.Warn(
+			cfg.log.Info(
 				"[Deprecated] the use of basicAuthPassword field is deprecated. Please use secureJsonData.basicAuthPassword",
 				"datasource name",
 				ds.Name.Value(),

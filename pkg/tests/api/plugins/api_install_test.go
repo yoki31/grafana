@@ -78,7 +78,7 @@ func makePostRequest(t *testing.T, URL string) (int, map[string]interface{}) {
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = resp.Body.Close()
-		log.Warn("Failed to close response body", "err", err)
+		log.Info("Failed to close response body", "err", err)
 	})
 	b, err := ioutil.ReadAll(resp.Body)
 	require.NoError(t, err)

@@ -265,7 +265,7 @@ func (e *DataSourceHandler) executeQuery(query backend.DataQuery, wg *sync.WaitG
 	}
 	defer func() {
 		if err := rows.Close(); err != nil {
-			e.log.Warn("Failed to close rows", "err", err)
+			e.log.Info("Failed to close rows", "err", err)
 		}
 	}()
 

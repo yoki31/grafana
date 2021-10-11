@@ -78,7 +78,7 @@ func (ns *NotificationService) sendWebRequestSync(ctx context.Context, webhook *
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			ns.log.Warn("Failed to close response body", "err", err)
+			ns.log.Info("Failed to close response body", "err", err)
 		}
 	}()
 

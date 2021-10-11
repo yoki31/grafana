@@ -373,7 +373,7 @@ func (sn *SlackNotifier) sendRequest(ctx context.Context, data []byte) error {
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			sn.log.Warn("Failed to close response body", "err", err)
+			sn.log.Info("Failed to close response body", "err", err)
 		}
 	}()
 
@@ -388,7 +388,7 @@ func (sn *SlackNotifier) sendRequest(ctx context.Context, data []byte) error {
 		if err := json.Unmarshal(body, &rslt); err == nil {
 			if !rslt["ok"].(bool) {
 				errMsg := rslt["error"].(string)
-				sn.log.Warn("Sending Slack API request failed", "url", sn.url.String(), "statusCode", resp.Status,
+				sn.log.Info("Sending Slack API request failed", "url", sn.url.String(), "statusCode", resp.Status,
 					"err", errMsg)
 				return fmt.Errorf("failed to make Slack API request: %s", errMsg)
 			}
@@ -399,7 +399,7 @@ func (sn *SlackNotifier) sendRequest(ctx context.Context, data []byte) error {
 		return nil
 	}
 
-	sn.log.Warn("Slack API request failed", "url", sn.url.String(), "statusCode", resp.Status, "body", string(body))
+	sn.log.Info("Slack API request failed", "url", sn.url.String(), "statusCode", resp.Status, "body", string(body))
 	return fmt.Errorf("request to Slack API failed with status code %d", resp.StatusCode)
 }
 
@@ -433,7 +433,7 @@ func (sn *SlackNotifier) generateSlackBody(path string, token string, recipient 
 	defer func() {
 		if err := w.Close(); err != nil {
 			// Shouldn't matter since we already close w explicitly on the non-error path
-			sn.log.Warn("Failed to close multipart writer", "err", err)
+			sn.log.Info("Failed to close multipart writer", "err", err)
 		}
 	}()
 
@@ -448,7 +448,7 @@ func (sn *SlackNotifier) generateSlackBody(path string, token string, recipient 
 	}
 	defer func() {
 		if err := f.Close(); err != nil {
-			sn.log.Warn("Failed to close file", "path", path, "err", err)
+			sn.log.Info("Failed to close file", "path", path, "err", err)
 		}
 	}()
 	fw, err := w.CreateFormFile("file", path)

@@ -166,7 +166,7 @@ func (hs *HTTPServer) GetDashboard(c *models.ReqContext) response.Response {
 		if err != nil {
 			// Not sure when this could happen so not sure how to better handle this. Right now ProvisionedExternalId
 			// is for better UX, showing in Save/Delete dialogs and so it won't break anything if it is empty.
-			hs.log.Warn("Failed to create ProvisionedExternalId", "err", err)
+			hs.log.Info("Failed to create ProvisionedExternalId", "err", err)
 		}
 	}
 
@@ -352,7 +352,7 @@ func (hs *HTTPServer) PostDashboard(c *models.ReqContext, cmd models.SaveDashboa
 		}
 
 		if liveerr != nil {
-			hs.log.Warn("unable to broadcast save event", "uid", dashboard.Uid, "error", err)
+			hs.log.Info("unable to broadcast save event", "uid", dashboard.Uid, "error", err)
 		}
 	}
 
@@ -441,7 +441,7 @@ func (hs *HTTPServer) GetHomeDashboard(c *models.ReqContext) response.Response {
 			dashRedirect := dtos.DashboardRedirect{RedirectUri: url}
 			return response.JSON(200, &dashRedirect)
 		}
-		hs.log.Warn("Failed to get slug from database", "err", err)
+		hs.log.Info("Failed to get slug from database", "err", err)
 	}
 
 	filePath := hs.Cfg.DefaultHomeDashboardPath
@@ -458,7 +458,7 @@ func (hs *HTTPServer) GetHomeDashboard(c *models.ReqContext) response.Response {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			hs.log.Warn("Failed to close dashboard file", "path", filePath, "err", err)
+			hs.log.Info("Failed to close dashboard file", "path", filePath, "err", err)
 		}
 	}()
 

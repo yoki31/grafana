@@ -282,7 +282,7 @@ var sendUsageStats = func(uss *UsageStats, data *bytes.Buffer) {
 			return
 		}
 		if err := resp.Body.Close(); err != nil {
-			uss.log.Warn("Failed to close response body", "err", err)
+			uss.log.Info("Failed to close response body", "err", err)
 		}
 	}()
 }

@@ -151,7 +151,7 @@ func (hs *HTTPServer) tryOAuthAutoLogin(c *models.ReqContext) bool {
 	}
 	oauthInfos := hs.SocialService.GetOAuthInfoProviders()
 	if len(oauthInfos) != 1 {
-		log.Warnf("Skipping OAuth auto login because multiple OAuth providers are configured")
+		log.Infof("Skipping OAuth auto login because multiple OAuth providers are configured")
 		return false
 	}
 	for key := range oauthInfos {
@@ -219,7 +219,7 @@ func (hs *HTTPServer) LoginPost(c *models.ReqContext) response.Response {
 		// Do not expose disabled status,
 		// just show incorrect user credentials error (see #17947)
 		if errors.Is(err, login.ErrUserDisabled) {
-			hs.log.Warn("User is disabled", "user", cmd.User)
+			hs.log.Info("User is disabled", "user", cmd.User)
 			return resp
 		}
 

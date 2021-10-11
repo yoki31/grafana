@@ -14,7 +14,7 @@ import (
 func (ss *SQLStore) DeleteExpiredSnapshots(cmd *models.DeleteExpiredSnapshotsCommand) error {
 	return inTransaction(func(sess *DBSession) error {
 		if !setting.SnapShotRemoveExpired {
-			sqlog.Warn("[Deprecated] The snapshot_remove_expired setting is outdated. Please remove from your config.")
+			sqlog.Info("[Deprecated] The snapshot_remove_expired setting is outdated. Please remove from your config.")
 			return nil
 		}
 

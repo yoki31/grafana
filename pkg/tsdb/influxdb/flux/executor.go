@@ -24,7 +24,7 @@ func executeQuery(ctx context.Context, query queryModel, runner queryRunner, max
 
 	tables, err := runner.runQuery(ctx, flux)
 	if err != nil {
-		glog.Warn("Flux query failed", "err", err, "query", flux)
+		glog.Info("Flux query failed", "err", err, "query", flux)
 		dr.Error = err
 	} else {
 		// we only enforce a larger number than maxDataPoints

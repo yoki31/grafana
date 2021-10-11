@@ -163,7 +163,7 @@ func (pn *PagerdutyNotifier) buildEventPayload(evalContext *alerting.EvalContext
 			case "critical":
 				payloadJSON.Set("severity", sev)
 			default:
-				pn.log.Warn("Ignoring invalid severity tag", "severity", sev)
+				pn.log.Info("Ignoring invalid severity tag", "severity", sev)
 			}
 		}
 		customData.Set(tag.Key, tag.Value)

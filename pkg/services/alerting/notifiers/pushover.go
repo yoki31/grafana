@@ -308,7 +308,7 @@ func (pn *PushoverNotifier) genPushoverBody(evalContext *alerting.EvalContext, m
 		}
 		defer func() {
 			if err := f.Close(); err != nil {
-				pn.log.Warn("Failed to close file", "path", evalContext.ImageOnDiskPath, "err", err)
+				pn.log.Info("Failed to close file", "path", evalContext.ImageOnDiskPath, "err", err)
 			}
 		}()
 

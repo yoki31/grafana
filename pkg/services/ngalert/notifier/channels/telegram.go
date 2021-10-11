@@ -75,7 +75,7 @@ func (tn *TelegramNotifier) Notify(ctx context.Context, as ...*types.Alert) (boo
 	w := multipart.NewWriter(&body)
 	defer func() {
 		if err := w.Close(); err != nil {
-			tn.log.Warn("Failed to close writer", "err", err)
+			tn.log.Info("Failed to close writer", "err", err)
 		}
 	}()
 	boundary := GetBoundary()

@@ -83,7 +83,7 @@ func (cr *configReader) parseDatasourceConfig(path string, file os.FileInfo) (*c
 		return nil, err
 	}
 
-	cr.log.Warn("[Deprecated] the datasource provisioning config is outdated. please upgrade", "filename", filename)
+	cr.log.Info("[Deprecated] the datasource provisioning config is outdated. please upgrade", "filename", filename)
 
 	return v0.mapToDatasourceFromConfig(apiVersion.APIVersion), nil
 }
@@ -132,7 +132,7 @@ func (cr *configReader) validateAccessAndOrgID(ds *upsertDataSourceFromConfig) e
 	}
 
 	if ds.Access != models.DS_ACCESS_DIRECT && ds.Access != models.DS_ACCESS_PROXY {
-		cr.log.Warn("invalid access value, will use 'proxy' instead", "value", ds.Access)
+		cr.log.Info("invalid access value, will use 'proxy' instead", "value", ds.Access)
 		ds.Access = models.DS_ACCESS_PROXY
 	}
 	return nil

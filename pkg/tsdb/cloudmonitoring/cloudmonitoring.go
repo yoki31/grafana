@@ -648,7 +648,7 @@ func unmarshalResponse(res *http.Response) (cloudMonitoringResponse, error) {
 
 	defer func() {
 		if err := res.Body.Close(); err != nil {
-			slog.Warn("Failed to close response body", "err", err)
+			slog.Info("Failed to close response body", "err", err)
 		}
 	}()
 

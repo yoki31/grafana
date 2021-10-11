@@ -26,7 +26,7 @@ func (o *OSSSearchUserFilter) GetFilter(filterName string, params []string) mode
 	}
 	filter, err := f(params)
 	if err != nil {
-		log.Warnf("Cannot initialise the filter %s: %s", filterName, err)
+		log.Infof("Cannot initialise the filter %s: %s", filterName, err)
 		return nil
 	}
 	return filter

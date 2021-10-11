@@ -125,7 +125,7 @@ func (rs *RenderingService) Run(ctx context.Context) error {
 		if _, err := os.Stat(debugFilePath); err == nil {
 			err = os.Remove(debugFilePath)
 			if err != nil {
-				rs.log.Warn("Couldn't remove debug.log file, the renderer plugin will not be able to pass the signature check until this file is deleted",
+				rs.log.Info("Couldn't remove debug.log file, the renderer plugin will not be able to pass the signature check until this file is deleted",
 					"err", err)
 			}
 		}
@@ -191,7 +191,7 @@ func (rs *RenderingService) render(ctx context.Context, opts Opts) (*RenderResul
 	}
 
 	if !rs.IsAvailable() {
-		rs.log.Warn("Could not render image, no image renderer found/installed. " +
+		rs.log.Info("Could not render image, no image renderer found/installed. " +
 			"For image rendering support please install the grafana-image-renderer plugin. " +
 			"Read more at https://grafana.com/docs/grafana/latest/administration/image_rendering/")
 		return rs.renderUnavailableImage(), nil

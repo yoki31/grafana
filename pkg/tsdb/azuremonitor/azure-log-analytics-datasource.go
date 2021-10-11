@@ -203,7 +203,7 @@ func (e *AzureLogAnalyticsDatasource) executeQuery(ctx context.Context, query *A
 		model.Get("azureLogAnalytics").Get("workspace").MustString())
 	if err != nil {
 		frame.AppendNotices(data.Notice{Severity: data.NoticeSeverityWarning, Text: "could not add custom metadata: " + err.Error()})
-		azlog.Warn("failed to add custom metadata to azure log analytics response", err)
+		azlog.Info("failed to add custom metadata to azure log analytics response", err)
 	}
 
 	if query.ResultFormat == timeSeries {
@@ -252,7 +252,7 @@ func (e *AzureLogAnalyticsDatasource) unmarshalResponse(res *http.Response) (Azu
 	}
 	defer func() {
 		if err := res.Body.Close(); err != nil {
-			azlog.Warn("Failed to close response body", "err", err)
+			azlog.Info("Failed to close response body", "err", err)
 		}
 	}()
 

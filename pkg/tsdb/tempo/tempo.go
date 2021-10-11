@@ -101,7 +101,7 @@ func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) 
 
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			s.tlog.Warn("failed to close response body", "err", err)
+			s.tlog.Info("failed to close response body", "err", err)
 		}
 	}()
 

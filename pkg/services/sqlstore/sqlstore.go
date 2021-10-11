@@ -340,7 +340,7 @@ func (ss *SQLStore) initEngine(engine *xorm.Engine) error {
 			}
 			m := fi.Mode() & os.ModePerm
 			if m|perms != perms {
-				ss.log.Warn("SQLite database file has broader permissions than it should",
+				ss.log.Info("SQLite database file has broader permissions than it should",
 					"path", ss.dbCfg.Path, "mode", m, "expected", os.FileMode(perms))
 			}
 		}

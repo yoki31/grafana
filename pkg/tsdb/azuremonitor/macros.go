@@ -109,14 +109,14 @@ func (m *kqlMacroEngine) evaluateMacro(name string, defaultTimeField string, arg
 			defaultInterval := time.Duration((to - from) / 60)
 			model, err := simplejson.NewJson(m.query.JSON)
 			if err != nil {
-				azlog.Warn("Unable to parse model from query", "JSON", m.query.JSON)
+				azlog.Info("Unable to parse model from query", "JSON", m.query.JSON)
 				it = defaultInterval
 			} else {
 				it, err = interval.GetIntervalFrom(&models.DataSource{
 					JsonData: simplejson.NewFromAny(dsInfo.JSONData),
 				}, model, defaultInterval)
 				if err != nil {
-					azlog.Warn("Unable to get interval from query", "model", model)
+					azlog.Info("Unable to get interval from query", "model", model)
 					it = defaultInterval
 				}
 			}

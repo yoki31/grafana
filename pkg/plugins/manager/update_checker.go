@@ -49,25 +49,25 @@ func (pm *PluginManager) checkForUpdates() {
 	pluginSlugs := pm.getAllExternalPluginSlugs()
 	resp, err := httpClient.Get("https://grafana.com/api/plugins/versioncheck?slugIn=" + pluginSlugs + "&grafanaVersion=" + setting.BuildVersion)
 	if err != nil {
-		log.Tracef("Failed to get plugins repo from grafana.com, %v", err.Error())
+		log.Debugf("Failed to get plugins repo from grafana.com, %v", err.Error())
 		return
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			log.Warn("Failed to close response body", "err", err)
+			log.Info("Failed to close response body", "err", err)
 		}
 	}()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Tracef("Update check failed, reading response from grafana.com, %v", err.Error())
+		log.Debugf("Update check failed, reading response from grafana.com, %v", err.Error())
 		return
 	}
 
 	gNetPlugins := []grafanaNetPlugin{}
 	err = json.Unmarshal(body, &gNetPlugins)
 	if err != nil {
-		log.Tracef("Failed to unmarshal plugin repo, reading response from grafana.com, %v", err.Error())
+		log.Debugf("Failed to unmarshal plugin repo, reading response from grafana.com, %v", err.Error())
 		return
 	}
 
@@ -90,24 +90,24 @@ func (pm *PluginManager) checkForUpdates() {
 
 	resp2, err := httpClient.Get("https://raw.githubusercontent.com/grafana/grafana/main/latest.json")
 	if err != nil {
-		log.Tracef("Failed to get latest.json repo from github.com: %v", err.Error())
+		log.Debugf("Failed to get latest.json repo from github.com: %v", err.Error())
 		return
 	}
 	defer func() {
 		if err := resp2.Body.Close(); err != nil {
-			pm.log.Warn("Failed to close response body", "err", err)
+			pm.log.Info("Failed to close response body", "err", err)
 		}
 	}()
 	body, err = ioutil.ReadAll(resp2.Body)
 	if err != nil {
-		log.Tracef("Update check failed, reading response from github.com, %v", err.Error())
+		log.Debugf("Update check failed, reading response from github.com, %v", err.Error())
 		return
 	}
 
 	var latest gitHubLatest
 	err = json.Unmarshal(body, &latest)
 	if err != nil {
-		log.Tracef("Failed to unmarshal github.com latest, reading response from github.com: %v", err.Error())
+		log.Debugf("Failed to unmarshal github.com latest, reading response from github.com: %v", err.Error())
 		return
 	}
 
