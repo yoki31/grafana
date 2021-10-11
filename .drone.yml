@@ -94,14 +94,14 @@ steps:
 - name: build-binary-grafana-server
   image: grafana/build-container:1.4.3
   commands:
-  - ./bin/grabpl build-binary --jobs 8 --edition oss --build-id ${DRONE_BUILD_NUMBER} --binary grafana-server
+  - ./bin/grabpl build-binary --jobs 8 --edition oss --build-id ${DRONE_BUILD_NUMBER} --variants linux-x64,linux-x64-musl,osx64,win64,armv6 --binary grafana-server
   depends_on:
   - init-backend
 
 - name: build-binary-grafana-cli
   image: grafana/build-container:1.4.3
   commands:
-  - ./bin/grabpl build-binary --jobs 8 --edition oss --build-id ${DRONE_BUILD_NUMBER} --binary grafana-cli
+  - ./bin/grabpl build-binary --jobs 8 --edition oss --build-id ${DRONE_BUILD_NUMBER} --variants linux-x64,linux-x64-musl,osx64,win64,armv6 --binary grafana-cli
   depends_on:
   - init-backend
 
@@ -3856,6 +3856,6 @@ get:
 
 ---
 kind: signature
-hmac: de02246e5a02461a94f3010cbc0546e09bf998cbcdc642451659fd48c2c15e6b
+hmac: 7eaa2b2a461b799207fd9c00ce81545d4429e1a7fcbf5106c9a32922d292a09b
 
 ...
