@@ -17,7 +17,7 @@ steps:
   image: grafana/build-container:1.4.3
   commands:
   - mkdir -p bin
-  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/grabpl
+  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/grabpl
   - chmod +x bin/grabpl
   - ./bin/grabpl verify-drone
   - make gen-go
@@ -90,6 +90,13 @@ steps:
   - ./bin/grabpl build-backend --jobs 8 --edition oss --build-id ${DRONE_BUILD_NUMBER} --variants linux-x64,linux-x64-musl,osx64,win64,armv6 --no-pull-enterprise
   depends_on:
   - test-backend
+
+- name: build-binary
+  image: grafana/build-container:1.4.3
+  commands:
+  - ./bin/grabpl build-binary --jobs 8 --edition oss --build-id ${DRONE_BUILD_NUMBER} --variants linux-x64,linux-x64-musl,osx64,win64,armv6 --binary grafana-server
+  depends_on:
+  - build-backend
 
 - name: build-frontend
   image: grafana/build-container:1.4.3
@@ -295,7 +302,7 @@ steps:
   image: grafana/build-container:1.4.3
   commands:
   - mkdir -p bin
-  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/grabpl
+  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/grabpl
   - chmod +x bin/grabpl
   - ./bin/grabpl verify-drone
   - make gen-go
@@ -380,6 +387,13 @@ steps:
   - ./bin/grabpl build-backend --jobs 8 --edition oss --build-id ${DRONE_BUILD_NUMBER} --no-pull-enterprise
   depends_on:
   - test-backend
+
+- name: build-binary
+  image: grafana/build-container:1.4.3
+  commands:
+  - ./bin/grabpl build-binary --jobs 8 --edition oss --build-id ${DRONE_BUILD_NUMBER} --binary grafana-server
+  depends_on:
+  - build-backend
 
 - name: build-frontend
   image: grafana/build-container:1.4.3
@@ -663,7 +677,7 @@ steps:
   image: grafana/ci-wix:0.1.1
   commands:
   - $$ProgressPreference = "SilentlyContinue"
-  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/windows/grabpl.exe -OutFile grabpl.exe
+  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/windows/grabpl.exe -OutFile grabpl.exe
 
 - name: build-windows-installer
   image: grafana/ci-wix:0.1.1
@@ -712,7 +726,7 @@ steps:
   image: grafana/build-container:1.4.3
   commands:
   - mkdir -p bin
-  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/grabpl
+  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/grabpl
   - chmod +x bin/grabpl
   - ./bin/grabpl verify-drone
   - make gen-go
@@ -799,7 +813,7 @@ steps:
   image: grafana/build-container:1.4.3
   commands:
   - mkdir -p bin
-  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/grabpl
+  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/grabpl
   - chmod +x bin/grabpl
   - ./bin/grabpl verify-drone
   - make gen-go
@@ -876,6 +890,16 @@ steps:
       from_secret: github_token
   depends_on:
   - test-backend
+
+- name: build-binary
+  image: grafana/build-container:1.4.3
+  commands:
+  - ./bin/grabpl build-binary --jobs 8 --edition oss --github-token $${GITHUB_TOKEN} --binary grafana-server ${DRONE_TAG}
+  environment:
+    GITHUB_TOKEN:
+      from_secret: github_token
+  depends_on:
+  - build-backend
 
 - name: build-frontend
   image: grafana/build-container:1.4.3
@@ -1128,7 +1152,7 @@ steps:
   image: grafana/ci-wix:0.1.1
   commands:
   - $$ProgressPreference = "SilentlyContinue"
-  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/windows/grabpl.exe -OutFile grabpl.exe
+  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/windows/grabpl.exe -OutFile grabpl.exe
 
 - name: build-windows-installer
   image: grafana/ci-wix:0.1.1
@@ -1178,7 +1202,7 @@ steps:
   image: grafana/build-container:1.4.3
   commands:
   - mkdir -p bin
-  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/grabpl
+  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/grabpl
   - chmod +x bin/grabpl
   - git clone "https://$${GITHUB_TOKEN}@github.com/grafana/grafana-enterprise.git"
   - cd grafana-enterprise
@@ -1274,6 +1298,16 @@ steps:
       from_secret: github_token
   depends_on:
   - test-backend
+
+- name: build-binary
+  image: grafana/build-container:1.4.3
+  commands:
+  - ./bin/grabpl build-binary --jobs 8 --edition enterprise --github-token $${GITHUB_TOKEN} --binary grafana-server ${DRONE_TAG}
+  environment:
+    GITHUB_TOKEN:
+      from_secret: github_token
+  depends_on:
+  - build-backend
 
 - name: build-frontend
   image: grafana/build-container:1.4.3
@@ -1628,7 +1662,7 @@ steps:
   image: grafana/ci-wix:0.1.1
   commands:
   - $$ProgressPreference = "SilentlyContinue"
-  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/windows/grabpl.exe -OutFile grabpl.exe
+  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/windows/grabpl.exe -OutFile grabpl.exe
   - git clone "https://$$env:GITHUB_TOKEN@github.com/grafana/grafana-enterprise.git"
   - cd grafana-enterprise
   - git checkout ${DRONE_TAG}
@@ -1696,7 +1730,7 @@ steps:
   image: grafana/build-container:1.4.3
   commands:
   - mkdir -p bin
-  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/grabpl
+  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/grabpl
   - chmod +x bin/grabpl
   - ./bin/grabpl verify-drone
   - make gen-go
@@ -1803,7 +1837,7 @@ steps:
   image: grafana/build-container:1.4.3
   commands:
   - mkdir -p bin
-  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/grabpl
+  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/grabpl
   - chmod +x bin/grabpl
   - ./bin/grabpl verify-drone
   - make gen-go
@@ -1880,6 +1914,16 @@ steps:
       from_secret: github_token
   depends_on:
   - test-backend
+
+- name: build-binary
+  image: grafana/build-container:1.4.3
+  commands:
+  - ./bin/grabpl build-binary --jobs 8 --edition oss --github-token $${GITHUB_TOKEN} --binary grafana-server v7.3.0-test
+  environment:
+    GITHUB_TOKEN:
+      from_secret: github_token
+  depends_on:
+  - build-backend
 
 - name: build-frontend
   image: grafana/build-container:1.4.3
@@ -2121,7 +2165,7 @@ steps:
   image: grafana/ci-wix:0.1.1
   commands:
   - $$ProgressPreference = "SilentlyContinue"
-  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/windows/grabpl.exe -OutFile grabpl.exe
+  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/windows/grabpl.exe -OutFile grabpl.exe
 
 - name: build-windows-installer
   image: grafana/ci-wix:0.1.1
@@ -2171,7 +2215,7 @@ steps:
   image: grafana/build-container:1.4.3
   commands:
   - mkdir -p bin
-  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/grabpl
+  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/grabpl
   - chmod +x bin/grabpl
   - git clone "https://$${GITHUB_TOKEN}@github.com/grafana/grafana-enterprise.git"
   - cd grafana-enterprise
@@ -2267,6 +2311,16 @@ steps:
       from_secret: github_token
   depends_on:
   - test-backend
+
+- name: build-binary
+  image: grafana/build-container:1.4.3
+  commands:
+  - ./bin/grabpl build-binary --jobs 8 --edition enterprise --github-token $${GITHUB_TOKEN} --binary grafana-server v7.3.0-test
+  environment:
+    GITHUB_TOKEN:
+      from_secret: github_token
+  depends_on:
+  - build-backend
 
 - name: build-frontend
   image: grafana/build-container:1.4.3
@@ -2615,7 +2669,7 @@ steps:
   image: grafana/ci-wix:0.1.1
   commands:
   - $$ProgressPreference = "SilentlyContinue"
-  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/windows/grabpl.exe -OutFile grabpl.exe
+  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/windows/grabpl.exe -OutFile grabpl.exe
   - git clone "https://$$env:GITHUB_TOKEN@github.com/grafana/grafana-enterprise.git"
   - cd grafana-enterprise
   - git checkout main
@@ -2683,7 +2737,7 @@ steps:
   image: grafana/build-container:1.4.3
   commands:
   - mkdir -p bin
-  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/grabpl
+  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/grabpl
   - chmod +x bin/grabpl
   - ./bin/grabpl verify-drone
   - make gen-go
@@ -2790,7 +2844,7 @@ steps:
   image: grafana/build-container:1.4.3
   commands:
   - mkdir -p bin
-  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/grabpl
+  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/grabpl
   - chmod +x bin/grabpl
   - ./bin/grabpl verify-drone
   - make gen-go
@@ -2863,6 +2917,13 @@ steps:
   - ./bin/grabpl build-backend --jobs 8 --edition oss --build-id ${DRONE_BUILD_NUMBER} --no-pull-enterprise
   depends_on:
   - test-backend
+
+- name: build-binary
+  image: grafana/build-container:1.4.3
+  commands:
+  - ./bin/grabpl build-binary --jobs 8 --edition oss --build-id ${DRONE_BUILD_NUMBER} --binary grafana-server
+  depends_on:
+  - build-backend
 
 - name: build-frontend
   image: grafana/build-container:1.4.3
@@ -3083,7 +3144,7 @@ steps:
   image: grafana/ci-wix:0.1.1
   commands:
   - $$ProgressPreference = "SilentlyContinue"
-  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/windows/grabpl.exe -OutFile grabpl.exe
+  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/windows/grabpl.exe -OutFile grabpl.exe
 
 - name: build-windows-installer
   image: grafana/ci-wix:0.1.1
@@ -3129,7 +3190,7 @@ steps:
   image: grafana/build-container:1.4.3
   commands:
   - mkdir -p bin
-  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/grabpl
+  - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/grabpl
   - chmod +x bin/grabpl
   - git clone "https://$${GITHUB_TOKEN}@github.com/grafana/grafana-enterprise.git"
   - cd grafana-enterprise
@@ -3221,6 +3282,13 @@ steps:
   - ./bin/grabpl build-backend --jobs 8 --edition enterprise --build-id ${DRONE_BUILD_NUMBER} --no-pull-enterprise
   depends_on:
   - test-backend
+
+- name: build-binary
+  image: grafana/build-container:1.4.3
+  commands:
+  - ./bin/grabpl build-binary --jobs 8 --edition enterprise --build-id ${DRONE_BUILD_NUMBER} --binary grafana-server
+  depends_on:
+  - build-backend
 
 - name: build-frontend
   image: grafana/build-container:1.4.3
@@ -3576,7 +3644,7 @@ steps:
   image: grafana/ci-wix:0.1.1
   commands:
   - $$ProgressPreference = "SilentlyContinue"
-  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.1/windows/grabpl.exe -OutFile grabpl.exe
+  - Invoke-WebRequest https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/test-build-binary/windows/grabpl.exe -OutFile grabpl.exe
   - git clone "https://$$env:GITHUB_TOKEN@github.com/grafana/grafana-enterprise.git"
   - cd grafana-enterprise
   - git checkout $$env:DRONE_BRANCH
@@ -3720,6 +3788,6 @@ get:
 
 ---
 kind: signature
-hmac: ff07b94decc99b1ecb5b7587bd4c2c438ffe6074eb7b877537f142f8c1098bb9
+hmac: 6b40ccec2279d3939bda12c2739207bcea0524031ee4918748314faa909dad0b
 
 ...
