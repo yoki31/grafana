@@ -151,7 +151,7 @@ func (mg *Migrator) exec(m Migration, sess *xorm.Session) error {
 			}
 
 			if !condition.IsFulfilled(results) {
-				mg.Logger.Warn("Skipping migration: Already executed, but not recorded in migration log", "id", m.Id())
+				mg.Logger.Info("Skipping migration: Already executed, but not recorded in migration log", "id", m.Id())
 				return nil
 			}
 		}

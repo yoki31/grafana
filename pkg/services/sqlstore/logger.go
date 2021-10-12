@@ -67,14 +67,14 @@ func (s *XormLogger) Infof(format string, v ...interface{}) {
 // Warn implement core.ILogger
 func (s *XormLogger) Warn(v ...interface{}) {
 	if s.level <= glog.LvlWarn {
-		s.grafanaLog.Warn(fmt.Sprint(v...))
+		s.grafanaLog.Info(fmt.Sprint(v...))
 	}
 }
 
 // Warnf implement core.ILogger
 func (s *XormLogger) Warnf(format string, v ...interface{}) {
 	if s.level <= glog.LvlWarn {
-		s.grafanaLog.Warn(fmt.Sprintf(format, v...))
+		s.grafanaLog.Info(fmt.Sprintf(format, v...))
 	}
 }
 

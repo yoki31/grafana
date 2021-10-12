@@ -111,7 +111,7 @@ func createJSONHandler(logger log.Logger) http.Handler {
 		if req.Body != nil {
 			defer func() {
 				if err := req.Body.Close(); err != nil {
-					logger.Warn("Failed to close response body", "err", err)
+					logger.Info("Failed to close response body", "err", err)
 				}
 			}()
 			b, err := ioutil.ReadAll(req.Body)

@@ -90,7 +90,7 @@ func (p *TestDataPlugin) loadCsvFile(fileName string) (*data.Frame, error) {
 
 	defer func() {
 		if err := fileReader.Close(); err != nil {
-			p.logger.Warn("Failed to close file", "err", err, "path", fileName)
+			p.logger.Info("Failed to close file", "err", err, "path", fileName)
 		}
 	}()
 

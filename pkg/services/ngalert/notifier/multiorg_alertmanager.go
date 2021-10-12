@@ -182,7 +182,7 @@ func (moa *MultiOrgAlertmanager) SyncAlertmanagersForOrgs(ctx context.Context, o
 		if !cfgFound {
 			if found {
 				// This means that the configuration is gone but the organization, as well as the Alertmanager, exists.
-				moa.logger.Warn("Alertmanager exists for org but the configuration is gone. Applying the default configuration", "org", orgID)
+				moa.logger.Info("Alertmanager exists for org but the configuration is gone. Applying the default configuration", "org", orgID)
 			}
 			err := alertmanager.SaveAndApplyDefaultConfig()
 			if err != nil {
@@ -292,7 +292,7 @@ func (moa *MultiOrgAlertmanager) StopAndWait() {
 	if ok {
 		moa.settleCancel()
 		if err := p.Leave(10 * time.Second); err != nil {
-			moa.logger.Warn("unable to leave the gossip mesh", "err", err)
+			moa.logger.Info("unable to leave the gossip mesh", "err", err)
 		}
 	}
 }

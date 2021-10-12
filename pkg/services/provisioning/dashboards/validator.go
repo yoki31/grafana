@@ -89,14 +89,14 @@ func (c *duplicateValidator) getDuplicates() *duplicateEntries {
 func (c *duplicateValidator) logWarnings(duplicates *duplicateEntries) {
 	for uid, usage := range duplicates.UIDs {
 		if usage.Sum > 1 {
-			c.logger.Warn("the same UID is used more than once", "uid", uid, "times", usage.Sum, "providers",
+			c.logger.Info("the same UID is used more than once", "uid", uid, "times", usage.Sum, "providers",
 				keysToSlice(usage.InvolvedReaders))
 		}
 	}
 
 	for id, usage := range duplicates.Titles {
 		if usage.Sum > 1 {
-			c.logger.Warn("dashboard title is not unique in folder", "title", id.title, "folderID", id.folderID, "times",
+			c.logger.Info("dashboard title is not unique in folder", "title", id.title, "folderID", id.folderID, "times",
 				usage.Sum, "providers", keysToSlice(usage.InvolvedReaders))
 		}
 	}
@@ -110,7 +110,7 @@ func (c *duplicateValidator) takeAwayWritePermissions(duplicates *duplicateEntri
 		reader.changeWritePermissions(isReaderWithDuplicates)
 
 		if isReaderWithDuplicates {
-			c.logger.Warn("dashboards provisioning provider has no database write permissions because of duplicates", "provider", reader.Cfg.Name)
+			c.logger.Info("dashboards provisioning provider has no database write permissions because of duplicates", "provider", reader.Cfg.Name)
 		}
 	}
 }

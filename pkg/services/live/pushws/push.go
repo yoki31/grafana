@@ -105,7 +105,7 @@ const (
 func (s *Handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	streamID, ok := livecontext.GetContextStreamID(r.Context())
 	if !ok || streamID == "" {
-		logger.Warn("Push request without stream ID")
+		logger.Info("Push request without stream ID")
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}

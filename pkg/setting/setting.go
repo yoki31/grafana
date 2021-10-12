@@ -1061,7 +1061,7 @@ func (cfg *Cfg) readSessionConfig() {
 	sec, _ := cfg.Raw.GetSection("session")
 
 	if sec != nil {
-		cfg.Logger.Warn(
+		cfg.Logger.Info(
 			"[Removed] Session setting was removed in v6.2, use remote_cache option instead",
 		)
 	}
@@ -1199,7 +1199,7 @@ func readAuthSettings(iniFile *ini.File, cfg *Cfg) (err error) {
 	maxInactiveDaysVal := auth.Key("login_maximum_inactive_lifetime_days").MustString("")
 	if maxInactiveDaysVal != "" {
 		maxInactiveDaysVal = fmt.Sprintf("%sd", maxInactiveDaysVal)
-		cfg.Logger.Warn("[Deprecated] the configuration setting 'login_maximum_inactive_lifetime_days' is deprecated, please use 'login_maximum_inactive_lifetime_duration' instead")
+		cfg.Logger.Info("[Deprecated] the configuration setting 'login_maximum_inactive_lifetime_days' is deprecated, please use 'login_maximum_inactive_lifetime_duration' instead")
 	} else {
 		maxInactiveDaysVal = "7d"
 	}
@@ -1212,7 +1212,7 @@ func readAuthSettings(iniFile *ini.File, cfg *Cfg) (err error) {
 	maxLifetimeDaysVal := auth.Key("login_maximum_lifetime_days").MustString("")
 	if maxLifetimeDaysVal != "" {
 		maxLifetimeDaysVal = fmt.Sprintf("%sd", maxLifetimeDaysVal)
-		cfg.Logger.Warn("[Deprecated] the configuration setting 'login_maximum_lifetime_days' is deprecated, please use 'login_maximum_lifetime_duration' instead")
+		cfg.Logger.Info("[Deprecated] the configuration setting 'login_maximum_lifetime_days' is deprecated, please use 'login_maximum_lifetime_duration' instead")
 	} else {
 		maxLifetimeDaysVal = "30d"
 	}
@@ -1278,7 +1278,7 @@ func readAuthSettings(iniFile *ini.File, cfg *Cfg) (err error) {
 
 	if ldapSyncVal != authProxySyncTTL {
 		cfg.AuthProxySyncTTL = ldapSyncVal
-		cfg.Logger.Warn("[Deprecated] the configuration setting 'ldap_sync_ttl' is deprecated, please use 'sync_ttl' instead")
+		cfg.Logger.Info("[Deprecated] the configuration setting 'ldap_sync_ttl' is deprecated, please use 'sync_ttl' instead")
 	} else {
 		cfg.AuthProxySyncTTL = syncVal
 	}

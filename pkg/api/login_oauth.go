@@ -318,7 +318,7 @@ func syncUser(
 	// Do not expose disabled status,
 	// just show incorrect user credentials error (see #17947)
 	if cmd.Result.IsDisabled {
-		oauthLogger.Warn("User is disabled", "user", cmd.Result.Login)
+		oauthLogger.Info("User is disabled", "user", cmd.Result.Login)
 		return nil, login.ErrInvalidCredentials
 	}
 

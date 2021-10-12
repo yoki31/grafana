@@ -73,7 +73,7 @@ func (lw logWrapper) Info(msg string, args ...interface{}) {
 
 // Emit a message and key/value pairs at the WARN level
 func (lw logWrapper) Warn(msg string, args ...interface{}) {
-	lw.Logger.Warn(msg, formatArgs(args...)...)
+	lw.Logger.Info(msg, formatArgs(args...)...)
 }
 
 // Emit a message and key/value pairs at the ERROR level

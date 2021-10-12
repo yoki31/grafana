@@ -45,7 +45,7 @@ func (e *MigrationError) Unwrap() error { return e.Err }
 func AddDashAlertMigration(mg *migrator.Migrator) {
 	logs, err := mg.GetMigrationLog()
 	if err != nil {
-		mg.Logger.Crit("alert migration failure: could not get migration log", "error", err)
+		mg.Logger.Error("alert migration failure: could not get migration log", "error", err)
 		os.Exit(1)
 	}
 
@@ -85,7 +85,7 @@ func AddDashAlertMigration(mg *migrator.Migrator) {
 func RerunDashAlertMigration(mg *migrator.Migrator) {
 	logs, err := mg.GetMigrationLog()
 	if err != nil {
-		mg.Logger.Crit("alert migration failure: could not get migration log", "error", err)
+		mg.Logger.Error("alert migration failure: could not get migration log", "error", err)
 		os.Exit(1)
 	}
 
@@ -106,7 +106,7 @@ func RerunDashAlertMigration(mg *migrator.Migrator) {
 func AddDashboardUIDPanelIDMigration(mg *migrator.Migrator) {
 	logs, err := mg.GetMigrationLog()
 	if err != nil {
-		mg.Logger.Crit("alert migration failure: could not get migration log", "error", err)
+		mg.Logger.Error("alert migration failure: could not get migration log", "error", err)
 		os.Exit(1)
 	}
 
@@ -558,7 +558,7 @@ func (u *upgradeNgAlerting) updateAlertConfigurations(sess *xorm.Session, migrat
 	}
 	// if there are many organizations we cannot safely assume what organization an alert_configuration belongs to.
 	// Therefore, we apply the default configuration to all organizations. The previous version could be restored if needed.
-	migrator.Logger.Warn("Detected many organizations. The current alertmanager configuration will be replaced by the default one")
+	migrator.Logger.Info("Detected many organizations. The current alertmanager configuration will be replaced by the default one")
 	configs := make([]*AlertConfiguration, 0, len(orgs))
 	for _, org := range orgs {
 		configs = append(configs, &AlertConfiguration{
@@ -591,7 +591,7 @@ func (u *upgradeNgAlerting) updateAlertmanagerFiles(orgId int64, migrator *migra
 		migrator.Logger.Info("Deleting alerting configuration file", "file", fileName)
 		err := os.Remove(path)
 		if err != nil {
-			migrator.Logger.Warn("Failed to delete file", "file", path, "error", err)
+			migrator.Logger.Info("Failed to delete file", "file", path, "error", err)
 		}
 	}
 
@@ -616,7 +616,7 @@ func (u *upgradeNgAlerting) updateAlertmanagerFiles(orgId int64, migrator *migra
 			for key := range knownFiles {
 				keys = append(keys, key)
 			}
-			migrator.Logger.Warn("Failed to clean up alerting directory. There may be files that are not used anymore.", "path", alertingDir, "files_to_delete", keys, "error", err)
+			migrator.Logger.Info("Failed to clean up alerting directory. There may be files that are not used anymore.", "path", alertingDir, "files_to_delete", keys, "error", err)
 		}
 	}
 

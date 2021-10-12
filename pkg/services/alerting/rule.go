@@ -176,7 +176,7 @@ func NewRuleFromDBAlert(ruleDef *models.Alert, logTranslationFailures bool) (*Ru
 				}
 
 				if logTranslationFailures {
-					logger.Warn("Unable to translate notification id to uid", "dashboardId", model.DashboardID, "alert", model.Name, "panelId", model.PanelID, "notificationId", id)
+					logger.Info("Unable to translate notification id to uid", "dashboardId", model.DashboardID, "alert", model.Name, "panelId", model.PanelID, "notificationId", id)
 				}
 			} else {
 				model.Notifications = append(model.Notifications, uid)

@@ -164,7 +164,7 @@ func (m *migration) makeReceiverAndRoute(ruleUid string, orgID int64, channelUid
 			// always store the channel UID to prevent duplicates
 			filteredChannelUids[c.Uid] = struct{}{}
 		} else {
-			m.mg.Logger.Warn("ignoring obsolete notification channel", "uid", uid)
+			m.mg.Logger.Info("ignoring obsolete notification channel", "uid", uid)
 		}
 	}
 	// Add default channels that are not obsolete.

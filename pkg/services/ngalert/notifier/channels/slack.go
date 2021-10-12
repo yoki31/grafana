@@ -210,7 +210,7 @@ var sendSlackRequest = func(request *http.Request, logger log.Logger) error {
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			logger.Warn("Failed to close response body", "err", err)
+			logger.Info("Failed to close response body", "err", err)
 		}
 	}()
 
@@ -220,7 +220,7 @@ var sendSlackRequest = func(request *http.Request, logger log.Logger) error {
 	}
 
 	if resp.StatusCode/100 != 2 {
-		logger.Warn("Slack API request failed", "url", request.URL.String(), "statusCode", resp.Status, "body", string(body))
+		logger.Info("Slack API request failed", "url", request.URL.String(), "statusCode", resp.Status, "body", string(body))
 		return fmt.Errorf("request to Slack API failed with status code %d", resp.StatusCode)
 	}
 
@@ -229,7 +229,7 @@ var sendSlackRequest = func(request *http.Request, logger log.Logger) error {
 	if err := json.Unmarshal(body, &rslt); err == nil {
 		if !rslt["ok"].(bool) {
 			errMsg := rslt["error"].(string)
-			logger.Warn("Sending Slack API request failed", "url", request.URL.String(), "statusCode", resp.Status,
+			logger.Info("Sending Slack API request failed", "url", request.URL.String(), "statusCode", resp.Status,
 				"err", errMsg)
 			return fmt.Errorf("failed to make Slack API request: %s", errMsg)
 		}

@@ -52,7 +52,7 @@ func (cfg *Cfg) readDateFormats() {
 
 	timezone, err := valueAsTimezone(dateFormats, "default_timezone")
 	if err != nil {
-		cfg.Logger.Warn("Unknown timezone as default_timezone", "err", err)
+		cfg.Logger.Info("Unknown timezone as default_timezone", "err", err)
 	}
 	cfg.DateFormats.DefaultTimezone = timezone
 	cfg.DateFormats.DefaultWeekStart = valueAsString(dateFormats, "default_week_start", "browser")

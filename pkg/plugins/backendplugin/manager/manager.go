@@ -362,7 +362,7 @@ func (m *Manager) callResourceInternal(w http.ResponseWriter, req *http.Request,
 
 		defer func() {
 			if err := stream.Close(); err != nil {
-				m.logger.Warn("Failed to close stream", "err", err)
+				m.logger.Info("Failed to close stream", "err", err)
 			}
 			wg.Wait()
 		}()

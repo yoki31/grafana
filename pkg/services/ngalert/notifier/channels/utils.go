@@ -107,7 +107,7 @@ var sendHTTPRequest = func(ctx context.Context, url *url.URL, cfg httpCfg, logge
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			logger.Warn("Failed to close response body", "err", err)
+			logger.Info("Failed to close response body", "err", err)
 		}
 	}()
 
@@ -117,7 +117,7 @@ var sendHTTPRequest = func(ctx context.Context, url *url.URL, cfg httpCfg, logge
 	}
 
 	if resp.StatusCode/100 != 2 {
-		logger.Warn("HTTP request failed", "url", request.URL.String(), "statusCode", resp.Status, "body",
+		logger.Info("HTTP request failed", "url", request.URL.String(), "statusCode", resp.Status, "body",
 			string(respBody))
 		return nil, fmt.Errorf("failed to send HTTP request - status code %d", resp.StatusCode)
 	}

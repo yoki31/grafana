@@ -72,7 +72,7 @@ func (az *AzureBlobUploader) Upload(ctx context.Context, imageDiskPath string) (
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			logger.Warn("Failed to close response body", "err", err)
+			logger.Info("Failed to close response body", "err", err)
 		}
 	}()
 

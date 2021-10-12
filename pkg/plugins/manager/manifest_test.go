@@ -58,7 +58,7 @@ NR7DnB0CCQHO+4FlSPtXFTzNepoc+CytQyDAeOLMLmf2Tqhk2YShk+G/YlVX
 	})
 
 	t.Run("invalid manifest", func(t *testing.T) {
-		modified := strings.ReplaceAll(txt, "README.md", "xxxxxxxxxx")
+		modified := strings.ReplaceAll(txt, "README.md", "Info")
 		_, err := readPluginManifest([]byte(modified))
 		require.Error(t, err)
 	})

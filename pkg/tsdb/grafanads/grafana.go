@@ -206,7 +206,7 @@ func (s *Service) doReadQuery(query backend.DataQuery) backend.DataResponse {
 
 	defer func() {
 		if err := fileReader.Close(); err != nil {
-			logger.Warn("Failed to close file", "err", err, "path", path)
+			logger.Info("Failed to close file", "err", err, "path", path)
 		}
 	}()
 

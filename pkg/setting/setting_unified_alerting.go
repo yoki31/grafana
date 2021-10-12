@@ -76,7 +76,7 @@ func (cfg *Cfg) ReadUnifiedAlertingSettings(iniFile *ini.File) error {
 
 	// TODO: Deprecate this in v8.4, if the old feature toggle ngalert is set, enable Grafana 8 Unified Alerting anyway.
 	if !uaCfg.Enabled && cfg.FeatureToggles["ngalert"] {
-		cfg.Logger.Warn("ngalert feature flag is deprecated: use unified alerting enabled setting instead")
+		cfg.Logger.Info("ngalert feature flag is deprecated: use unified alerting enabled setting instead")
 		uaCfg.Enabled = true
 		AlertingEnabled = false
 	}
@@ -136,7 +136,7 @@ func (cfg *Cfg) ReadUnifiedAlertingSettings(iniFile *ini.File) error {
 	if uaExecuteAlerts { // unified option equals the default (true)
 		legacyExecuteAlerts := alerting.Key("execute_alerts").MustBool(schedulereDefaultExecuteAlerts)
 		if !legacyExecuteAlerts {
-			cfg.Logger.Warn("falling back to legacy setting of 'execute_alerts'; please use the configuration option in the `unified_alerting` section if Grafana 8 alerts are enabled.")
+			cfg.Logger.Info("falling back to legacy setting of 'execute_alerts'; please use the configuration option in the `unified_alerting` section if Grafana 8 alerts are enabled.")
 		}
 		uaExecuteAlerts = legacyExecuteAlerts
 	}
@@ -147,7 +147,7 @@ func (cfg *Cfg) ReadUnifiedAlertingSettings(iniFile *ini.File) error {
 	if err != nil || uaEvaluationTimeout == evaluatorDefaultEvaluationTimeout { // unified option is invalid duration or equals the default
 		legaceEvaluationTimeout := time.Duration(alerting.Key("evaluation_timeout_seconds").MustInt64(int64(evaluatorDefaultEvaluationTimeout.Seconds()))) * time.Second
 		if legaceEvaluationTimeout != evaluatorDefaultEvaluationTimeout {
-			cfg.Logger.Warn("falling back to legacy setting of 'evaluation_timeout_seconds'; please use the configuration option in the `unified_alerting` section if Grafana 8 alerts are enabled.")
+			cfg.Logger.Info("falling back to legacy setting of 'evaluation_timeout_seconds'; please use the configuration option in the `unified_alerting` section if Grafana 8 alerts are enabled.")
 		}
 		uaEvaluationTimeout = legaceEvaluationTimeout
 	}
@@ -157,7 +157,7 @@ func (cfg *Cfg) ReadUnifiedAlertingSettings(iniFile *ini.File) error {
 	if uaMaxAttempts == schedulerDefaultMaxAttempts { // unified option or equals the default
 		legacyMaxAttempts := alerting.Key("max_attempts").MustInt64(schedulerDefaultMaxAttempts)
 		if legacyMaxAttempts != schedulerDefaultMaxAttempts {
-			cfg.Logger.Warn("falling back to legacy setting of 'max_attempts'; please use the configuration option in the `unified_alerting` section if Grafana 8 alerts are enabled.")
+			cfg.Logger.Info("falling back to legacy setting of 'max_attempts'; please use the configuration option in the `unified_alerting` section if Grafana 8 alerts are enabled.")
 		}
 		uaMaxAttempts = legacyMaxAttempts
 	}
@@ -168,7 +168,7 @@ func (cfg *Cfg) ReadUnifiedAlertingSettings(iniFile *ini.File) error {
 		// if the legacy option is invalid, fallback to 10 (unified alerting min interval default)
 		legacyMinInterval := time.Duration(alerting.Key("min_interval_seconds").MustInt64(int64(schedulerDefaultMinInterval.Seconds()))) * time.Second
 		if legacyMinInterval != schedulerDefaultLegacyMinInterval {
-			cfg.Logger.Warn("falling back to legacy setting of 'min_interval_seconds'; please use the configuration option in the `unified_alerting` section if Grafana 8 alerts are enabled.")
+			cfg.Logger.Info("falling back to legacy setting of 'min_interval_seconds'; please use the configuration option in the `unified_alerting` section if Grafana 8 alerts are enabled.")
 		}
 		uaMinInterval = legacyMinInterval
 	}

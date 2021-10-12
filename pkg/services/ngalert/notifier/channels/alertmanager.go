@@ -94,7 +94,7 @@ func (n *AlertmanagerNotifier) Notify(ctx context.Context, as ...*types.Alert) (
 			password: n.basicAuthPassword,
 			body:     body,
 		}, n.logger); err != nil {
-			n.logger.Warn("Failed to send to Alertmanager", "error", err, "alertmanager", n.Name, "url", u.String())
+			n.logger.Info("Failed to send to Alertmanager", "error", err, "alertmanager", n.Name, "url", u.String())
 			lastErr = err
 			numErrs++
 		}
@@ -102,7 +102,7 @@ func (n *AlertmanagerNotifier) Notify(ctx context.Context, as ...*types.Alert) (
 
 	if numErrs == len(n.urls) {
 		// All attempts to send alerts have failed
-		n.logger.Warn("All attempts to send to Alertmanager failed", "alertmanager", n.Name)
+		n.logger.Info("All attempts to send to Alertmanager failed", "alertmanager", n.Name)
 		return false, fmt.Errorf("failed to send alert to Alertmanager: %w", lastErr)
 	}
 

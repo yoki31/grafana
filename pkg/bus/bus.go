@@ -112,7 +112,7 @@ func (b *InProcBus) DispatchCtx(ctx context.Context, msg Msg) error {
 	if withCtx {
 		params = append(params, reflect.ValueOf(ctx))
 	} else if setting.Env == setting.Dev {
-		b.logger.Warn("DispatchCtx called with message handler registered using AddHandler and should be changed to use AddHandlerCtx", "msgName", msgName)
+		b.logger.Info("DispatchCtx called with message handler registered using AddHandler and should be changed to use AddHandlerCtx", "msgName", msgName)
 	}
 	params = append(params, reflect.ValueOf(msg))
 
@@ -141,7 +141,7 @@ func (b *InProcBus) Dispatch(msg Msg) error {
 	var params = []reflect.Value{}
 	if withCtx {
 		if setting.Env == setting.Dev {
-			b.logger.Warn("Dispatch called with message handler registered using AddHandlerCtx and should be changed to use DispatchCtx", "msgName", msgName)
+			b.logger.Info("Dispatch called with message handler registered using AddHandlerCtx and should be changed to use DispatchCtx", "msgName", msgName)
 		}
 		params = append(params, reflect.ValueOf(context.Background()))
 	}

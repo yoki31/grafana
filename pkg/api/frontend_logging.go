@@ -28,7 +28,7 @@ func NewFrontendLogMessageHandler(store *frontendlogging.SourceMapStore) fronten
 		case sentry.LevelError:
 			frontendLogger.Error(msg, ctx)
 		case sentry.LevelWarning:
-			frontendLogger.Warn(msg, ctx)
+			frontendLogger.Info(msg, ctx)
 		case sentry.LevelDebug:
 			frontendLogger.Debug(msg, ctx)
 		default:
