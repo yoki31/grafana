@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "16.0.0",
-    "@rollup/plugin-node-resolve": "10.0.0",
+    "@rollup/plugin-node-resolve": "13.0.5",
     "@types/node": "13.7.7",
     "@types/rollup-plugin-visualizer": "2.6.0",
     "date-fns": "2.21.3",

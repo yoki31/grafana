@@ -2397,7 +2397,7 @@ __metadata:
     "@grafana/tsconfig": ^1.0.0-rc1
     "@rollup/plugin-commonjs": 16.0.0
     "@rollup/plugin-json": 4.1.0
-    "@rollup/plugin-node-resolve": 10.0.0
+    "@rollup/plugin-node-resolve": 13.0.5
     "@types/braintree__sanitize-url": 4.1.0
     "@types/d3-interpolate": ^1.3.1
     "@types/jest": 26.0.15
@@ -2433,7 +2433,7 @@ __metadata:
   dependencies:
     "@grafana/tsconfig": ^1.0.0-rc1
     "@rollup/plugin-commonjs": 16.0.0
-    "@rollup/plugin-node-resolve": 10.0.0
+    "@rollup/plugin-node-resolve": 13.0.5
     "@types/node": 13.7.7
     "@types/rollup-plugin-visualizer": 2.6.0
     "@types/systemjs": ^0.20.6
@@ -2460,7 +2460,7 @@ __metadata:
     "@grafana/tsconfig": ^1.0.0-rc1
     "@mochajs/json-file-reporter": ^1.2.0
     "@rollup/plugin-commonjs": 16.0.0
-    "@rollup/plugin-node-resolve": 10.0.0
+    "@rollup/plugin-node-resolve": 13.0.5
     "@types/node": 13.7.7
     "@types/rollup-plugin-visualizer": 2.6.0
     blink-diff: 1.0.13
@@ -2513,7 +2513,7 @@ __metadata:
     "@grafana/tsconfig": ^1.0.0-rc1
     "@grafana/ui": 8.3.0-pre
     "@rollup/plugin-commonjs": 16.0.0
-    "@rollup/plugin-node-resolve": 10.0.0
+    "@rollup/plugin-node-resolve": 13.0.5
     "@types/history": ^4.7.8
     "@types/jest": 26.0.15
     "@types/rollup-plugin-visualizer": 2.6.0
@@ -2539,7 +2539,7 @@ __metadata:
     "@grafana/tsconfig": ^1.0.0-rc1
     "@rollup/plugin-commonjs": 16.0.0
     "@rollup/plugin-json": 4.1.0
-    "@rollup/plugin-node-resolve": 10.0.0
+    "@rollup/plugin-node-resolve": 13.0.5
     "@types/rollup-plugin-visualizer": 2.6.0
     rollup: 2.33.3
     rollup-plugin-sourcemaps: 0.6.3
@@ -2685,7 +2685,7 @@ __metadata:
     "@react-aria/overlays": 3.7.2
     "@rollup/plugin-commonjs": 16.0.0
     "@rollup/plugin-image": 2.0.5
-    "@rollup/plugin-node-resolve": 10.0.0
+    "@rollup/plugin-node-resolve": 13.0.5
     "@sentry/browser": 5.25.0
     "@storybook/addon-a11y": 6.3.7
     "@storybook/addon-essentials": 6.3.7
@@ -4917,19 +4917,19 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@rollup/plugin-node-resolve@npm:10.0.0":
-  version: 10.0.0
-  resolution: "@rollup/plugin-node-resolve@npm:10.0.0"
+"@rollup/plugin-node-resolve@npm:13.0.5":
+  version: 13.0.5
+  resolution: "@rollup/plugin-node-resolve@npm:13.0.5"
   dependencies:
     "@rollup/pluginutils": ^3.1.0
     "@types/resolve": 1.17.1
     builtin-modules: ^3.1.0
     deepmerge: ^4.2.2
     is-module: ^1.0.0
-    resolve: ^1.17.0
+    resolve: ^1.19.0
   peerDependencies:
-    rollup: ^1.20.0||^2.0.0
-  checksum: 1e449755c12bc973820c0b58de52746d61d41cb1ea8f5dec8df963a48886fc7e2d184c7edaba9ed873817f93f3f87231afcf6363301319a456ab12583b8dfc95
+    rollup: ^2.42.0
+  checksum: d7d5b55d3623f8869237187aa1e2895f4a81ced125be67548b15b6aa590eec5a0569a1add3cf1918e9e82686e6115c67c596b963aff7f8bf229194b058243e50
   languageName: node
   linkType: hard
 
