@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,13 +38,16 @@ type RenderUser struct {
 }
 
 type RenderingService struct {
-	log             log.Logger
-	pluginInfo      *plugins.RendererPlugin
-	renderAction    renderFunc
-	renderCSVAction renderCSVFunc
-	domain          string
-	inProgressCount int32
-	version         string
+	log                        log.Logger
+	pluginInfo                 *plugins.RendererPlugin
+	renderAction               renderFunc
+	renderCSVAction            renderCSVFunc
+	domain                     string
+	inProgressCount            int32
+	version                    string
+	versionMutex               sync.RWMutex
+	remoteVersionFetchInterval time.Duration
+	remoteVersionFetchRetries  uint
 
 	Cfg                *setting.Cfg
 	RemoteCacheService *remotecache.RemoteCache
@@ -81,11 +85,13 @@ func ProvideService(cfg *setting.Cfg, remoteCache *remotecache.RemoteCache, pm p
 	}
 
 	s := &RenderingService{
-		Cfg:                cfg,
-		RemoteCacheService: remoteCache,
-		PluginManager:      pm,
-		log:                log.New("rendering"),
-		domain:             domain,
+		Cfg:                        cfg,
+		RemoteCacheService:         remoteCache,
+		PluginManager:              pm,
+		log:                        log.New("rendering"),
+		domain:                     domain,
+		remoteVersionFetchInterval: time.Second * 15,
+		remoteVersionFetchRetries:  4,
 	}
 	return s, nil
 }
@@ -94,13 +100,18 @@ func (rs *RenderingService) Run(ctx context.Context) error {
 	if rs.remoteAvailable() {
 		rs.log = rs.log.New("renderer", "http")
 
-		version, err := rs.getRemotePluginVersion()
-		if err != nil {
-			rs.log.Info("Couldn't get remote renderer version", "err", err)
-		}
+		rs.getRemotePluginVersionWithRetry(rs.remoteVersionFetchInterval, rs.remoteVersionFetchRetries, func(version string, err error) {
+			if err != nil {
+				rs.log.Info("Couldn't get remote renderer version", "err", err)
+			}
 
-		rs.log.Info("Backend rendering via external http server", "version", version)
-		rs.version = version
+			rs.log.Info("Backend rendering via external http server", "version", version)
+
+			rs.versionMutex.Lock()
+			defer rs.versionMutex.Unlock()
+
+			rs.version = version
+		})
 		rs.renderAction = rs.renderViaHTTP
 		rs.renderCSVAction = rs.renderCSVViaHTTP
 		<-ctx.Done()
@@ -154,6 +165,9 @@ func (rs *RenderingService) IsAvailable() bool {
 }
 
 func (rs *RenderingService) Version() string {
+	rs.versionMutex.RLock()
+	defer rs.versionMutex.RUnlock()
+
 	return rs.version
 }
 
