@@ -50,16 +50,19 @@ function ensurePromQL(monaco: Monaco) {
 
 const THEME_NAME = 'grafana-prometheus-query-field';
 
-// it is probably ok to call this many times :-)
-function setupMonacoTheme(monaco: Monaco, theme: GrafanaTheme2) {
-  monaco.editor.defineTheme(THEME_NAME, {
-    base: theme.isDark ? 'vs-dark' : 'vs',
-    inherit: true,
-    colors: {
-      'editor.background': theme.components.input.background,
-    },
-    rules: [],
-  });
+let MONACO_THEME_SETUP_STARTED = false;
+function ensureMonacoTheme(monaco: Monaco, theme: GrafanaTheme2) {
+  if (MONACO_THEME_SETUP_STARTED === false) {
+    MONACO_THEME_SETUP_STARTED = true;
+    monaco.editor.defineTheme(THEME_NAME, {
+      base: theme.isDark ? 'vs-dark' : 'vs',
+      inherit: true,
+      colors: {
+        'editor.background': theme.components.input.background,
+      },
+      rules: [],
+    });
+  }
 }
 
 const getStyles = (theme: GrafanaTheme2) => {
@@ -104,7 +107,7 @@ const MonacoQueryField = (props: Props) => {
         value={initialValue}
         beforeMount={(monaco) => {
           ensurePromQL(monaco);
-          setupMonacoTheme(monaco, theme);
+          ensureMonacoTheme(monaco, theme);
         }}
         onMount={(editor, monaco) => {
           // we setup on-blur
