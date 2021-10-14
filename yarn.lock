@@ -7933,21 +7933,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/react-dom@npm:*":
+"@types/react-dom@npm:*, @types/react-dom@npm:17.0.9":
   version: 17.0.9
   resolution: "@types/react-dom@npm:17.0.9"
   dependencies:
     "@types/react": "*"
   checksum: b7e898e1a22643a371f58e801a3d1d8cf13a82d77063c24be73e840ef8d877ca1d04adc5db168d0dac3167dc050a26b1d70efc5fe8566a7f46a3c488a8322989
-  languageName: node
-  linkType: hard
-
-"@types/react-dom@npm:16.9.9":
-  version: 16.9.9
-  resolution: "@types/react-dom@npm:16.9.9"
-  dependencies:
-    "@types/react": "*"
-  checksum: b42a788b6a40a79a738346044c21e6c536f136e9b919fce90847aaaba7298e0b7d4d6845a1449d92a5678c5c221f060d66207a7f4968f7f5991e2511aa8e6860
   languageName: node
   linkType: hard
 
@@ -17855,7 +17846,7 @@ fsevents@~2.1.2:
     "@types/rc-time-picker": ^3
     "@types/react": 16.9.9
     "@types/react-beautiful-dnd": 13.1.1
-    "@types/react-dom": 16.9.9
+    "@types/react-dom": 17.0.9
     "@types/react-grid-layout": 1.1.1
     "@types/react-highlight-words": ^0.16.2
     "@types/react-loadable": 5.5.2
