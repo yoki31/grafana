@@ -8,6 +8,7 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
 const getBabelConfig = require('./babel.config');
+const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
 
 module.exports = merge(common, {
   mode: 'production',
@@ -40,9 +41,11 @@ module.exports = merge(common, {
   optimization: {
     nodeEnv: 'production',
     minimizer: [
+      /*
       new TerserPlugin({
         parallel: false,
       }),
+      */
       new CssMinimizerPlugin(),
     ],
   },
@@ -64,6 +67,7 @@ module.exports = merge(common, {
       excludeChunks: ['manifest', 'dark', 'light'],
       chunksSortMode: 'none',
     }),
+    new BundleAnalyzerPlugin(),
     function () {
       this.hooks.done.tap('Done', function (stats) {
         if (stats.compilation.errors && stats.compilation.errors.length) {
