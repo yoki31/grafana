@@ -1,23 +1,26 @@
 // Libraries
-import _ from 'lodash';
+import { cloneDeep, defaultsDeep, isArray, isEqual, keys } from 'lodash';
+import { v4 as uuidv4 } from 'uuid';
 // Utils
 import { getTemplateSrv } from '@grafana/runtime';
 import { getNextRefIdChar } from 'app/core/utils/query';
 // Types
 import {
   DataConfigSource,
+  DataFrameDTO,
   DataLink,
+  DataLinkBuiltInVars,
   DataQuery,
   DataTransformerConfig,
+  EventBusSrv,
   FieldConfigSource,
   PanelPlugin,
+  PanelPluginDataSupport,
   ScopedVars,
-  EventBusSrv,
-  DataFrameDTO,
   urlUtil,
-  DataLinkBuiltInVars,
+  PanelModel as IPanelModel,
+  DatasourceRef,
 } from '@grafana/data';
-import { EDIT_PANEL_ID } from 'app/core/constants';
 import config from 'app/core/config';
 import { PanelQueryRunner } from '../../query/state/PanelQueryRunner';
 import {
@@ -28,13 +31,15 @@ import {
   RenderEvent,
 } from 'app/types/events';
 import { getTimeSrv } from '../services/TimeSrv';
-import { getAllVariableValuesForUrl } from '../../variables/getAllVariableValuesForUrl';
+import { getVariablesUrlParams } from '../../variables/getAllVariableValuesForUrl';
 import {
   filterFieldConfigOverrides,
   getPanelOptionsWithDefaults,
   isStandardFieldProp,
   restoreCustomOverrideRules,
 } from './getPanelOptionsWithDefaults';
+import { QueryGroupOptions } from 'app/types';
+import { PanelModelLibraryPanel } from '../../library-panels/types';
 
 export interface GridPos {
   x: number;
@@ -43,6 +48,8 @@ export interface GridPos {
   h: number;
   static?: boolean;
 }
+
+import { TimeOverrideResult } from '../utils/panel';
 
 const notPersistedProperties: { [str: string]: boolean } = {
   events: true,
@@ -54,7 +61,10 @@ const notPersistedProperties: { [str: string]: boolean } = {
   plugin: true,
   queryRunner: true,
   replaceVariables: true,
-  editSourceId: true,
+  configRev: true,
+  getDisplayTitle: true,
+  dataSupport: true,
+  key: true,
 };
 
 // For angular panels we need to clean up properties when changing type
@@ -93,10 +103,13 @@ const mustKeepProps: { [str: string]: boolean } = {
   queryRunner: true,
   transformations: true,
   fieldConfig: true,
-  editSourceId: true,
   maxDataPoints: true,
   interval: true,
   replaceVariables: true,
+  libraryPanel: true,
+  getDisplayTitle: true,
+  configRev: true,
+  key: true,
 };
 
 const defaults: any = {
@@ -105,16 +118,20 @@ const defaults: any = {
   cachedPluginOptions: {},
   transparent: false,
   options: {},
+  fieldConfig: {
+    defaults: {},
+    overrides: [],
+  },
   datasource: null,
+  title: '',
 };
 
-export class PanelModel implements DataConfigSource {
+export class PanelModel implements DataConfigSource, IPanelModel {
   /* persisted id, used in URL to identify a panel */
-  id: number;
-  editSourceId: number;
-  gridPos: GridPos;
-  type: string;
-  title: string;
+  id!: number;
+  gridPos!: GridPos;
+  type!: string;
+  title!: string;
   alert?: any;
   scopedVars?: ScopedVars;
   repeat?: string;
@@ -126,9 +143,9 @@ export class PanelModel implements DataConfigSource {
   collapsed?: boolean;
 
   panels?: any;
-  targets: DataQuery[];
+  declare targets: DataQuery[];
   transformations?: DataTransformerConfig[];
-  datasource: string | null;
+  datasource: DatasourceRef | null = null;
   thresholds?: any;
   pluginVersion?: string;
 
@@ -136,28 +153,40 @@ export class PanelModel implements DataConfigSource {
   timeFrom?: any;
   timeShift?: any;
   hideTimeOverride?: any;
-  options: {
+  declare options: {
     [key: string]: any;
   };
-  fieldConfig: FieldConfigSource;
+  declare fieldConfig: FieldConfigSource;
 
   maxDataPoints?: number | null;
   interval?: string | null;
   description?: string;
   links?: DataLink[];
-  transparent: boolean;
+  declare transparent: boolean;
+
+  libraryPanel?: { uid: undefined; name: string } | PanelModelLibraryPanel;
 
   // non persisted
-  isViewing: boolean;
-  isEditing: boolean;
-  isInView: boolean;
-
-  hasRefreshed: boolean;
-  events: EventBusSrv;
+  isViewing = false;
+  isEditing = false;
+  isInView = false;
+  configRev = 0; // increments when configs change
+  hasRefreshed?: boolean;
   cacheTimeout?: any;
-  cachedPluginOptions: Record<string, PanelOptionsCache>;
+  cachedPluginOptions: Record<string, PanelOptionsCache> = {};
   legend?: { show: boolean; sort?: string; sortDesc?: boolean };
   plugin?: PanelPlugin;
+  /**
+   * Unique in application state, this is used as redux key for panel and for redux panel state
+   * Change will cause unmount and re-init of panel
+   */
+  key: string;
+
+  /**
+   * The PanelModel event bus only used for internal and legacy angular support.
+   * The EventBus passed to panels is based on the dashboard event model.
+   */
+  events: EventBusSrv;
 
   private queryRunner?: PanelQueryRunner;
 
@@ -165,6 +194,7 @@ export class PanelModel implements DataConfigSource {
     this.events = new EventBusSrv();
     this.restoreModel(model);
     this.replaceVariables = this.replaceVariables.bind(this);
+    this.key = uuidv4();
   }
 
   /** Given a persistened PanelModel restores property values */
@@ -196,14 +226,18 @@ export class PanelModel implements DataConfigSource {
     }
 
     // defaults
-    _.defaultsDeep(this, _.cloneDeep(defaults));
+    defaultsDeep(this, cloneDeep(defaults));
 
     // queries must have refId
     this.ensureQueryIds();
   }
 
+  generateNewKey() {
+    this.key = uuidv4();
+  }
+
   ensureQueryIds() {
-    if (this.targets && _.isArray(this.targets)) {
+    if (this.targets && isArray(this.targets)) {
       for (const query of this.targets) {
         if (!query.refId) {
           query.refId = getNextRefIdChar(this.targets);
@@ -216,18 +250,20 @@ export class PanelModel implements DataConfigSource {
     return this.options;
   }
 
-  getFieldConfig() {
-    return this.fieldConfig;
+  get hasChanged(): boolean {
+    return this.configRev > 0;
   }
 
   updateOptions(options: object) {
     this.options = options;
+    this.configRev++;
     this.events.publish(new PanelOptionsChangedEvent());
     this.render();
   }
 
   updateFieldConfig(config: FieldConfigSource) {
     this.fieldConfig = config;
+    this.configRev++;
     this.events.publish(new PanelOptionsChangedEvent());
 
     this.resendLastResult();
@@ -242,11 +278,11 @@ export class PanelModel implements DataConfigSource {
         continue;
       }
 
-      if (_.isEqual(this[property], defaults[property])) {
+      if (isEqual(this[property], defaults[property])) {
         continue;
       }
 
-      model[property] = _.cloneDeep(this[property]);
+      model[property] = cloneDeep(this[property]);
     }
 
     if (model.datasource === undefined) {
@@ -267,6 +303,23 @@ export class PanelModel implements DataConfigSource {
     this.gridPos.y = newPos.y;
     this.gridPos.w = newPos.w;
     this.gridPos.h = newPos.h;
+  }
+
+  runAllPanelQueries(dashboardId: number, dashboardTimezone: string, timeData: TimeOverrideResult, width: number) {
+    this.getQueryRunner().run({
+      datasource: this.datasource,
+      queries: this.targets,
+      panelId: this.id,
+      dashboardId: dashboardId,
+      timezone: dashboardTimezone,
+      timeRange: timeData.timeRange,
+      timeInfo: timeData.timeInfo,
+      maxDataPoints: this.maxDataPoints || width,
+      minInterval: this.interval,
+      scopedVars: this.scopedVars,
+      cacheTimeout: this.cacheTimeout,
+      transformations: this.transformations,
+    });
   }
 
   refresh() {
@@ -295,10 +348,6 @@ export class PanelModel implements DataConfigSource {
   }
 
   private restorePanelOptions(pluginId: string) {
-    if (!this.cachedPluginOptions) {
-      return;
-    }
-
     const prevOptions = this.cachedPluginOptions[pluginId];
 
     if (!prevOptions) {
@@ -312,11 +361,12 @@ export class PanelModel implements DataConfigSource {
     this.fieldConfig = restoreCustomOverrideRules(this.fieldConfig, prevOptions.fieldConfig);
   }
 
-  applyPluginOptionDefaults(plugin: PanelPlugin) {
+  applyPluginOptionDefaults(plugin: PanelPlugin, isAfterPluginChange: boolean) {
     const options = getPanelOptionsWithDefaults({
       plugin,
       currentOptions: this.options,
       currentFieldConfig: this.fieldConfig,
+      isAfterPluginChange: isAfterPluginChange,
     });
 
     this.fieldConfig = options.fieldConfig;
@@ -325,23 +375,22 @@ export class PanelModel implements DataConfigSource {
 
   pluginLoaded(plugin: PanelPlugin) {
     this.plugin = plugin;
+    const version = getPluginVersion(plugin);
 
     if (plugin.onPanelMigration) {
-      const version = getPluginVersion(plugin);
-
       if (version !== this.pluginVersion) {
         this.options = plugin.onPanelMigration(this);
         this.pluginVersion = version;
       }
     }
 
-    this.applyPluginOptionDefaults(plugin);
+    this.applyPluginOptionDefaults(plugin, false);
     this.resendLastResult();
   }
 
   clearPropertiesBeforePluginChange() {
     // remove panel type specific  options
-    for (const key of _.keys(this)) {
+    for (const key of keys(this)) {
       if (mustKeepProps[key]) {
         continue;
       }
@@ -367,7 +416,6 @@ export class PanelModel implements DataConfigSource {
     const prevFieldConfig = this.fieldConfig;
     const oldPluginId = this.type;
     const wasAngular = this.isAngularPlugin();
-
     this.cachedPluginOptions[oldPluginId] = {
       properties: oldOptions,
       fieldConfig: prevFieldConfig,
@@ -385,30 +433,41 @@ export class PanelModel implements DataConfigSource {
     // switch
     this.type = pluginId;
     this.plugin = newPlugin;
+    this.configRev++;
 
     // For some reason I need to rebind replace variables here, otherwise the viz repeater does not work
     this.replaceVariables = this.replaceVariables.bind(this);
-    this.applyPluginOptionDefaults(newPlugin);
+    this.applyPluginOptionDefaults(newPlugin, true);
 
     if (newPlugin.onPanelMigration) {
       this.pluginVersion = getPluginVersion(newPlugin);
     }
   }
 
-  updateQueries(queries: DataQuery[]) {
+  updateQueries(options: QueryGroupOptions) {
+    this.datasource = options.dataSource.default ? null : options.dataSource.name!;
+    this.timeFrom = options.timeRange?.from;
+    this.timeShift = options.timeRange?.shift;
+    this.hideTimeOverride = options.timeRange?.hide;
+    this.interval = options.minInterval;
+    this.maxDataPoints = options.maxDataPoints;
+    this.targets = options.queries;
+    this.configRev++;
+
     this.events.publish(new PanelQueriesChangedEvent());
-    this.targets = queries;
   }
 
   addQuery(query?: Partial<DataQuery>) {
     query = query || { refId: 'A' };
     query.refId = getNextRefIdChar(this.targets);
     this.targets.push(query as DataQuery);
+    this.configRev++;
   }
 
   changeQuery(query: DataQuery, index: number) {
     // ensure refId is maintained
     query.refId = this.targets[index].refId;
+    this.configRev++;
 
     // update query in array
     this.targets = this.targets.map((item, itemIndex) => {
@@ -422,12 +481,9 @@ export class PanelModel implements DataConfigSource {
   getEditClone() {
     const sourceModel = this.getSaveModel();
 
-    // Temporary id for the clone, restored later in redux action when changes are saved
-    sourceModel.id = EDIT_PANEL_ID;
-    sourceModel.editSourceId = this.id;
-
     const clone = new PanelModel(sourceModel);
     clone.isEditing = true;
+
     const sourceQueryRunner = this.getQueryRunner();
 
     // Copy last query result
@@ -449,8 +505,12 @@ export class PanelModel implements DataConfigSource {
       fieldConfig: this.fieldConfig,
       replaceVariables: this.replaceVariables,
       fieldConfigRegistry: this.plugin.fieldConfigRegistry,
-      theme: config.theme,
+      theme: config.theme2,
     };
+  }
+
+  getDataSupport(): PanelPluginDataSupport {
+    return this.plugin?.dataSupport ?? { annotations: false, alertStates: false };
   }
 
   getQueryRunner(): PanelQueryRunner {
@@ -479,7 +539,24 @@ export class PanelModel implements DataConfigSource {
   setTransformations(transformations: DataTransformerConfig[]) {
     this.transformations = transformations;
     this.resendLastResult();
+    this.configRev++;
     this.events.publish(new PanelTransformationsChangedEvent());
+  }
+
+  setProperty(key: keyof this, value: any) {
+    this[key] = value;
+    this.configRev++;
+
+    // Custom handling of repeat dependent options, handled here as PanelEditor can
+    // update one key at a time right now
+    if (key === 'repeat') {
+      if (this.repeat && !this.repeatDirection) {
+        this.repeatDirection = 'h';
+      } else if (!this.repeat) {
+        delete this.repeatDirection;
+        delete this.maxPerRow;
+      }
+    }
   }
 
   replaceVariables(value: string, extraVars: ScopedVars | undefined, format?: string | Function) {
@@ -488,7 +565,8 @@ export class PanelModel implements DataConfigSource {
     if (extraVars) {
       vars = vars ? { ...vars, ...extraVars } : extraVars;
     }
-    const allVariablesParams = getAllVariableValuesForUrl(vars);
+
+    const allVariablesParams = getVariablesUrlParams(vars);
     const variablesQuery = urlUtil.toUrlParams(allVariablesParams);
     const timeRangeUrl = urlUtil.toUrlParams(getTimeSrv().timeRangeForUrl());
 
@@ -516,11 +594,11 @@ export class PanelModel implements DataConfigSource {
   }
 
   /*
-   * Panel have a different id while in edit mode (to more easily be able to discard changes)
-   * Use this to always get the underlying source id
+   * This is the title used when displaying the title in the UI so it will include any interpolated variables.
+   * If you need the raw title without interpolation use title property instead.
    * */
-  getSavedId(): number {
-    return this.editSourceId ?? this.id;
+  getDisplayTitle(): string {
+    return this.replaceVariables(this.title, {}, 'text');
   }
 }
 

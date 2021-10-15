@@ -23,7 +23,7 @@ import (
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/models"
 	"github.com/grafana/grafana/pkg/setting"
-
+	"github.com/grafana/grafana/pkg/web"
 	gocache "github.com/patrickmn/go-cache"
 )
 
@@ -69,6 +69,7 @@ func (a *Avatar) Update() (err error) {
 }
 
 type CacheServer struct {
+	cfg      *setting.Cfg
 	notFound *Avatar
 	cache    *gocache.Cache
 }
@@ -76,7 +77,7 @@ type CacheServer struct {
 var validMD5 = regexp.MustCompile("^[a-fA-F0-9]{32}$")
 
 func (a *CacheServer) Handler(ctx *models.ReqContext) {
-	hash := ctx.Params("hash")
+	hash := web.Params(ctx.Req)[":hash"]
 
 	if len(hash) != 32 || !validMD5.MatchString(hash) {
 		ctx.JsonApiErr(404, "Avatar not found", nil)
@@ -109,7 +110,7 @@ func (a *CacheServer) Handler(ctx *models.ReqContext) {
 
 	ctx.Resp.Header().Set("Content-Type", "image/jpeg")
 
-	if !setting.EnableGzip {
+	if !a.cfg.EnableGzip {
 		ctx.Resp.Header().Set("Content-Length", strconv.Itoa(len(avatar.data.Bytes())))
 	}
 
@@ -117,25 +118,26 @@ func (a *CacheServer) Handler(ctx *models.ReqContext) {
 
 	if err := avatar.Encode(ctx.Resp); err != nil {
 		log.Warnf("avatar encode error: %v", err)
-		ctx.WriteHeader(500)
+		ctx.Resp.WriteHeader(500)
 	}
 }
 
-func NewCacheServer() *CacheServer {
+func NewCacheServer(cfg *setting.Cfg) *CacheServer {
 	return &CacheServer{
-		notFound: newNotFound(),
+		cfg:      cfg,
+		notFound: newNotFound(cfg),
 		cache:    gocache.New(time.Hour, time.Hour*2),
 	}
 }
 
-func newNotFound() *Avatar {
+func newNotFound(cfg *setting.Cfg) *Avatar {
 	avatar := &Avatar{notFound: true}
 
 	// load user_profile png into buffer
 	// It's safe to ignore gosec warning G304 since the variable part of the file path comes from a configuration
 	// variable.
 	// nolint:gosec
-	path := filepath.Join(setting.StaticRootPath, "img", "user_profile.png")
+	path := filepath.Join(cfg.StaticRootPath, "img", "user_profile.png")
 	// It's safe to ignore gosec warning G304 since the variable part of the file path comes from a configuration
 	// variable.
 	// nolint:gosec

@@ -44,13 +44,14 @@ export const jestConfig = (baseDir: string = process.cwd()) => {
   const { moduleNameMapper, ...otherOverrides } = jestConfigOverrides;
   const moduleNameMapperConfig = {
     '\\.(css|sass|scss)$': `${__dirname}/styles.mock.js`,
+    'react-inlinesvg': `${__dirname}/react-inlinesvg.tsx`,
     ...moduleNameMapper,
   };
 
   const setupFile = getSetupFile(setupFilePath);
   const shimsFile = getSetupFile(shimsFilePath);
 
-  const setupFiles = [setupFile, shimsFile, 'jest-canvas-mock'].filter((f) => f);
+  const setupFiles = [setupFile, shimsFile, `${__dirname}/matchMedia.js`, 'jest-canvas-mock'].filter((f) => f);
   const defaultJestConfig = {
     preset: 'ts-jest',
     verbose: false,
@@ -60,7 +61,7 @@ export const jestConfig = (baseDir: string = process.cwd()) => {
     globals: {
       'ts-jest': {
         isolatedModules: true,
-        tsConfig: path.resolve(baseDir, 'tsconfig.json'),
+        tsconfig: path.resolve(baseDir, 'tsconfig.json'),
       },
     },
     coverageReporters: ['json-summary', 'text', 'lcov'],

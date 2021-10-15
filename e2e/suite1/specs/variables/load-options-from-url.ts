@@ -1,16 +1,15 @@
 import { e2e } from '@grafana/e2e';
 
-const PAGE_UNDER_TEST = '-Y-tnEDWk';
+const PAGE_UNDER_TEST = '-Y-tnEDWk/templating-nested-template-variables';
 
 describe('Variables - Load options from Url', () => {
   it('default options should be correct', () => {
     e2e.flows.login('admin', 'admin');
     e2e.flows.openDashboard({ uid: PAGE_UNDER_TEST });
-    e2e().server();
     e2e()
-      .route({
+      .intercept({
         method: 'POST',
-        url: '/api/tsdb/query',
+        url: '/api/ds/query',
       })
       .as('query');
 
@@ -58,12 +57,11 @@ describe('Variables - Load options from Url', () => {
 
   it('options set in url should load correct options', () => {
     e2e.flows.login('admin', 'admin');
-    e2e.flows.openDashboard({ uid: `${PAGE_UNDER_TEST}?var-datacenter=B&var-server=BB&var-pod=BBB` });
-    e2e().server();
+    e2e.flows.openDashboard({ uid: `${PAGE_UNDER_TEST}?orgId=1&var-datacenter=B&var-server=BB&var-pod=BBB` });
     e2e()
-      .route({
+      .intercept({
         method: 'POST',
-        url: '/api/tsdb/query',
+        url: '/api/ds/query',
       })
       .as('query');
 
@@ -122,12 +120,11 @@ describe('Variables - Load options from Url', () => {
       return true;
     });
 
-    e2e.flows.openDashboard({ uid: `${PAGE_UNDER_TEST}?var-datacenter=X` });
-    e2e().server();
+    e2e.flows.openDashboard({ uid: `${PAGE_UNDER_TEST}?orgId=1&var-datacenter=X` });
     e2e()
-      .route({
+      .intercept({
         method: 'POST',
-        url: '/api/tsdb/query',
+        url: '/api/ds/query',
       })
       .as('query');
 
@@ -150,14 +147,7 @@ describe('Variables - Load options from Url', () => {
     e2e.pages.Dashboard.SubMenu.submenuItemValueDropDownDropDown()
       .should('be.visible')
       .within(() => {
-        e2e().get('.variable-option').should('have.length', 0);
-      });
-
-    e2e.pages.Dashboard.SubMenu.submenuItemValueDropDownValueLinkTexts('All').should('be.visible').click();
-    e2e.pages.Dashboard.SubMenu.submenuItemValueDropDownDropDown()
-      .should('be.visible')
-      .within(() => {
-        e2e().get('.variable-option').should('have.length', 0);
+        e2e().get('.variable-option').should('have.length', 10);
       });
   });
 });

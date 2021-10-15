@@ -16,7 +16,15 @@
   "gnetId": null,
   "graphTooltip": 0,
   "id": 391,
-  "links": [],
+  "links": [
+    {
+      "icon": "external link",
+      "tags": ["gdev", "graph-ng"],
+      "type": "dashboards",
+      "asDropdown": true,
+      "title": "Graph Tests"
+    }
+  ],
   "panels": [
     {
       "datasource": null,
@@ -91,13 +99,12 @@
       "links": [],
       "maxDataPoints": 9,
       "options": {
-        "graph": {},
         "legend": {
           "calcs": [],
           "displayMode": "hidden",
           "placement": "bottom"
         },
-        "tooltipOptions": {
+        "tooltip": {
           "mode": "single"
         }
       },
@@ -186,13 +193,12 @@
       "links": [],
       "maxDataPoints": 9,
       "options": {
-        "graph": {},
         "legend": {
           "calcs": [],
           "displayMode": "hidden",
           "placement": "bottom"
         },
-        "tooltipOptions": {
+        "tooltip": {
           "mode": "single"
         }
       },
@@ -281,13 +287,12 @@
       "links": [],
       "maxDataPoints": 9,
       "options": {
-        "graph": {},
         "legend": {
           "calcs": [],
           "displayMode": "hidden",
           "placement": "bottom"
         },
-        "tooltipOptions": {
+        "tooltip": {
           "mode": "single"
         }
       },
@@ -376,13 +381,12 @@
       "links": [],
       "maxDataPoints": 9,
       "options": {
-        "graph": {},
         "legend": {
           "calcs": [],
           "displayMode": "hidden",
           "placement": "bottom"
         },
-        "tooltipOptions": {
+        "tooltip": {
           "mode": "single"
         }
       },
@@ -471,13 +475,12 @@
       "links": [],
       "maxDataPoints": 9,
       "options": {
-        "graph": {},
         "legend": {
           "calcs": [],
           "displayMode": "hidden",
           "placement": "bottom"
         },
-        "tooltipOptions": {
+        "tooltip": {
           "mode": "single"
         }
       },
@@ -566,13 +569,12 @@
       "links": [],
       "maxDataPoints": 9,
       "options": {
-        "graph": {},
         "legend": {
           "calcs": [],
           "displayMode": "hidden",
           "placement": "bottom"
         },
-        "tooltipOptions": {
+        "tooltip": {
           "mode": "single"
         }
       },
@@ -661,13 +663,12 @@
       "links": [],
       "maxDataPoints": 100,
       "options": {
-        "graph": {},
         "legend": {
           "calcs": [],
           "displayMode": "hidden",
           "placement": "bottom"
         },
-        "tooltipOptions": {
+        "tooltip": {
           "mode": "single"
         }
       },
@@ -756,13 +757,12 @@
       "links": [],
       "maxDataPoints": 100,
       "options": {
-        "graph": {},
         "legend": {
           "calcs": [],
           "displayMode": "hidden",
           "placement": "bottom"
         },
-        "tooltipOptions": {
+        "tooltip": {
           "mode": "single"
         }
       },
@@ -851,13 +851,12 @@
       "links": [],
       "maxDataPoints": 100,
       "options": {
-        "graph": {},
         "legend": {
           "calcs": [],
           "displayMode": "hidden",
           "placement": "bottom"
         },
-        "tooltipOptions": {
+        "tooltip": {
           "mode": "single"
         }
       },

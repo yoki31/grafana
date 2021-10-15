@@ -1,9 +1,10 @@
 import React from 'react';
-import { useTheme, stylesFactory } from '../../../themes';
-import { GrafanaTheme } from '@grafana/data';
-import { css, cx } from 'emotion';
+import { useTheme2, stylesFactory } from '../../../themes';
+import { GrafanaTheme2 } from '@grafana/data';
+import { css } from '@emotion/css';
 import { getPropertiesForButtonSize } from '../commonStyles';
-import { focusCss } from '../../../themes/mixins';
+import { getFocusStyles, getMouseFocusStyles } from '../../../themes/mixins';
+import { StringSelector } from '@grafana/e2e-selectors';
 
 export type RadioButtonSize = 'sm' | 'md';
 
@@ -16,77 +17,8 @@ export interface RadioButtonProps {
   id: string;
   onChange: () => void;
   fullWidth?: boolean;
+  'aria-label'?: StringSelector;
 }
-
-const getRadioButtonStyles = stylesFactory((theme: GrafanaTheme, size: RadioButtonSize, fullWidth?: boolean) => {
-  const { fontSize, height, padding } = getPropertiesForButtonSize(size, theme);
-
-  const c = theme.palette;
-  const textColor = theme.colors.textSemiWeak;
-  const textColorHover = theme.colors.text;
-  const textColorActive = theme.colors.textBlue;
-  const borderColor = theme.colors.border2;
-  const borderColorHover = theme.colors.border3;
-  const borderColorActive = theme.colors.border2;
-  const bg = theme.colors.bodyBg;
-  const bgDisabled = theme.isLight ? c.gray95 : c.gray15;
-  const bgActive = theme.colors.bg2;
-
-  const border = `1px solid ${borderColor}`;
-  const borderActive = `1px solid ${borderColorActive}`;
-  const borderHover = `1px solid ${borderColorHover}`;
-
-  return {
-    radio: css`
-      position: absolute;
-      opacity: 0;
-      z-index: -1000;
-
-      &:checked + label {
-        border: ${borderActive};
-        color: ${textColorActive};
-        background: ${bgActive};
-        z-index: 3;
-      }
-
-      &:focus + label {
-        ${focusCss(theme)};
-        z-index: 3;
-      }
-
-      &:disabled + label {
-        cursor: default;
-        background: ${bgDisabled};
-        color: ${textColor};
-      }
-    `,
-    radioLabel: css`
-      display: inline-block;
-      position: relative;
-      font-size: ${fontSize};
-      height: ${height}px;
-      // Deduct border from line-height for perfect vertical centering on windows and linux
-      line-height: ${height - 2}px;
-      color: ${textColor};
-      padding: 0 ${padding}px;
-      margin-left: -1px;
-      border-radius: ${theme.border.radius.sm};
-      border: ${border};
-      background: ${bg};
-      cursor: pointer;
-      z-index: 1;
-      flex: ${fullWidth ? `1 0 0` : 'none'};
-      text-align: center;
-      user-select: none;
-
-      &:hover {
-        color: ${textColorHover};
-        border: ${borderHover};
-        z-index: 2;
-      }
-    `,
-  };
-});
 
 export const RadioButton: React.FC<RadioButtonProps> = ({
   children,
@@ -98,22 +30,24 @@ export const RadioButton: React.FC<RadioButtonProps> = ({
   name = undefined,
   description,
   fullWidth,
+  'aria-label': ariaLabel,
 }) => {
-  const theme = useTheme();
+  const theme = useTheme2();
   const styles = getRadioButtonStyles(theme, size, fullWidth);
 
   return (
     <>
       <input
         type="radio"
-        className={cx(styles.radio)}
+        className={styles.radio}
         onChange={onChange}
         disabled={disabled}
         id={id}
         checked={active}
         name={name}
+        aria-label={ariaLabel}
       />
-      <label className={cx(styles.radioLabel)} htmlFor={id} title={description}>
+      <label className={styles.radioLabel} htmlFor={id} title={description}>
         {children}
       </label>
     </>
@@ -121,3 +55,63 @@ export const RadioButton: React.FC<RadioButtonProps> = ({
 };
 
 RadioButton.displayName = 'RadioButton';
+
+const getRadioButtonStyles = stylesFactory((theme: GrafanaTheme2, size: RadioButtonSize, fullWidth?: boolean) => {
+  const { fontSize, height, padding } = getPropertiesForButtonSize(size, theme);
+
+  const textColor = theme.colors.text.secondary;
+  const textColorHover = theme.colors.text.primary;
+  // remove the group inner padding (set on RadioButtonGroup)
+  const labelHeight = height * theme.spacing.gridSize - 4 - 2;
+
+  return {
+    radio: css`
+      position: absolute;
+      opacity: 0;
+      z-index: -1000;
+
+      &:checked + label {
+        color: ${theme.colors.text.primary};
+        font-weight: ${theme.typography.fontWeightMedium};
+        background: ${theme.colors.action.selected};
+        z-index: 3;
+      }
+
+      &:focus + label,
+      &:focus-visible + label {
+        ${getFocusStyles(theme)};
+      }
+
+      &:focus:not(:focus-visible) + label {
+        ${getMouseFocusStyles(theme)}
+      }
+
+      &:disabled + label {
+        color: ${theme.colors.text.disabled};
+        cursor: not-allowed;
+      }
+    `,
+    radioLabel: css`
+      display: inline-block;
+      position: relative;
+      font-size: ${fontSize};
+      height: ${labelHeight}px;
+      // Deduct border from line-height for perfect vertical centering on windows and linux
+      line-height: ${labelHeight}px;
+      color: ${textColor};
+      padding: ${theme.spacing(0, padding)};
+      border-radius: ${theme.shape.borderRadius()};
+      background: ${theme.colors.background.primary};
+      cursor: pointer;
+      z-index: 1;
+      flex: ${fullWidth ? `1 0 0` : 'none'};
+      text-align: center;
+      user-select: none;
+      white-space: nowrap;
+
+      &:hover {
+        color: ${textColorHover};
+      }
+    `,
+  };
+});

@@ -9,8 +9,9 @@ import (
 
 func TestGetUrl(t *testing.T) {
 	path := "render/d-solo/5SdHCadmz/panel-tests-graph?orgId=1&from=1587390211965&to=1587393811965&panelId=5&width=1000&height=500&tz=Europe%2FStockholm"
+	cfg := setting.NewCfg()
 	rs := &RenderingService{
-		Cfg: setting.NewCfg(),
+		Cfg: cfg,
 	}
 
 	t.Run("When renderer and callback url configured should return callback url plus path", func(t *testing.T) {
@@ -23,7 +24,7 @@ func TestGetUrl(t *testing.T) {
 	t.Run("When renderer url not configured", func(t *testing.T) {
 		rs.Cfg.RendererUrl = ""
 		rs.domain = "localhost"
-		setting.HttpPort = "3000"
+		rs.Cfg.HTTPPort = "3000"
 
 		t.Run("And protocol HTTP configured should return expected path", func(t *testing.T) {
 			rs.Cfg.ServeFromSubPath = false

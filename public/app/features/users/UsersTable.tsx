@@ -1,8 +1,9 @@
 import React, { FC, useState } from 'react';
-import { OrgUser } from 'app/types';
+import { AccessControlAction, OrgUser } from 'app/types';
 import { OrgRolePicker } from '../admin/OrgRolePicker';
 import { Button, ConfirmModal } from '@grafana/ui';
 import { OrgRole } from '@grafana/data';
+import { contextSrv } from 'app/core/core';
 
 export interface Props {
   users: OrgUser[];
@@ -12,6 +13,8 @@ export interface Props {
 
 const UsersTable: FC<Props> = (props) => {
   const { users, onRoleChange, onRemoveUser } = props;
+  const canUpdateRole = contextSrv.hasPermission(AccessControlAction.OrgUsersRoleUpdate);
+  const canRemoveFromOrg = contextSrv.hasPermission(AccessControlAction.OrgUsersRemove);
 
   const [showRemoveModal, setShowRemoveModal] = useState<string | boolean>(false);
   return (
@@ -32,7 +35,7 @@ const UsersTable: FC<Props> = (props) => {
           return (
             <tr key={`${user.userId}-${index}`}>
               <td className="width-2 text-center">
-                <img className="filter-table__avatar" src={user.avatarUrl} />
+                <img className="filter-table__avatar" src={user.avatarUrl} alt="User avatar" />
               </td>
               <td className="max-width-6">
                 <span className="ellipsis" title={user.login}>
@@ -53,22 +56,35 @@ const UsersTable: FC<Props> = (props) => {
               <td className="width-1">{user.lastSeenAtAge}</td>
 
               <td className="width-8">
-                <OrgRolePicker value={user.role} onChange={(newRole) => onRoleChange(newRole, user)} />
-              </td>
-
-              <td>
-                <Button size="sm" variant="destructive" onClick={() => setShowRemoveModal(user.login)} icon="times" />
-                <ConfirmModal
-                  body={`Are you sure you want to delete user ${user.login}?`}
-                  confirmText="Delete"
-                  title="Delete"
-                  onDismiss={() => setShowRemoveModal(false)}
-                  isOpen={user.login === showRemoveModal}
-                  onConfirm={() => {
-                    onRemoveUser(user);
-                  }}
+                <OrgRolePicker
+                  aria-label="Role"
+                  value={user.role}
+                  disabled={!canUpdateRole}
+                  onChange={(newRole) => onRoleChange(newRole, user)}
                 />
               </td>
+
+              {canRemoveFromOrg && (
+                <td>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => setShowRemoveModal(user.login)}
+                    icon="times"
+                    aria-label="Delete user"
+                  />
+                  <ConfirmModal
+                    body={`Are you sure you want to delete user ${user.login}?`}
+                    confirmText="Delete"
+                    title="Delete"
+                    onDismiss={() => setShowRemoveModal(false)}
+                    isOpen={user.login === showRemoveModal}
+                    onConfirm={() => {
+                      onRemoveUser(user);
+                    }}
+                  />
+                </td>
+              )}
             </tr>
           );
         })}

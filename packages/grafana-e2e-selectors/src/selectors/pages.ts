@@ -1,5 +1,10 @@
 import { Components } from './components';
 
+/**
+ * Selectors grouped/defined in Pages
+ *
+ * @alpha
+ */
 export const Pages = {
   Login: {
     url: '/login',
@@ -14,6 +19,7 @@ export const Pages = {
   DataSource: {
     name: 'Data source settings page name input field',
     delete: 'Data source settings page Delete button',
+    readOnly: 'Data source settings page read only message',
     saveAndTest: 'Data source settings page Save and Test button',
     alert: 'Data source settings page Alert',
   },
@@ -31,21 +37,23 @@ export const Pages = {
   AddDashboard: {
     url: '/dashboard/new',
     addNewPanel: 'Add new panel',
+    addNewRow: 'Add new row',
+    addNewPanelLibrary: 'Add new panel from panel library',
   },
   Dashboard: {
     url: (uid: string) => `/d/${uid}`,
-    Toolbar: {
-      toolbarItems: (button: string) => `Dashboard navigation bar button ${button}`,
-      navBar: () => '.navbar',
+    DashNav: {
+      nav: 'Dashboard navigation',
     },
     SubMenu: {
-      submenuItem: 'Dashboard template variables submenu item',
-      submenuItemLabels: (item: string) => `Dashboard template variables submenu Label ${item}`,
+      submenu: 'Dashboard submenu',
+      submenuItem: 'data-testid template variable',
+      submenuItemLabels: (item: string) => `data-testid Dashboard template variables submenu Label ${item}`,
       submenuItemValueDropDownValueLinkTexts: (item: string) =>
-        `Dashboard template variables Variable Value DropDown value link text ${item}`,
-      submenuItemValueDropDownDropDown: 'Dashboard template variables Variable Value DropDown DropDown',
+        `data-testid Dashboard template variables Variable Value DropDown value link text ${item}`,
+      submenuItemValueDropDownDropDown: 'Variable options',
       submenuItemValueDropDownOptionTexts: (item: string) =>
-        `Dashboard template variables Variable Value DropDown option text ${item}`,
+        `data-testid Dashboard template variables Variable Value DropDown option text ${item}`,
     },
     Settings: {
       General: {
@@ -58,12 +66,15 @@ export const Pages = {
       },
       Annotations: {
         List: {
-          addAnnotationCTA: 'Call to action button Add Annotation Query',
+          addAnnotationCTA: Components.CallToActionCard.button('Add annotation query'),
+        },
+        Settings: {
+          name: 'Annotations settings name input',
         },
       },
       Variables: {
         List: {
-          addVariableCTA: 'Call to action button Add variable',
+          addVariableCTA: Components.CallToActionCard.button('Add variable'),
           newButton: 'Variable editor New variable button',
           table: 'Variable editor Table',
           tableRowNameFields: (variableName: string) => `Variable editor Table Name field ${variableName}`,
@@ -77,6 +88,9 @@ export const Pages = {
           General: {
             headerLink: 'Variable editor Header link',
             modeLabelNew: 'Variable editor Header mode New',
+            /**
+             * @deprecated
+             */
             modeLabelEdit: 'Variable editor Header mode Edit',
             generalNameInput: 'Variable editor Form Name field',
             generalTypeSelect: 'Variable editor Form Type select',
@@ -127,9 +141,10 @@ export const Pages = {
   Explore: {
     url: '/explore',
     General: {
-      container: 'Explore',
+      container: 'data-testid Explore',
       graph: 'Explore Graph',
       table: 'Explore Table',
+      scrollBar: () => '.scrollbar-view',
     },
     Toolbar: {
       navBar: () => '.explore-toolbar',
@@ -147,5 +162,16 @@ export const Pages = {
   PluginPage: {
     page: 'Plugin page',
     signatureInfo: 'Plugin signature info',
+    disabledInfo: 'Plugin disabled info',
+  },
+  PlaylistForm: {
+    name: 'Playlist name',
+    interval: 'Playlist interval',
+    itemRow: 'Playlist item row',
+    itemIdType: 'Playlist item dashboard by ID type',
+    itemTagType: 'Playlist item dashboard by Tag type',
+    itemMoveUp: 'Move playlist item order up',
+    itemMoveDown: 'Move playlist item order down',
+    itemDelete: 'Delete playlist item',
   },
 };

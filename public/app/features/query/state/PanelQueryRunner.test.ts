@@ -1,25 +1,23 @@
-const applyFieldOverridesMock = jest.fn();
+const applyFieldOverridesMock = jest.fn(); // needs to be first in this file
+
+import { Subject } from 'rxjs';
+// Importing this way to be able to spy on grafana/data
+import * as grafanaData from '@grafana/data';
+import { DashboardModel } from '../../dashboard/state/index';
+import { setDataSourceSrv, setEchoSrv } from '@grafana/runtime';
+import { Echo } from '../../../core/services/echo/Echo';
+import { emptyResult } from './DashboardQueryRunner/utils';
+import {
+  createDashboardQueryRunner,
+  setDashboardQueryRunnerFactory,
+} from './DashboardQueryRunner/DashboardQueryRunner';
+import { PanelQueryRunner } from './PanelQueryRunner';
 
 jest.mock('@grafana/data', () => ({
   __esModule: true,
   ...(jest.requireActual('@grafana/data') as any),
   applyFieldOverrides: applyFieldOverridesMock,
 }));
-
-import { PanelQueryRunner } from './PanelQueryRunner';
-// Importing this way to be able to spy on grafana/data
-import * as grafanaData from '@grafana/data';
-import {
-  DataConfigSource,
-  DataQueryRequest,
-  DataTransformerConfig,
-  GrafanaTheme,
-  PanelData,
-  ScopedVars,
-} from '@grafana/data';
-import { DashboardModel } from '../../dashboard/state/index';
-import { setDataSourceSrv, setEchoSrv } from '@grafana/runtime';
-import { Echo } from '../../../core/services/echo/Echo';
 
 jest.mock('app/core/services/backend_srv');
 jest.mock('app/core/config', () => ({
@@ -48,23 +46,28 @@ interface ScenarioContext {
   maxDataPoints?: number | null;
   dsInterval?: string;
   minInterval?: string;
-  scopedVars: ScopedVars;
+  scopedVars: grafanaData.ScopedVars;
 
   // Filled in by the Scenario runner
-  events?: PanelData[];
-  res?: PanelData;
-  queryCalledWith?: DataQueryRequest;
+  events?: grafanaData.PanelData[];
+  res?: grafanaData.PanelData;
+  queryCalledWith?: grafanaData.DataQueryRequest;
   runner: PanelQueryRunner;
 }
 
 type ScenarioFn = (ctx: ScenarioContext) => void;
 
-function describeQueryRunnerScenario(description: string, scenarioFn: ScenarioFn, panelConfig?: DataConfigSource) {
+function describeQueryRunnerScenario(
+  description: string,
+  scenarioFn: ScenarioFn,
+  panelConfig?: grafanaData.DataConfigSource
+) {
   describe(description, () => {
     let setupFn = () => {};
-    const defaultPanelConfig: DataConfigSource = {
+    const defaultPanelConfig: grafanaData.DataConfigSource = {
       getFieldOverrideOptions: () => undefined,
       getTransformations: () => undefined,
+      getDataSupport: () => ({ annotations: false, alertStates: false }),
     };
     const ctx: ScenarioContext = {
       maxDataPoints: 200,
@@ -90,6 +93,14 @@ function describeQueryRunnerScenario(description: string, scenarioFn: ScenarioFn
     };
 
     setDataSourceSrv({} as any);
+    setDashboardQueryRunnerFactory(() => ({
+      getResult: emptyResult,
+      run: () => undefined,
+      cancel: () => undefined,
+      cancellations: () => new Subject<any>(),
+      destroy: () => undefined,
+    }));
+    createDashboardQueryRunner({} as any);
 
     beforeEach(async () => {
       setEchoSrv(new Echo());
@@ -98,7 +109,7 @@ function describeQueryRunnerScenario(description: string, scenarioFn: ScenarioFn
       const datasource: any = {
         name: 'TestDB',
         interval: ctx.dsInterval,
-        query: (options: DataQueryRequest) => {
+        query: (options: grafanaData.DataQueryRequest) => {
           ctx.queryCalledWith = options;
           return Promise.resolve(response);
         },
@@ -121,7 +132,7 @@ function describeQueryRunnerScenario(description: string, scenarioFn: ScenarioFn
 
       ctx.runner = new PanelQueryRunner(panelConfig || defaultPanelConfig);
       ctx.runner.getData({ withTransforms: true, withFieldConfig: true }).subscribe({
-        next: (data: PanelData) => {
+        next: (data: grafanaData.PanelData) => {
           ctx.res = data;
           ctx.events?.push(data);
         },
@@ -221,7 +232,7 @@ describe('PanelQueryRunner', () => {
     (ctx) => {
       it('should apply when field override options are set', async () => {
         ctx.runner.getData({ withTransforms: true, withFieldConfig: true }).subscribe({
-          next: (data: PanelData) => {
+          next: (data: grafanaData.PanelData) => {
             return data;
           },
         });
@@ -238,9 +249,10 @@ describe('PanelQueryRunner', () => {
           overrides: [],
         },
         replaceVariables: (v) => v,
-        theme: {} as GrafanaTheme,
+        theme: grafanaData.createTheme(),
       }),
       getTransformations: () => undefined,
+      getDataSupport: () => ({ annotations: false, alertStates: false }),
     }
   );
 
@@ -252,7 +264,7 @@ describe('PanelQueryRunner', () => {
         spy.mockClear();
 
         ctx.runner.getData({ withTransforms: true, withFieldConfig: true }).subscribe({
-          next: (data: PanelData) => {
+          next: (data: grafanaData.PanelData) => {
             return data;
           },
         });
@@ -263,7 +275,8 @@ describe('PanelQueryRunner', () => {
     {
       getFieldOverrideOptions: () => undefined,
       // @ts-ignore
-      getTransformations: () => [({} as unknown) as DataTransformerConfig],
+      getTransformations: () => [({} as unknown) as grafanaData.DataTransformerConfig],
+      getDataSupport: () => ({ annotations: false, alertStates: false }),
     }
   );
 
@@ -274,7 +287,7 @@ describe('PanelQueryRunner', () => {
         const spy = jest.spyOn(grafanaData, 'transformDataFrame');
         spy.mockClear();
         ctx.runner.getData({ withTransforms: false, withFieldConfig: true }).subscribe({
-          next: (data: PanelData) => {
+          next: (data: grafanaData.PanelData) => {
             return data;
           },
         });
@@ -284,7 +297,7 @@ describe('PanelQueryRunner', () => {
 
       it('should not apply field config when applyFieldConfig option is false', async () => {
         ctx.runner.getData({ withFieldConfig: false, withTransforms: true }).subscribe({
-          next: (data: PanelData) => {
+          next: (data: grafanaData.PanelData) => {
             return data;
           },
         });
@@ -302,10 +315,11 @@ describe('PanelQueryRunner', () => {
           overrides: [],
         },
         replaceVariables: (v) => v,
-        theme: {} as GrafanaTheme,
+        theme: grafanaData.createTheme(),
       }),
       // @ts-ignore
-      getTransformations: () => [({} as unknown) as DataTransformerConfig],
+      getTransformations: () => [({} as unknown) as grafanaData.DataTransformerConfig],
+      getDataSupport: () => ({ annotations: false, alertStates: false }),
     }
   );
 
@@ -316,7 +330,7 @@ describe('PanelQueryRunner', () => {
         const spy = jest.spyOn(grafanaData, 'transformDataFrame');
         spy.mockClear();
         ctx.runner.getData({ withTransforms: false, withFieldConfig: true }).subscribe({
-          next: (data: PanelData) => {
+          next: (data: grafanaData.PanelData) => {
             return data;
           },
         });
@@ -326,7 +340,7 @@ describe('PanelQueryRunner', () => {
 
       it('should not apply field config when applyFieldConfig option is false', async () => {
         ctx.runner.getData({ withFieldConfig: false, withTransforms: true }).subscribe({
-          next: (data: PanelData) => {
+          next: (data: grafanaData.PanelData) => {
             return data;
           },
         });
@@ -344,7 +358,7 @@ describe('PanelQueryRunner', () => {
           overrides: [],
         },
         replaceVariables: (v) => v,
-        theme: {} as GrafanaTheme,
+        theme: grafanaData.createTheme(),
       }),
       // @ts-ignore
       getTransformations: () => [{}],

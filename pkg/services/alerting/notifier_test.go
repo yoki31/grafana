@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grafana/grafana/pkg/services/validations"
+
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/services/rendering"
 	"github.com/grafana/grafana/pkg/setting"
@@ -19,17 +21,17 @@ import (
 
 func TestNotificationService(t *testing.T) {
 	testRule := &Rule{Name: "Test", Message: "Something is bad"}
-	evalCtx := NewEvalContext(context.Background(), testRule)
+	evalCtx := NewEvalContext(context.Background(), testRule, &validations.OSSPluginRequestValidator{})
 
 	testRuleTemplated := &Rule{Name: "Test latency ${quantile}", Message: "Something is bad on instance ${instance}"}
-	evalCtxWithMatch := NewEvalContext(context.Background(), testRuleTemplated)
+	evalCtxWithMatch := NewEvalContext(context.Background(), testRuleTemplated, &validations.OSSPluginRequestValidator{})
 	evalCtxWithMatch.EvalMatches = []*EvalMatch{{
 		Tags: map[string]string{
 			"instance": "localhost:3000",
 			"quantile": "0.99",
 		},
 	}}
-	evalCtxWithoutMatch := NewEvalContext(context.Background(), testRuleTemplated)
+	evalCtxWithoutMatch := NewEvalContext(context.Background(), testRuleTemplated, &validations.OSSPluginRequestValidator{})
 
 	notificationServiceScenario(t, "Given alert rule with upload image enabled should render and upload image and send notification",
 		evalCtx, true, func(sc *scenarioContext) {
@@ -261,7 +263,7 @@ func notificationServiceScenario(t *testing.T, name string, evalCtx *EvalContext
 			},
 		}
 
-		scenarioCtx.notificationService = newNotificationService(renderService)
+		scenarioCtx.notificationService = newNotificationService(renderService, nil)
 		fn(scenarioCtx)
 	})
 }
@@ -277,7 +279,7 @@ type testNotifier struct {
 	Frequency             time.Duration
 }
 
-func newTestNotifier(model *models.AlertNotification) (Notifier, error) {
+func newTestNotifier(model *models.AlertNotification, _ GetDecryptedValueFn) (Notifier, error) {
 	uploadImage := true
 	value, exist := model.Settings.CheckGet("uploadImage")
 	if exist {
@@ -359,6 +361,10 @@ func (s *testRenderService) Render(ctx context.Context, opts rendering.Opts) (*r
 	return &rendering.RenderResult{FilePath: "image.png"}, nil
 }
 
+func (s *testRenderService) RenderCSV(ctx context.Context, opts rendering.CSVOpts) (*rendering.RenderCSVResult, error) {
+	return nil, nil
+}
+
 func (s *testRenderService) RenderErrorImage(err error) (*rendering.RenderResult, error) {
 	if s.renderErrorImageProvider != nil {
 		return s.renderErrorImageProvider(err)
@@ -369,6 +375,10 @@ func (s *testRenderService) RenderErrorImage(err error) (*rendering.RenderResult
 
 func (s *testRenderService) GetRenderUser(key string) (*rendering.RenderUser, bool) {
 	return nil, false
+}
+
+func (s *testRenderService) Version() string {
+	return ""
 }
 
 var _ rendering.Service = &testRenderService{}

@@ -5,8 +5,6 @@ import { getPluginId } from '../../config/utils/getPluginId';
 import { getCiFolder } from '../../plugins/env';
 import { useSpinner } from '../utils/useSpinner';
 import path = require('path');
-
-// @ts-ignore
 import execa = require('execa');
 
 interface Command extends Array<any> {}
@@ -14,14 +12,17 @@ const DEFAULT_EMAIL_ADDRESS = 'eng@grafana.com';
 const DEFAULT_USERNAME = 'CircleCI Automation';
 
 const releaseNotes = async (): Promise<string> => {
-  const { stdout } = await execa.shell(`awk 'BEGIN {FS="##"; RS="##"} FNR==3 {print "##" $1; exit}' CHANGELOG.md`);
+  const { stdout } = await execa(`awk 'BEGIN {FS="##"; RS="##"} FNR==3 {print "##" $1; exit}' CHANGELOG.md`, {
+    shell: true,
+  });
   return stdout;
 };
 
 const checkoutBranch = async (branchName: string): Promise<Command> => {
-  const currentBranch = await execa.shell(`git rev-parse --abbrev-ref HEAD`);
-  const branchesAvailable = await execa.shell(
-    `(git branch -a | grep "${branchName}$" | grep -v remote) || echo 'No release found'`
+  const currentBranch = await execa(`git rev-parse --abbrev-ref HEAD`, { shell: true });
+  const branchesAvailable = await execa(
+    `(git branch -a | grep "${branchName}$" | grep -v remote) || echo 'No release found'`,
+    { shell: true }
   );
 
   if (currentBranch.stdout !== branchName) {
@@ -117,7 +118,7 @@ const prepareRelease = ({ dryrun, verbose }: any) =>
             console.log('skipping empty line');
           }
         }
-      } catch (ex) {
+      } catch (ex: any) {
         const err: string = ex.message;
         if (opts['okOnError'] && Array.isArray(opts['okOnError'])) {
           let trueError = true;

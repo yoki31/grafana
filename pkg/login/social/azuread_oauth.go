@@ -16,7 +16,8 @@ import (
 
 type SocialAzureAD struct {
 	*SocialBase
-	allowedGroups []string
+	allowedGroups     []string
+	autoAssignOrgRole string
 }
 
 type azureClaims struct {

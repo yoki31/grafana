@@ -16,19 +16,21 @@ import (
 
 func TestSocialAzureAD_UserInfo(t *testing.T) {
 	type fields struct {
-		allowedGroups []string
+		allowedGroups     []string
+		autoAssignOrgRole string
 	}
 	type args struct {
 		client *http.Client
 	}
 
 	tests := []struct {
-		name    string
-		fields  fields
-		claims  *azureClaims
-		args    args
-		want    *BasicUserInfo
-		wantErr bool
+		name                     string
+		fields                   fields
+		claims                   *azureClaims
+		args                     args
+		settingAutoAssignOrgRole string
+		want                     *BasicUserInfo
+		wantErr                  bool
 	}{
 		{
 			name: "Email in email claim",
@@ -38,6 +40,9 @@ func TestSocialAzureAD_UserInfo(t *testing.T) {
 				Roles:             []string{},
 				Name:              "My Name",
 				ID:                "1234",
+			},
+			fields: fields{
+				autoAssignOrgRole: "Viewer",
 			},
 			want: &BasicUserInfo{
 				Id:      "1234",
@@ -77,6 +82,9 @@ func TestSocialAzureAD_UserInfo(t *testing.T) {
 				Roles:             []string{},
 				Name:              "My Name",
 				ID:                "1234",
+			},
+			fields: fields{
+				autoAssignOrgRole: "Viewer",
 			},
 			want: &BasicUserInfo{
 				Id:      "1234",
@@ -153,7 +161,28 @@ func TestSocialAzureAD_UserInfo(t *testing.T) {
 				Groups: []string{},
 			},
 		},
-
+		{
+			name: "role from env variable",
+			claims: &azureClaims{
+				Email:             "me@example.com",
+				PreferredUsername: "",
+				Roles:             []string{},
+				Name:              "My Name",
+				ID:                "1234",
+			},
+			fields: fields{
+				autoAssignOrgRole: "Editor",
+			},
+			want: &BasicUserInfo{
+				Id:      "1234",
+				Name:    "My Name",
+				Email:   "me@example.com",
+				Login:   "me@example.com",
+				Company: "",
+				Role:    "Editor",
+				Groups:  []string{},
+			},
+		},
 		{
 			name: "Editor role",
 			claims: &azureClaims{
@@ -215,7 +244,8 @@ func TestSocialAzureAD_UserInfo(t *testing.T) {
 		{
 			name: "Error if user is a member of allowed_groups",
 			fields: fields{
-				allowedGroups: []string{"foo", "bar"},
+				allowedGroups:     []string{"foo", "bar"},
+				autoAssignOrgRole: "Viewer",
 			},
 			claims: &azureClaims{
 				Email:             "me@example.com",
@@ -244,7 +274,8 @@ func TestSocialAzureAD_UserInfo(t *testing.T) {
 				SocialBase: &SocialBase{
 					log: log.New("test"),
 				},
-				allowedGroups: tt.fields.allowedGroups,
+				allowedGroups:     tt.fields.allowedGroups,
+				autoAssignOrgRole: tt.fields.autoAssignOrgRole,
 			}
 
 			key := []byte("secret")

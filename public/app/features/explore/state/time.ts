@@ -12,13 +12,11 @@ import { RefreshPicker } from '@grafana/ui';
 import { getTimeRange, refreshIntervalToSortOrder, stopQueryState } from 'app/core/utils/explore';
 import { ExploreItemState, ThunkResult } from 'app/types';
 import { ExploreId } from 'app/types/explore';
-import { getTimeZone } from 'app/features/profile/state/selectors';
+import { getFiscalYearStartMonth, getTimeZone } from 'app/features/profile/state/selectors';
 import { getTimeSrv } from '../../dashboard/services/TimeSrv';
 import { DashboardModel } from 'app/features/dashboard/state';
 import { runQueries } from './query';
-import { syncTimesAction } from './main';
-import { stateSave } from './explorePane';
-import { makeInitialUpdateState } from './utils';
+import { syncTimesAction, stateSave } from './main';
 
 //
 // Actions and Payloads
@@ -49,12 +47,14 @@ export const updateTimeRange = (options: {
     const { syncedTimes } = getState().explore;
     if (syncedTimes) {
       dispatch(updateTime({ ...options, exploreId: ExploreId.left }));
-      dispatch(runQueries(ExploreId.left));
+      // When running query by updating time range, we want to preserve cache.
+      // Cached results are currently used in Logs pagination.
+      dispatch(runQueries(ExploreId.left, { preserveCache: true }));
       dispatch(updateTime({ ...options, exploreId: ExploreId.right }));
-      dispatch(runQueries(ExploreId.right));
+      dispatch(runQueries(ExploreId.right, { preserveCache: true }));
     } else {
       dispatch(updateTime({ ...options }));
-      dispatch(runQueries(options.exploreId));
+      dispatch(runQueries(options.exploreId, { preserveCache: true }));
     }
   };
 };
@@ -76,8 +76,9 @@ export const updateTime = (config: {
 }): ThunkResult<void> => {
   return (dispatch, getState) => {
     const { exploreId, absoluteRange: absRange, rawRange: actionRange } = config;
-    const itemState = getState().explore[exploreId];
+    const itemState = getState().explore[exploreId]!;
     const timeZone = getTimeZone(getState().user);
+    const fiscalYearStartMonth = getFiscalYearStartMonth(getState().user);
     const { range: rangeInState } = itemState;
     let rawRange: RawTimeRange = rangeInState.raw;
 
@@ -92,7 +93,7 @@ export const updateTime = (config: {
       rawRange = actionRange;
     }
 
-    const range = getTimeRange(timeZone, rawRange);
+    const range = getTimeRange(timeZone, rawRange, fiscalYearStartMonth);
     const absoluteRange: AbsoluteTimeRange = { from: range.from.valueOf(), to: range.to.valueOf() };
 
     getTimeSrv().init(
@@ -117,7 +118,7 @@ export function syncTimes(exploreId: ExploreId): ThunkResult<void> {
       const leftState = getState().explore.left;
       dispatch(updateTimeRange({ exploreId: ExploreId.right, rawRange: leftState.range.raw }));
     } else {
-      const rightState = getState().explore.right;
+      const rightState = getState().explore.right!;
       dispatch(updateTimeRange({ exploreId: ExploreId.left, rawRange: rightState.range.raw }));
     }
     const isTimeSynced = getState().explore.syncedTimes;
@@ -165,7 +166,6 @@ export const timeReducer = (state: ExploreItemState, action: AnyAction): Explore
       ...state,
       range,
       absoluteRange,
-      update: makeInitialUpdateState(),
     };
   }
 

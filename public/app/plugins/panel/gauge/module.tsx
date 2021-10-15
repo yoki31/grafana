@@ -1,13 +1,16 @@
 import { PanelPlugin } from '@grafana/data';
 import { GaugePanel } from './GaugePanel';
 import { GaugeOptions } from './types';
-import { addStandardDataReduceOptions } from '../stat/types';
+import { addOrientationOption, addStandardDataReduceOptions } from '../stat/types';
 import { gaugePanelMigrationHandler, gaugePanelChangedHandler } from './GaugeMigrations';
+import { commonOptionsBuilder } from '@grafana/ui';
 
 export const plugin = new PanelPlugin<GaugeOptions>(GaugePanel)
   .useFieldConfig()
   .setPanelOptions((builder) => {
-    addStandardDataReduceOptions(builder, false);
+    addStandardDataReduceOptions(builder);
+    addOrientationOption(builder);
+
     builder
       .addBooleanSwitch({
         path: 'showThresholdLabels',
@@ -21,6 +24,8 @@ export const plugin = new PanelPlugin<GaugeOptions>(GaugePanel)
         description: 'Renders the thresholds as an outer bar',
         defaultValue: true,
       });
+
+    commonOptionsBuilder.addTextSizeOptions(builder);
   })
   .setPanelChangeHandler(gaugePanelChangedHandler)
   .setMigrationHandler(gaugePanelMigrationHandler);

@@ -1,18 +1,22 @@
-import { interval, of, throwError } from 'rxjs';
+import { interval, lastValueFrom, of, throwError } from 'rxjs';
 import {
   DataFrame,
   DataQueryErrorType,
-  DataQueryResponse,
   DataSourceInstanceSettings,
   dateMath,
   getFrameDisplayName,
 } from '@grafana/data';
 
 import * as redux from 'app/store/store';
-import '../datasource';
 import { CloudWatchDatasource, MAX_ATTEMPTS } from '../datasource';
 import { TemplateSrv } from 'app/features/templating/template_srv';
-import { CloudWatchLogsQuery, CloudWatchLogsQueryStatus, CloudWatchMetricsQuery, LogAction } from '../types';
+import {
+  CloudWatchJsonData,
+  CloudWatchLogsQuery,
+  CloudWatchLogsQueryStatus,
+  CloudWatchMetricsQuery,
+  LogAction,
+} from '../types';
 import { backendSrv } from 'app/core/services/backend_srv'; // will use the version in __mocks__
 import { TimeSrv } from 'app/features/dashboard/services/TimeSrv';
 import { convertToStoreState } from '../../../../../test/helpers/convertToStoreState';
@@ -21,12 +25,6 @@ import { CustomVariableModel, initialVariableModelState, VariableHide } from '..
 
 import * as rxjsUtils from '../utils/rxjs/increasingInterval';
 import { createFetchResponse } from 'test/helpers/createFetchResponse';
-
-jest.mock('rxjs/operators', () => {
-  const operators = jest.requireActual('rxjs/operators');
-  operators.delay = jest.fn(() => (s: any) => s);
-  return operators;
-});
 
 jest.mock('@grafana/runtime', () => ({
   ...((jest.requireActual('@grafana/runtime') as unknown) as object),
@@ -47,7 +45,7 @@ function getTestContext({ response = {}, throws = false, templateSrv = new Templ
   const instanceSettings = {
     jsonData: { defaultRegion: 'us-east-1' },
     name: 'TestDatasource',
-  } as DataSourceInstanceSettings;
+  } as DataSourceInstanceSettings<CloudWatchJsonData>;
 
   const timeSrv = {
     time: { from: '2016-12-31 15:00:00Z', to: '2016-12-31 16:00:00Z' },
@@ -77,13 +75,58 @@ describe('CloudWatchDatasource', () => {
       const response = {
         results: {
           A: {
-            dataframes: [
-              'QVJST1cxAAD/////GAEAABAAAAAAAAoADgAMAAsABAAKAAAAFAAAAAAAAAEDAAoADAAAAAgABAAKAAAACAAAAFgAAAACAAAAKAAAAAQAAAB8////CAAAAAwAAAAAAAAAAAAAAAUAAAByZWZJZAAAAJz///8IAAAAFAAAAAkAAABsb2dHcm91cHMAAAAEAAAAbmFtZQAAAAABAAAAGAAAAAAAEgAYABQAEwASAAwAAAAIAAQAEgAAABQAAABMAAAAUAAAAAAABQFMAAAAAQAAAAwAAAAIAAwACAAEAAgAAAAIAAAAGAAAAAwAAABsb2dHcm91cE5hbWUAAAAABAAAAG5hbWUAAAAAAAAAAAQABAAEAAAADAAAAGxvZ0dyb3VwTmFtZQAAAAD/////mAAAABQAAAAAAAAADAAWABQAEwAMAAQADAAAAGAGAAAAAAAAFAAAAAAAAAMDAAoAGAAMAAgABAAKAAAAFAAAAEgAAAAhAAAAAAAAAAAAAAADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAiAAAAAAAAACIAAAAAAAAANgFAAAAAAAAAAAAAAEAAAAhAAAAAAAAAAAAAAAAAAAAAAAAADIAAABiAAAAkQAAALwAAADuAAAAHwEAAFQBAACHAQAAtQEAAOoBAAAbAgAASgIAAHQCAAClAgAA1QIAABADAABEAwAAdgMAAKMDAADXAwAACQQAAEAEAAB3BAAAlwQAAK0EAAC8BAAA+wQAAEIFAABhBQAAeAUAAJIFAAC0BQAA1gUAAC9hd3MvY29udGFpbmVyaW5zaWdodHMvZGV2MzAzLXdvcmtzaG9wL2FwcGxpY2F0aW9uL2F3cy9jb250YWluZXJpbnNpZ2h0cy9kZXYzMDMtd29ya3Nob3AvZGF0YXBsYW5lL2F3cy9jb250YWluZXJpbnNpZ2h0cy9kZXYzMDMtd29ya3Nob3AvZmxvd2xvZ3MvYXdzL2NvbnRhaW5lcmluc2lnaHRzL2RldjMwMy13b3Jrc2hvcC9ob3N0L2F3cy9jb250YWluZXJpbnNpZ2h0cy9kZXYzMDMtd29ya3Nob3AvcGVyZm9ybWFuY2UvYXdzL2NvbnRhaW5lcmluc2lnaHRzL2RldjMwMy13b3Jrc2hvcC9wcm9tZXRoZXVzL2F3cy9jb250YWluZXJpbnNpZ2h0cy9lY29tbWVyY2Utc29ja3Nob3AvYXBwbGljYXRpb24vYXdzL2NvbnRhaW5lcmluc2lnaHRzL2Vjb21tZXJjZS1zb2Nrc2hvcC9kYXRhcGxhbmUvYXdzL2NvbnRhaW5lcmluc2lnaHRzL2Vjb21tZXJjZS1zb2Nrc2hvcC9ob3N0L2F3cy9jb250YWluZXJpbnNpZ2h0cy9lY29tbWVyY2Utc29ja3Nob3AvcGVyZm9ybWFuY2UvYXdzL2NvbnRhaW5lcmluc2lnaHRzL3dhdGNoZGVtby1wZXJmL2FwcGxpY2F0aW9uL2F3cy9jb250YWluZXJpbnNpZ2h0cy93YXRjaGRlbW8tcGVyZi9kYXRhcGxhbmUvYXdzL2NvbnRhaW5lcmluc2lnaHRzL3dhdGNoZGVtby1wZXJmL2hvc3QvYXdzL2NvbnRhaW5lcmluc2lnaHRzL3dhdGNoZGVtby1wZXJmL3BlcmZvcm1hbmNlL2F3cy9jb250YWluZXJpbnNpZ2h0cy93YXRjaGRlbW8tcGVyZi9wcm9tZXRoZXVzL2F3cy9jb250YWluZXJpbnNpZ2h0cy93YXRjaGRlbW8tcHJvZC11cy1lYXN0LTEvcGVyZm9ybWFuY2UvYXdzL2NvbnRhaW5lcmluc2lnaHRzL3dhdGNoZGVtby1zdGFnaW5nL2FwcGxpY2F0aW9uL2F3cy9jb250YWluZXJpbnNpZ2h0cy93YXRjaGRlbW8tc3RhZ2luZy9kYXRhcGxhbmUvYXdzL2NvbnRhaW5lcmluc2lnaHRzL3dhdGNoZGVtby1zdGFnaW5nL2hvc3QvYXdzL2NvbnRhaW5lcmluc2lnaHRzL3dhdGNoZGVtby1zdGFnaW5nL3BlcmZvcm1hbmNlL2F3cy9lY3MvY29udGFpbmVyaW5zaWdodHMvYnVnYmFzaC1lYzIvcGVyZm9ybWFuY2UvYXdzL2Vjcy9jb250YWluZXJpbnNpZ2h0cy9lY3MtZGVtb3dvcmtzaG9wL3BlcmZvcm1hbmNlL2F3cy9lY3MvY29udGFpbmVyaW5zaWdodHMvZWNzLXdvcmtzaG9wLWRldi9wZXJmb3JtYW5jZS9hd3MvZWtzL2RldjMwMy13b3Jrc2hvcC9jbHVzdGVyL2F3cy9ldmVudHMvY2xvdWR0cmFpbC9hd3MvZXZlbnRzL2Vjcy9hd3MvbGFtYmRhL2N3c3luLW15Y2FuYXJ5LWZhYzk3ZGVkLWYxMzQtNDk5YS05ZDcxLTRjM2JlMWY2MzE4Mi9hd3MvbGFtYmRhL2N3c3luLXdhdGNoLWxpbmtjaGVja3MtZWY3ZWYyNzMtNWRhMi00NjYzLWFmNTQtZDJmNTJkNTViMDYwL2Vjcy9lY3MtY3dhZ2VudC1kYWVtb24tc2VydmljZS9lY3MvZWNzLWRlbW8tbGltaXRUYXNrQ2xvdWRUcmFpbC9EZWZhdWx0TG9nR3JvdXBjb250YWluZXItaW5zaWdodHMtcHJvbWV0aGV1cy1iZXRhY29udGFpbmVyLWluc2lnaHRzLXByb21ldGhldXMtZGVtbwAAEAAAAAwAFAASAAwACAAEAAwAAAAQAAAALAAAADwAAAAAAAMAAQAAACgBAAAAAAAAoAAAAAAAAABgBgAAAAAAAAAAAAAAAAAAAAAAAAAACgAMAAAACAAEAAoAAAAIAAAAWAAAAAIAAAAoAAAABAAAAHz///8IAAAADAAAAAAAAAAAAAAABQAAAHJlZklkAAAAnP///wgAAAAUAAAACQAAAGxvZ0dyb3VwcwAAAAQAAABuYW1lAAAAAAEAAAAYAAAAAAASABgAFAATABIADAAAAAgABAASAAAAFAAAAEwAAABQAAAAAAAFAUwAAAABAAAADAAAAAgADAAIAAQACAAAAAgAAAAYAAAADAAAAGxvZ0dyb3VwTmFtZQAAAAAEAAAAbmFtZQAAAAAAAAAABAAEAAQAAAAMAAAAbG9nR3JvdXBOYW1lAAAAAEgBAABBUlJPVzE=',
+            frames: [
+              {
+                schema: {
+                  name: 'logGroups',
+                  refId: 'A',
+                  fields: [{ name: 'logGroupName', type: 'string', typeInfo: { frame: 'string', nullable: true } }],
+                },
+                data: {
+                  values: [
+                    [
+                      '/aws/containerinsights/dev303-workshop/application',
+                      '/aws/containerinsights/dev303-workshop/dataplane',
+                      '/aws/containerinsights/dev303-workshop/flowlogs',
+                      '/aws/containerinsights/dev303-workshop/host',
+                      '/aws/containerinsights/dev303-workshop/performance',
+                      '/aws/containerinsights/dev303-workshop/prometheus',
+                      '/aws/containerinsights/ecommerce-sockshop/application',
+                      '/aws/containerinsights/ecommerce-sockshop/dataplane',
+                      '/aws/containerinsights/ecommerce-sockshop/host',
+                      '/aws/containerinsights/ecommerce-sockshop/performance',
+                      '/aws/containerinsights/watchdemo-perf/application',
+                      '/aws/containerinsights/watchdemo-perf/dataplane',
+                      '/aws/containerinsights/watchdemo-perf/host',
+                      '/aws/containerinsights/watchdemo-perf/performance',
+                      '/aws/containerinsights/watchdemo-perf/prometheus',
+                      '/aws/containerinsights/watchdemo-prod-us-east-1/performance',
+                      '/aws/containerinsights/watchdemo-staging/application',
+                      '/aws/containerinsights/watchdemo-staging/dataplane',
+                      '/aws/containerinsights/watchdemo-staging/host',
+                      '/aws/containerinsights/watchdemo-staging/performance',
+                      '/aws/ecs/containerinsights/bugbash-ec2/performance',
+                      '/aws/ecs/containerinsights/ecs-demoworkshop/performance',
+                      '/aws/ecs/containerinsights/ecs-workshop-dev/performance',
+                      '/aws/eks/dev303-workshop/cluster',
+                      '/aws/events/cloudtrail',
+                      '/aws/events/ecs',
+                      '/aws/lambda/cwsyn-mycanary-fac97ded-f134-499a-9d71-4c3be1f63182',
+                      '/aws/lambda/cwsyn-watch-linkchecks-ef7ef273-5da2-4663-af54-d2f52d55b060',
+                      '/ecs/ecs-cwagent-daemon-service',
+                      '/ecs/ecs-demo-limitTask',
+                      'CloudTrail/DefaultLogGroup',
+                      'container-insights-prometheus-beta',
+                      'container-insights-prometheus-demo',
+                    ],
+                  ],
+                },
+              },
             ],
-            refId: 'A',
           },
         },
       };
+
       const { ds } = getTestContext({ response });
       const expectedLogGroups = [
         '/aws/containerinsights/dev303-workshop/application',
@@ -132,58 +175,6 @@ describe('CloudWatchDatasource', () => {
       jest.spyOn(rxjsUtils, 'increasingInterval').mockImplementation(() => interval(100));
     });
 
-    it('should add data links to response', () => {
-      const { ds } = getTestContext();
-      const mockResponse: DataQueryResponse = {
-        data: [
-          {
-            fields: [
-              {
-                config: {
-                  links: [],
-                },
-              },
-            ],
-            refId: 'A',
-          },
-        ],
-      };
-
-      const mockOptions: any = {
-        targets: [
-          {
-            refId: 'A',
-            expression: 'stats count(@message) by bin(1h)',
-            logGroupNames: ['fake-log-group-one', 'fake-log-group-two'],
-            region: 'default',
-          },
-        ],
-      };
-
-      const saturatedResponse = ds['addDataLinksToLogsResponse'](mockResponse, mockOptions);
-      expect(saturatedResponse).toMatchObject({
-        data: [
-          {
-            fields: [
-              {
-                config: {
-                  links: [
-                    {
-                      url:
-                        "https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#logs-insights:queryDetail=~(end~'2016-12-31T16*3a00*3a00.000Z~start~'2016-12-31T15*3a00*3a00.000Z~timeType~'ABSOLUTE~tz~'UTC~editorString~'stats*20count*28*40message*29*20by*20bin*281h*29~isLiveTail~false~source~(~'fake-log-group-one~'fake-log-group-two))",
-                      title: 'View in CloudWatch console',
-                      targetBlank: true,
-                    },
-                  ],
-                },
-              },
-            ],
-            refId: 'A',
-          },
-        ],
-      });
-    });
-
     it('should stop querying when no more data received a number of times in a row', async () => {
       const { ds } = getTestContext();
       const fakeFrames = genMockFrames(20);
@@ -220,7 +211,9 @@ describe('CloudWatchDatasource', () => {
         }
       });
 
-      const myResponse = await ds.logsQuery([{ queryId: 'fake-query-id', region: 'default', refId: 'A' }]).toPromise();
+      const myResponse = await lastValueFrom(
+        ds.logsQuery([{ queryId: 'fake-query-id', region: 'default', refId: 'A' }])
+      );
 
       const expectedData = [
         {
@@ -261,7 +254,9 @@ describe('CloudWatchDatasource', () => {
         }
       });
 
-      const myResponse = await ds.logsQuery([{ queryId: 'fake-query-id', region: 'default', refId: 'A' }]).toPromise();
+      const myResponse = await lastValueFrom(
+        ds.logsQuery([{ queryId: 'fake-query-id', region: 'default', refId: 'A' }])
+      );
       expect(myResponse).toEqual({
         data: [fakeFrames[fakeFrames.length - 1]],
         key: 'test-key',
@@ -284,7 +279,9 @@ describe('CloudWatchDatasource', () => {
         }
       });
 
-      const myResponse = await ds.logsQuery([{ queryId: 'fake-query-id', region: 'default', refId: 'A' }]).toPromise();
+      const myResponse = await lastValueFrom(
+        ds.logsQuery([{ queryId: 'fake-query-id', region: 'default', refId: 'A' }])
+      );
 
       expect(myResponse).toEqual({
         data: [fakeFrames[2]],
@@ -296,7 +293,7 @@ describe('CloudWatchDatasource', () => {
 
     it('should call the replace method on provided log groups', () => {
       const { ds } = getTestContext();
-      const replaceSpy = jest.spyOn(ds, 'replace').mockImplementation((target: string) => target);
+      const replaceSpy = jest.spyOn(ds, 'replace').mockImplementation((target?: string) => target ?? '');
       ds.makeLogActionRequest('StartQuery', [
         {
           queryString: 'test query string',
@@ -326,7 +323,7 @@ describe('CloudWatchDatasource', () => {
           dimensions: {
             InstanceId: 'i-12345678',
           },
-          statistics: ['Average'],
+          statistic: 'Average',
           period: '300',
         },
       ],
@@ -367,7 +364,7 @@ describe('CloudWatchDatasource', () => {
               namespace: query.targets[0].namespace,
               metricName: query.targets[0].metricName,
               dimensions: { InstanceId: ['i-12345678'] },
-              statistics: query.targets[0].statistics,
+              statistic: query.targets[0].statistic,
               period: query.targets[0].period,
             }),
           ])
@@ -405,7 +402,7 @@ describe('CloudWatchDatasource', () => {
             dimensions: {
               InstanceId: 'i-12345678',
             },
-            statistics: ['Average'],
+            statistic: 'Average',
             period: '[[period]]',
           },
         ],
@@ -416,30 +413,6 @@ describe('CloudWatchDatasource', () => {
       await expect(ds.query(query)).toEmitValuesWith(() => {
         expect(fetchMock.mock.calls[0][0].data.queries[0].period).toEqual('600');
       });
-    });
-
-    it.each(['pNN.NN', 'p9', 'p99.', 'p99.999'])('should cancel query for invalid extended statistics (%s)', (stat) => {
-      const { ds } = getTestContext({ response });
-      const query = {
-        range: defaultTimeRange,
-        rangeRaw: { from: 1483228800, to: 1483232400 },
-        targets: [
-          {
-            type: 'Metrics',
-            refId: 'A',
-            region: 'us-east-1',
-            namespace: 'AWS/EC2',
-            metricName: 'CPUUtilization',
-            dimensions: {
-              InstanceId: 'i-12345678',
-            },
-            statistics: [stat],
-            period: '60s',
-          },
-        ],
-      };
-
-      expect(ds.query.bind(ds, query)).toThrow(/Invalid extended statistics/);
     });
 
     it('should return series list', async () => {
@@ -460,7 +433,7 @@ describe('CloudWatchDatasource', () => {
         dimensions: {
           InstanceId: 'i-12345678',
         },
-        statistics: ['Average'],
+        statistic: 'Average',
         period: '300',
         expression: '',
       };
@@ -593,7 +566,7 @@ describe('CloudWatchDatasource', () => {
             dimensions: {
               InstanceId: 'i-12345678',
             },
-            statistics: ['Average'],
+            statistic: 'Average',
             period: '300s',
           },
         ],
@@ -652,7 +625,7 @@ describe('CloudWatchDatasource', () => {
           [`$${variableName}`]: `$${variableName}`,
         },
         matchExact: false,
-        statistics: [],
+        statistic: '',
       };
 
       ds.interpolateVariablesInQueries([logQuery], {});
@@ -663,7 +636,7 @@ describe('CloudWatchDatasource', () => {
     });
   });
 
-  describe('When performing CloudWatch query for extended statistics', () => {
+  describe('When performing CloudWatch query for extended statistic', () => {
     const query: any = {
       range: defaultTimeRange,
       rangeRaw: { from: 1483228800, to: 1483232400 },
@@ -678,7 +651,7 @@ describe('CloudWatchDatasource', () => {
             LoadBalancer: 'lb',
             TargetGroup: 'tg',
           },
-          statistics: ['p90.00'],
+          statistic: 'p90.00',
           period: '300s',
         },
       ],
@@ -804,7 +777,7 @@ describe('CloudWatchDatasource', () => {
             dimensions: {
               dim2: '[[var2]]',
             },
-            statistics: ['Average'],
+            statistic: 'Average',
             period: '300s',
           },
         ],
@@ -832,7 +805,7 @@ describe('CloudWatchDatasource', () => {
               dim2: '[[var2]]',
               dim3: '[[var3]]',
             },
-            statistics: ['Average'],
+            statistic: 'Average',
             period: '300s',
           },
         ],
@@ -866,7 +839,7 @@ describe('CloudWatchDatasource', () => {
               dim3: '[[var3]]',
               dim4: '[[var4]]',
             },
-            statistics: ['Average'],
+            statistic: 'Average',
             period: '300s',
           },
         ],
@@ -896,7 +869,7 @@ describe('CloudWatchDatasource', () => {
               dim2: '[[var2]]',
               dim3: '[[var3]]',
             },
-            statistics: ['Average'],
+            statistic: 'Average',
             period: '300',
           },
         ],

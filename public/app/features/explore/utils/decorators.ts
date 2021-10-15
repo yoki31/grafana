@@ -6,14 +6,16 @@ import {
   PanelData,
   sortLogsResult,
   standardTransformers,
+  DataQuery,
 } from '@grafana/data';
 import { config } from '@grafana/runtime';
 import { groupBy } from 'lodash';
 import { Observable, of } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { map, mergeMap } from 'rxjs/operators';
 import { dataFrameToLogsModel } from '../../../core/logs_model';
 import { refreshIntervalToSortOrder } from '../../../core/utils/explore';
 import { ExplorePanelData } from '../../../types';
+import { preProcessPanelData } from '../../query/state/runRequest';
 
 /**
  * When processing response first we try to determine what kind of dataframes we got as one query can return multiple
@@ -21,20 +23,6 @@ import { ExplorePanelData } from '../../../types';
  * Observable pipeline, it decorates the existing panelData to pass the results to later processing stages.
  */
 export const decorateWithFrameTypeMetadata = (data: PanelData): ExplorePanelData => {
-  if (data.error) {
-    return {
-      ...data,
-      graphFrames: [],
-      tableFrames: [],
-      logsFrames: [],
-      traceFrames: [],
-      nodeGraphFrames: [],
-      graphResult: null,
-      tableResult: null,
-      logsResult: null,
-    };
-  }
-
   const graphFrames: DataFrame[] = [];
   const tableFrames: DataFrame[] = [];
   const logsFrames: DataFrame[] = [];
@@ -83,7 +71,7 @@ export const decorateWithFrameTypeMetadata = (data: PanelData): ExplorePanelData
 };
 
 export const decorateWithGraphResult = (data: ExplorePanelData): ExplorePanelData => {
-  if (data.error || !data.graphFrames.length) {
+  if (!data.graphFrames.length) {
     return { ...data, graphResult: null };
   }
 
@@ -96,10 +84,6 @@ export const decorateWithGraphResult = (data: ExplorePanelData): ExplorePanelDat
  * multiple results and so this should be used with mergeMap or similar to unbox the internal observable.
  */
 export const decorateWithTableResult = (data: ExplorePanelData): Observable<ExplorePanelData> => {
-  if (data.error) {
-    return of({ ...data, tableResult: null });
-  }
-
   if (data.tableFrames.length === 0) {
     return of({ ...data, tableResult: null });
   }
@@ -136,7 +120,7 @@ export const decorateWithTableResult = (data: ExplorePanelData): Observable<Expl
           field.display ??
           getDisplayProcessor({
             field,
-            theme: config.theme,
+            theme: config.theme2,
             timeZone: data.request?.timezone ?? 'browser',
           });
       }
@@ -147,27 +131,48 @@ export const decorateWithTableResult = (data: ExplorePanelData): Observable<Expl
 };
 
 export const decorateWithLogsResult = (
-  options: { absoluteRange?: AbsoluteTimeRange; refreshInterval?: string } = {}
+  options: {
+    absoluteRange?: AbsoluteTimeRange;
+    refreshInterval?: string;
+    queries?: DataQuery[];
+    fullRangeLogsVolumeAvailable?: boolean;
+  } = {}
 ) => (data: ExplorePanelData): ExplorePanelData => {
-  if (data.error) {
-    return { ...data, logsResult: null };
-  }
-
   if (data.logsFrames.length === 0) {
     return { ...data, logsResult: null };
   }
 
-  const timeZone = data.request?.timezone ?? 'browser';
   const intervalMs = data.request?.intervalMs;
-  const newResults = dataFrameToLogsModel(data.logsFrames, intervalMs, timeZone, options.absoluteRange);
+  const newResults = dataFrameToLogsModel(data.logsFrames, intervalMs, options.absoluteRange, options.queries);
   const sortOrder = refreshIntervalToSortOrder(options.refreshInterval);
   const sortedNewResults = sortLogsResult(newResults, sortOrder);
   const rows = sortedNewResults.rows;
-  const series = sortedNewResults.series;
+  const series =
+    config.featureToggles.fullRangeLogsVolume && options.fullRangeLogsVolumeAvailable
+      ? undefined
+      : sortedNewResults.series;
   const logsResult = { ...sortedNewResults, rows, series };
 
   return { ...data, logsResult };
 };
+
+// decorateData applies all decorators
+export function decorateData(
+  data: PanelData,
+  queryResponse: PanelData,
+  absoluteRange: AbsoluteTimeRange,
+  refreshInterval: string | undefined,
+  queries: DataQuery[] | undefined,
+  fullRangeLogsVolumeAvailable: boolean
+): Observable<ExplorePanelData> {
+  return of(data).pipe(
+    map((data: PanelData) => preProcessPanelData(data, queryResponse)),
+    map(decorateWithFrameTypeMetadata),
+    map(decorateWithGraphResult),
+    map(decorateWithLogsResult({ absoluteRange, refreshInterval, queries, fullRangeLogsVolumeAvailable })),
+    mergeMap(decorateWithTableResult)
+  );
+}
 
 /**
  * Check if frame contains time series, which for our purpose means 1 time column and 1 or more numeric columns.

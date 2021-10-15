@@ -3,20 +3,16 @@ import { render, screen } from '@testing-library/react';
 import { PromExploreExtraFieldProps, PromExploreExtraField } from './PromExploreExtraField';
 
 const setup = (propOverrides?: PromExploreExtraFieldProps) => {
-  const queryType = 'range';
-  const stepValue = '1';
   const query = { exemplar: false };
-  const onStepChange = jest.fn();
-  const onQueryTypeChange = jest.fn();
-  const onKeyDownFunc = jest.fn();
+  const datasource = {};
+  const onChange = jest.fn();
+  const onRunQuery = jest.fn();
 
   const props: any = {
-    queryType,
-    stepValue,
+    onChange,
+    onRunQuery,
     query,
-    onStepChange,
-    onQueryTypeChange,
-    onKeyDownFunc,
+    datasource,
   };
 
   Object.assign(props, propOverrides);

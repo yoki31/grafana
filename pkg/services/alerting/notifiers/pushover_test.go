@@ -5,10 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/grafana/grafana/pkg/services/alerting"
-
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/services/alerting"
+	"github.com/grafana/grafana/pkg/services/encryption/ossencryption"
+	"github.com/grafana/grafana/pkg/services/validations"
 	. "github.com/smartystreets/goconvey/convey"
 )
 
@@ -25,7 +26,7 @@ func TestPushoverNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				_, err := NewPushoverNotifier(model)
+				_, err := NewPushoverNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				So(err, ShouldNotBeNil)
 			})
 
@@ -35,6 +36,7 @@ func TestPushoverNotifier(t *testing.T) {
 					"apiToken": "4SrUFQL4A5V5TQ1z5Pg9nxHXPXSTve",
 					"userKey": "tzNZYf36y0ohWwXo4XoUrB61rz1A4o",
 					"priority": "1",
+					"okPriority": "2",
 					"sound": "pushover",
 					"okSound": "magic"
 				}`
@@ -46,7 +48,7 @@ func TestPushoverNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				not, err := NewPushoverNotifier(model)
+				not, err := NewPushoverNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				pushoverNotifier := not.(*PushoverNotifier)
 
 				So(err, ShouldBeNil)
@@ -54,9 +56,10 @@ func TestPushoverNotifier(t *testing.T) {
 				So(pushoverNotifier.Type, ShouldEqual, "pushover")
 				So(pushoverNotifier.APIToken, ShouldEqual, "4SrUFQL4A5V5TQ1z5Pg9nxHXPXSTve")
 				So(pushoverNotifier.UserKey, ShouldEqual, "tzNZYf36y0ohWwXo4XoUrB61rz1A4o")
-				So(pushoverNotifier.Priority, ShouldEqual, 1)
+				So(pushoverNotifier.AlertingPriority, ShouldEqual, 1)
+				So(pushoverNotifier.OKPriority, ShouldEqual, 2)
 				So(pushoverNotifier.AlertingSound, ShouldEqual, "pushover")
-				So(pushoverNotifier.OkSound, ShouldEqual, "magic")
+				So(pushoverNotifier.OKSound, ShouldEqual, "magic")
 			})
 		})
 	})
@@ -67,13 +70,13 @@ func TestGenPushoverBody(t *testing.T) {
 		Convey("Given common sounds", func() {
 			sirenSound := "siren_sound_tst"
 			successSound := "success_sound_tst"
-			notifier := &PushoverNotifier{AlertingSound: sirenSound, OkSound: successSound}
+			notifier := &PushoverNotifier{AlertingSound: sirenSound, OKSound: successSound}
 
 			Convey("When alert is firing - should use siren sound", func() {
 				evalContext := alerting.NewEvalContext(context.Background(),
 					&alerting.Rule{
 						State: models.AlertStateAlerting,
-					})
+					}, &validations.OSSPluginRequestValidator{})
 				_, pushoverBody, err := notifier.genPushoverBody(evalContext, "", "")
 
 				So(err, ShouldBeNil)
@@ -84,7 +87,7 @@ func TestGenPushoverBody(t *testing.T) {
 				evalContext := alerting.NewEvalContext(context.Background(),
 					&alerting.Rule{
 						State: models.AlertStateOK,
-					})
+					}, &validations.OSSPluginRequestValidator{})
 				_, pushoverBody, err := notifier.genPushoverBody(evalContext, "", "")
 
 				So(err, ShouldBeNil)

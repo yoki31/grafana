@@ -1,4 +1,4 @@
-import { TransformerRegistyItem } from '@grafana/data';
+import { TransformerRegistryItem } from '@grafana/data';
 import { reduceTransformRegistryItem } from '../components/TransformersUI/ReduceTransformerEditor';
 import { filterFieldsByNameTransformRegistryItem } from '../components/TransformersUI/FilterByNameTransformerEditor';
 import { filterFramesByRefIdTransformRegistryItem } from '../components/TransformersUI/FilterByRefIdTransformerEditor';
@@ -13,8 +13,13 @@ import { mergeTransformerRegistryItem } from '../components/TransformersUI/Merge
 import { seriesToRowsTransformerRegistryItem } from '../components/TransformersUI/SeriesToRowsTransformerEditor';
 import { concatenateTransformRegistryItem } from '../components/TransformersUI/ConcatenateTransformerEditor';
 import { renameByRegexTransformRegistryItem } from '../components/TransformersUI/RenameByRegexTransformer';
+import { histogramTransformRegistryItem } from '../components/TransformersUI/HistogramTransformerEditor';
+import { rowsToFieldsTransformRegistryItem } from '../components/TransformersUI/rowsToFields/RowsToFieldsTransformerEditor';
+import { configFromQueryTransformRegistryItem } from '../components/TransformersUI/configFromQuery/ConfigFromQueryTransformerEditor';
+import { prepareTimeseriesTransformerRegistryItem } from '../components/TransformersUI/prepareTimeSeries/PrepareTimeSeriesEditor';
+import { convertFieldTypeTransformRegistryItem } from '../components/TransformersUI/ConvertFieldTypeTransformerEditor';
 
-export const getStandardTransformers = (): Array<TransformerRegistyItem<any>> => {
+export const getStandardTransformers = (): Array<TransformerRegistryItem<any>> => {
   return [
     reduceTransformRegistryItem,
     filterFieldsByNameTransformRegistryItem,
@@ -30,5 +35,10 @@ export const getStandardTransformers = (): Array<TransformerRegistyItem<any>> =>
     groupByTransformRegistryItem,
     sortByTransformRegistryItem,
     mergeTransformerRegistryItem,
+    histogramTransformRegistryItem,
+    rowsToFieldsTransformRegistryItem,
+    configFromQueryTransformRegistryItem,
+    prepareTimeseriesTransformerRegistryItem,
+    convertFieldTypeTransformRegistryItem,
   ];
 };

@@ -1,11 +1,12 @@
 import angular, { ILocationService } from 'angular';
-import _ from 'lodash';
+import { each } from 'lodash';
 
 import config from 'app/core/config';
 import coreModule from 'app/core/core_module';
 
 import { DataSourceApi, PanelEvents } from '@grafana/data';
-import { importPanelPlugin, importDataSourcePlugin, importAppPlugin } from './plugin_loader';
+import { importDataSourcePlugin, importAppPlugin } from './plugin_loader';
+import { importPanelPlugin } from './importPanelPlugin';
 import DatasourceSrv from './datasource_srv';
 import { GrafanaRootScope } from 'app/routes/GrafanaCtrl';
 
@@ -216,7 +217,7 @@ function pluginDirectiveLoader(
 
   function appendAndCompile(scope: any, elem: JQuery, componentInfo: any) {
     const child = angular.element(document.createElement(componentInfo.name));
-    _.each(componentInfo.attrs, (value, key) => {
+    each(componentInfo.attrs, (value, key) => {
       child.attr(key, value);
     });
 

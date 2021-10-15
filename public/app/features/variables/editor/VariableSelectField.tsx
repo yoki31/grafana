@@ -1,7 +1,7 @@
 import React, { PropsWithChildren, ReactElement } from 'react';
 import { InlineFormLabel, Select, useStyles } from '@grafana/ui';
 import { GrafanaTheme, SelectableValue } from '@grafana/data';
-import { css } from 'emotion';
+import { css } from '@emotion/css';
 
 interface VariableSelectFieldProps<T> {
   name: string;
@@ -25,14 +25,17 @@ export function VariableSelectField({
   labelWidth,
 }: PropsWithChildren<VariableSelectFieldProps<any>>): ReactElement {
   const styles = useStyles(getStyles);
+  const inputId = `variable-select-input-${name}`;
 
   return (
     <>
-      <InlineFormLabel width={labelWidth ?? 6} tooltip={tooltip}>
+      <InlineFormLabel width={labelWidth ?? 6} tooltip={tooltip} htmlFor={inputId}>
         {name}
       </InlineFormLabel>
       <div aria-label={ariaLabel}>
         <Select
+          inputId={inputId}
+          menuShouldPortal
           onChange={onChange}
           value={value}
           width={width ?? 25}

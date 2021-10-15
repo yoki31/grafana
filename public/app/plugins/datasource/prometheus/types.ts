@@ -10,6 +10,8 @@ export interface PromQuery extends DataQuery {
   hinting?: boolean;
   interval?: string;
   intervalFactor?: number;
+  // Timezone offset to align start & end time on backend
+  utcOffsetSec?: number;
   legendFormat?: string;
   valueWithRefId?: boolean;
   requestId?: string;
@@ -48,7 +50,7 @@ export interface PromMetricsMetadataItem {
 }
 
 export interface PromMetricsMetadata {
-  [metric: string]: PromMetricsMetadataItem[];
+  [metric: string]: PromMetricsMetadataItem;
 }
 
 export interface PromDataSuccessResponse<T = PromData> {
@@ -63,27 +65,21 @@ export interface PromDataErrorResponse<T = PromData> {
   data: T;
 }
 
-export type PromData = PromMatrixData | PromVectorData | PromScalarData | PromExemplarData[] | null;
+export type PromData = PromMatrixData | PromVectorData | PromScalarData | PromExemplarData[];
 
 export interface Labels {
   [index: string]: any;
-}
-
-export interface ScrapeExemplar {
-  exemplar: Exemplar;
-  scrapeTimestamp: number;
 }
 
 export interface Exemplar {
   labels: Labels;
   value: number;
   timestamp: number;
-  hasTimestamp: boolean;
 }
 
 export interface PromExemplarData {
   seriesLabels: PromMetric;
-  exemplars: ScrapeExemplar[];
+  exemplars: Exemplar[];
 }
 
 export interface PromVectorData {
@@ -126,7 +122,7 @@ export function isExemplarData(result: PromData): result is PromExemplarData[] {
   if (result == null || !Array.isArray(result)) {
     return false;
   }
-  return 'exemplars' in result[0];
+  return result.length ? 'exemplars' in result[0] : false;
 }
 
 export type MatrixOrVectorResult = PromMatrixData['result'][0] | PromVectorData['result'][0];

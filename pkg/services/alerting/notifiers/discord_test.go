@@ -5,11 +5,12 @@ import (
 
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/services/encryption/ossencryption"
 	. "github.com/smartystreets/goconvey/convey"
 )
 
 func TestDiscordNotifier(t *testing.T) {
-	Convey("Telegram notifier tests", t, func() {
+	Convey("Discord notifier tests", t, func() {
 		Convey("Parsing alert notification from settings", func() {
 			Convey("empty settings should return error", func() {
 				json := `{ }`
@@ -21,13 +22,14 @@ func TestDiscordNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				_, err := newDiscordNotifier(model)
+				_, err := newDiscordNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				So(err, ShouldNotBeNil)
 			})
 
 			Convey("settings should trigger incident", func() {
 				json := `
 				{
+					"avatar_url": "https://grafana.com/img/fav32.png",
 					"content": "@everyone Please check this notification",
 					"url": "https://web.hook/"
 				}`
@@ -39,12 +41,13 @@ func TestDiscordNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				not, err := newDiscordNotifier(model)
+				not, err := newDiscordNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				discordNotifier := not.(*DiscordNotifier)
 
 				So(err, ShouldBeNil)
 				So(discordNotifier.Name, ShouldEqual, "discord_testing")
 				So(discordNotifier.Type, ShouldEqual, "discord")
+				So(discordNotifier.AvatarURL, ShouldEqual, "https://grafana.com/img/fav32.png")
 				So(discordNotifier.Content, ShouldEqual, "@everyone Please check this notification")
 				So(discordNotifier.WebhookURL, ShouldEqual, "https://web.hook/")
 			})

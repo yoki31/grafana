@@ -1,6 +1,7 @@
 package guardian
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"runtime"
@@ -701,7 +702,7 @@ func TestGuardianGetHiddenACL(t *testing.T) {
 				UserId: 1,
 				Login:  "user1",
 			}
-			g := New(dashboardID, orgID, user)
+			g := New(context.Background(), dashboardID, orgID, user)
 
 			hiddenACL, err := g.GetHiddenACL(cfg)
 			So(err, ShouldBeNil)
@@ -717,12 +718,54 @@ func TestGuardianGetHiddenACL(t *testing.T) {
 				Login:          "user1",
 				IsGrafanaAdmin: true,
 			}
-			g := New(dashboardID, orgID, user)
+			g := New(context.Background(), dashboardID, orgID, user)
 
 			hiddenACL, err := g.GetHiddenACL(cfg)
 			So(err, ShouldBeNil)
 
 			So(hiddenACL, ShouldHaveLength, 0)
+		})
+	})
+}
+
+func TestGuardianGetAclWithoutDuplicates(t *testing.T) {
+	t.Run("Get hidden ACL tests", func(t *testing.T) {
+		t.Cleanup(bus.ClearBusHandlers)
+
+		bus.AddHandler("test", func(query *models.GetDashboardAclInfoListQuery) error {
+			query.Result = []*models.DashboardAclInfoDTO{
+				{Inherited: true, UserId: 3, UserLogin: "user3", Permission: models.PERMISSION_EDIT},
+				{Inherited: false, UserId: 3, UserLogin: "user3", Permission: models.PERMISSION_VIEW},
+				{Inherited: false, UserId: 2, UserLogin: "user2", Permission: models.PERMISSION_ADMIN},
+				{Inherited: true, UserId: 4, UserLogin: "user4", Permission: models.PERMISSION_ADMIN},
+				{Inherited: false, UserId: 4, UserLogin: "user4", Permission: models.PERMISSION_ADMIN},
+				{Inherited: false, UserId: 5, UserLogin: "user5", Permission: models.PERMISSION_EDIT},
+				{Inherited: true, UserId: 6, UserLogin: "user6", Permission: models.PERMISSION_VIEW},
+				{Inherited: false, UserId: 6, UserLogin: "user6", Permission: models.PERMISSION_EDIT},
+			}
+			return nil
+		})
+
+		t.Run("Should get acl without duplicates", func(t *testing.T) {
+			user := &models.SignedInUser{
+				OrgId:  orgID,
+				UserId: 1,
+				Login:  "user1",
+			}
+			g := New(context.Background(), dashboardID, orgID, user)
+
+			acl, err := g.GetACLWithoutDuplicates()
+			require.NoError(t, err)
+			require.NotNil(t, acl)
+			require.Len(t, acl, 6)
+			require.ElementsMatch(t, []*models.DashboardAclInfoDTO{
+				{Inherited: true, UserId: 3, UserLogin: "user3", Permission: models.PERMISSION_EDIT},
+				{Inherited: true, UserId: 4, UserLogin: "user4", Permission: models.PERMISSION_ADMIN},
+				{Inherited: true, UserId: 6, UserLogin: "user6", Permission: models.PERMISSION_VIEW},
+				{Inherited: false, UserId: 2, UserLogin: "user2", Permission: models.PERMISSION_ADMIN},
+				{Inherited: false, UserId: 5, UserLogin: "user5", Permission: models.PERMISSION_EDIT},
+				{Inherited: false, UserId: 6, UserLogin: "user6", Permission: models.PERMISSION_EDIT},
+			}, acl)
 		})
 	})
 }

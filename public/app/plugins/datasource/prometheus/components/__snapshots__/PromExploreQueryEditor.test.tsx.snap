@@ -4,10 +4,17 @@ exports[`PromExploreQueryEditor should render component 1`] = `
 <PromQueryField
   ExtraFieldElement={
     <Memo
+      datasource={
+        Object {
+          "languageProvider": Object {
+            "getLabelKeys": [Function],
+            "metrics": Array [],
+            "syntax": [Function],
+          },
+        }
+      }
       onChange={[MockFunction]}
-      onKeyDownFunc={[Function]}
-      onQueryTypeChange={[Function]}
-      onStepChange={[Function]}
+      onRunQuery={[MockFunction]}
       query={
         Object {
           "expr": "",
@@ -15,8 +22,6 @@ exports[`PromExploreQueryEditor should render component 1`] = `
           "refId": "A",
         }
       }
-      queryType="both"
-      stepValue="1s"
     />
   }
   data={
@@ -56,6 +61,8 @@ exports[`PromExploreQueryEditor should render component 1`] = `
   datasource={
     Object {
       "languageProvider": Object {
+        "getLabelKeys": [Function],
+        "metrics": Array [],
         "syntax": [Function],
       },
     }

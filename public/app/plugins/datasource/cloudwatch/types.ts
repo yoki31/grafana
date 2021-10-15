@@ -1,4 +1,5 @@
-import { DataQuery, SelectableValue, DataSourceJsonData } from '@grafana/data';
+import { DataQuery, SelectableValue } from '@grafana/data';
+import { AwsAuthDataSourceSecureJsonData, AwsAuthDataSourceJsonData } from '@grafana/aws-sdk';
 
 export interface CloudWatchMetricsQuery extends DataQuery {
   queryMode?: 'Metrics';
@@ -10,7 +11,11 @@ export interface CloudWatchMetricsQuery extends DataQuery {
 
   metricName: string;
   dimensions: { [key: string]: string | string[] };
-  statistics: string[];
+  statistic: string;
+  /**
+   * @deprecated use statistic
+   */
+  statistics?: string[];
   period: string;
   alias: string;
   matchExact: boolean;
@@ -48,7 +53,10 @@ export type CloudWatchQuery = CloudWatchMetricsQuery | CloudWatchLogsQuery;
 export const isCloudWatchLogsQuery = (cloudwatchQuery: CloudWatchQuery): cloudwatchQuery is CloudWatchLogsQuery =>
   (cloudwatchQuery as CloudWatchLogsQuery).queryMode === 'Logs';
 
-export interface AnnotationQuery extends CloudWatchMetricsQuery {
+export interface CloudWatchAnnotationQuery extends CloudWatchMetricsQuery {
+  enable: boolean;
+  name: string;
+  iconColor: string;
   prefixMatching: boolean;
   actionPrefix: string;
   alarmNamePrefix: string;
@@ -56,17 +64,19 @@ export interface AnnotationQuery extends CloudWatchMetricsQuery {
 
 export type SelectableStrings = Array<SelectableValue<string>>;
 
-export interface CloudWatchJsonData extends DataSourceJsonData {
+export interface CloudWatchJsonData extends AwsAuthDataSourceJsonData {
   timeField?: string;
-  assumeRoleArn?: string;
-  externalId?: string;
   database?: string;
   customMetricsNamespaces?: string;
+  endpoint?: string;
+
+  // Used to create links if logs contain traceId.
+  tracingDatasourceUid?: string;
 }
 
-export interface CloudWatchSecureJsonData {
-  accessKey: string;
-  secretKey: string;
+export interface CloudWatchSecureJsonData extends AwsAuthDataSourceSecureJsonData {
+  accessKey?: string;
+  secretKey?: string;
 }
 
 export interface GetQueryResultsRequest {
@@ -176,7 +186,6 @@ export interface TSDBQueryResult<T = any> {
   refId: string;
   series: TSDBTimeSeries[];
   tables: Array<TSDBTable<T>>;
-  dataframes: number[][];
 
   error?: string;
   meta?: any;
@@ -321,17 +330,8 @@ export interface MetricQuery {
 // 	IntervalMs    int64
 // }
 
-export interface CloudWatchMetricsAnnotation {
-  namespace: string;
-  metricName: string;
-  expression: string;
-  dimensions: {};
-  region: string;
+export interface ExecutedQueryPreview {
   id: string;
-  alias: string;
-  statistics: string[];
-  matchExact: true;
-  prefixMatching: false;
-  actionPrefix: string;
-  alarmNamePrefix: string;
+  executedQuery: string;
+  period: string;
 }

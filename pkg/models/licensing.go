@@ -13,7 +13,10 @@ type Licensing interface {
 	// Return edition
 	Edition() string
 
-	LicenseURL(user *SignedInUser) string
+	// Used to build content delivery URL
+	ContentDeliveryPrefix() string
+
+	LicenseURL(showAdminLicensingPage bool) string
 
 	StateInfo() string
 }

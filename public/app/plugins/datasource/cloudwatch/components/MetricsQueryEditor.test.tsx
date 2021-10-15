@@ -7,11 +7,12 @@ import { TemplateSrv } from 'app/features/templating/template_srv';
 import { MetricsQueryEditor, normalizeQuery, Props } from './MetricsQueryEditor';
 import { CloudWatchDatasource } from '../datasource';
 import { CustomVariableModel, initialVariableModelState } from '../../../../features/variables/types';
+import { CloudWatchJsonData } from '../types';
 
 const setup = () => {
   const instanceSettings = {
     jsonData: { defaultRegion: 'us-east-1' },
-  } as DataSourceInstanceSettings;
+  } as DataSourceInstanceSettings<CloudWatchJsonData>;
 
   const templateSrv = new TemplateSrv();
   const variable: CustomVariableModel = {
@@ -44,7 +45,7 @@ const setup = () => {
       namespace: 'ec2',
       metricName: 'CPUUtilization',
       dimensions: { somekey: 'somevalue' },
-      statistics: [],
+      statistic: '',
       period: '',
       expression: '',
       alias: '',
@@ -91,7 +92,7 @@ describe('QueryEditor', () => {
       region: 'default',
       id: '',
       alias: '',
-      statistics: ['Average'],
+      statistic: 'Average',
       period: '',
       queryMode: 'Metrics',
       apiMode: 'Metrics',
@@ -107,9 +108,9 @@ describe('QueryEditor', () => {
         const props = setup();
         props.query.region = (null as unknown) as string;
         const wrapper = mount(<MetricsQueryEditor {...props} />);
-        expect(wrapper.find('.gf-form-inline').first().find('.gf-form-label.query-part').first().text()).toEqual(
-          'default'
-        );
+        expect(
+          wrapper.find('.gf-form-inline').first().find('Segment').find('InlineLabel').find('label').text()
+        ).toEqual('default');
       });
     });
 
@@ -122,7 +123,7 @@ describe('QueryEditor', () => {
         region: 'default',
         id: '',
         alias: '',
-        statistics: ['Average'],
+        statistic: 'Average',
         matchExact: true,
         period: '',
         refId: '42',

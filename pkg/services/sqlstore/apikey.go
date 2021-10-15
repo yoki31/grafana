@@ -6,37 +6,62 @@ import (
 
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/models"
+	"xorm.io/xorm"
 )
 
 func init() {
-	bus.AddHandler("sql", GetApiKeys)
+	bus.AddHandlerCtx("sql", GetAPIKeys)
 	bus.AddHandler("sql", GetApiKeyById)
 	bus.AddHandler("sql", GetApiKeyByName)
 	bus.AddHandlerCtx("sql", DeleteApiKeyCtx)
-	bus.AddHandler("sql", AddApiKey)
+	bus.AddHandlerCtx("sql", AddAPIKey)
 }
 
-func GetApiKeys(query *models.GetApiKeysQuery) error {
-	sess := x.Limit(100, 0).Where("org_id=? and ( expires IS NULL or expires >= ?)",
-		query.OrgId, timeNow().Unix()).Asc("name")
-	if query.IncludeExpired {
-		sess = x.Limit(100, 0).Where("org_id=?", query.OrgId).Asc("name")
-	}
+// GetAPIKeys queries the database based
+// on input on GetApiKeysQuery
+func GetAPIKeys(ctx context.Context, query *models.GetApiKeysQuery) error {
+	return withDbSession(ctx, x, func(dbSession *DBSession) error {
+		var sess *xorm.Session
 
-	query.Result = make([]*models.ApiKey, 0)
-	return sess.Find(&query.Result)
-}
+		if query.IncludeExpired {
+			sess = dbSession.Limit(100, 0).
+				Where("org_id=?", query.OrgId).
+				Asc("name")
+		} else {
+			sess = dbSession.Limit(100, 0).
+				Where("org_id=? and ( expires IS NULL or expires >= ?)", query.OrgId, timeNow().Unix()).
+				Asc("name")
+		}
 
-func DeleteApiKeyCtx(ctx context.Context, cmd *models.DeleteApiKeyCommand) error {
-	return withDbSession(ctx, func(sess *DBSession) error {
-		var rawSQL = "DELETE FROM api_key WHERE id=? and org_id=?"
-		_, err := sess.Exec(rawSQL, cmd.Id, cmd.OrgId)
-		return err
+		query.Result = make([]*models.ApiKey, 0)
+		return sess.Find(&query.Result)
 	})
 }
 
-func AddApiKey(cmd *models.AddApiKeyCommand) error {
-	return inTransaction(func(sess *DBSession) error {
+func DeleteApiKeyCtx(ctx context.Context, cmd *models.DeleteApiKeyCommand) error {
+	return withDbSession(ctx, x, func(sess *DBSession) error {
+		return deleteAPIKey(sess, cmd.Id, cmd.OrgId)
+	})
+}
+
+func deleteAPIKey(sess *DBSession, id, orgID int64) error {
+	rawSQL := "DELETE FROM api_key WHERE id=? and org_id=?"
+	result, err := sess.Exec(rawSQL, id, orgID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	} else if n == 0 {
+		return models.ErrApiKeyNotFound
+	}
+	return nil
+}
+
+// AddAPIKey adds the API key to the database.
+func AddAPIKey(ctx context.Context, cmd *models.AddApiKeyCommand) error {
+	return inTransactionCtx(ctx, func(sess *DBSession) error {
 		key := models.ApiKey{OrgId: cmd.OrgId, Name: cmd.Name}
 		exists, _ := sess.Get(&key)
 		if exists {

@@ -1,8 +1,6 @@
 // Libraries
 import React, { ReactNode } from 'react';
-import intersectionBy from 'lodash/intersectionBy';
-import debounce from 'lodash/debounce';
-import unionBy from 'lodash/unionBy';
+import { intersectionBy, debounce, unionBy } from 'lodash';
 
 import {
   BracesPlugin,
@@ -21,18 +19,21 @@ import { Editor, Node, Plugin } from 'slate';
 import syntax from '../syntax';
 
 // Types
-import { AbsoluteTimeRange, AppEvents, ExploreQueryFieldProps, SelectableValue } from '@grafana/data';
-import { CloudWatchLogsQuery, CloudWatchQuery } from '../types';
+import { AbsoluteTimeRange, QueryEditorProps, SelectableValue } from '@grafana/data';
+import { CloudWatchJsonData, CloudWatchLogsQuery, CloudWatchQuery } from '../types';
 import { CloudWatchDatasource } from '../datasource';
 import { LanguageMap, languages as prismLanguages } from 'prismjs';
 import { CloudWatchLanguageProvider } from '../language_provider';
-import { css } from 'emotion';
+import { css } from '@emotion/css';
 import { ExploreId } from 'app/types';
-import { appEvents } from 'app/core/core';
+import { dispatch } from 'app/store/store';
+import { notifyApp } from 'app/core/actions';
+import { createErrorNotification } from 'app/core/copy/appNotification';
 import { InputActionMeta } from '@grafana/ui/src/components/Select/types';
 import { getStatsGroups } from '../utils/query/getStatsGroups';
 
-export interface CloudWatchLogsQueryFieldProps extends ExploreQueryFieldProps<CloudWatchDatasource, CloudWatchQuery> {
+export interface CloudWatchLogsQueryFieldProps
+  extends QueryEditorProps<CloudWatchDatasource, CloudWatchQuery, CloudWatchJsonData> {
   absoluteRange: AbsoluteTimeRange;
   onLabelsRefresh?: () => void;
   ExtraFieldElement?: ReactNode;
@@ -118,7 +119,15 @@ export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogs
         label: logGroup,
       }));
     } catch (err) {
-      appEvents.emit(AppEvents.alertError, [err]);
+      let errMessage = 'unknown error';
+      if (typeof err !== 'string') {
+        try {
+          errMessage = JSON.stringify(err);
+        } catch (e) {}
+      } else {
+        errMessage = err;
+      }
+      dispatch(notifyApp(createErrorNotification(errMessage)));
       return [];
     }
   };
@@ -316,6 +325,7 @@ export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogs
             labelWidth={4}
             inputEl={
               <Select
+                menuShouldPortal
                 options={regions}
                 value={selectedRegion}
                 onChange={(v) => this.setSelectedRegion(v)}
@@ -332,6 +342,7 @@ export class CloudWatchLogsQueryField extends React.PureComponent<CloudWatchLogs
             className="flex-grow-1"
             inputEl={
               <MultiSelect
+                menuShouldPortal
                 allowCustomValue={allowCustomValue}
                 options={unionBy(availableLogGroups, selectedLogGroups, 'value')}
                 value={selectedLogGroups}

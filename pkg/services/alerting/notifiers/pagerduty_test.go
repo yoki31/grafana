@@ -10,6 +10,8 @@ import (
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/models"
 	"github.com/grafana/grafana/pkg/services/alerting"
+	"github.com/grafana/grafana/pkg/services/encryption/ossencryption"
+	"github.com/grafana/grafana/pkg/services/validations"
 	. "github.com/smartystreets/goconvey/convey"
 )
 
@@ -38,7 +40,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				_, err = NewPagerdutyNotifier(model)
+				_, err = NewPagerdutyNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				So(err, ShouldNotBeNil)
 			})
 
@@ -54,7 +56,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				not, err := NewPagerdutyNotifier(model)
+				not, err := NewPagerdutyNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				pagerdutyNotifier := not.(*PagerdutyNotifier)
 
 				So(err, ShouldBeNil)
@@ -77,7 +79,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				not, err := NewPagerdutyNotifier(model)
+				not, err := NewPagerdutyNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				pagerdutyNotifier := not.(*PagerdutyNotifier)
 
 				So(err, ShouldBeNil)
@@ -104,7 +106,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				not, err := NewPagerdutyNotifier(model)
+				not, err := NewPagerdutyNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				pagerdutyNotifier := not.(*PagerdutyNotifier)
 
 				So(err, ShouldBeNil)
@@ -129,7 +131,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				not, err := NewPagerdutyNotifier(model)
+				not, err := NewPagerdutyNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				So(err, ShouldBeNil)
 
 				pagerdutyNotifier := not.(*PagerdutyNotifier)
@@ -138,7 +140,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 					Name:    "someRule",
 					Message: "someMessage",
 					State:   models.AlertStateAlerting,
-				})
+				}, &validations.OSSPluginRequestValidator{})
 				evalContext.IsTestRun = true
 
 				payloadJSON, err := pagerdutyNotifier.buildEventPayload(evalContext)
@@ -157,12 +159,70 @@ func TestPagerdutyNotifier(t *testing.T) {
 						},
 					},
 					"payload": map[string]interface{}{
-						"component":      "Grafana",
-						"source":         "<<PRESENCE>>",
-						"custom_details": map[string]interface{}{},
-						"severity":       "critical",
-						"summary":        "someRule - someMessage",
-						"timestamp":      "<<PRESENCE>>",
+						"component": "Grafana",
+						"source":    "<<PRESENCE>>",
+						"custom_details": map[string]interface{}{
+							"state": "alerting",
+						},
+						"severity":  "critical",
+						"summary":   "someRule - someMessage",
+						"timestamp": "<<PRESENCE>>",
+					},
+					"routing_key": "abcdefgh0123456789",
+				}, payload.Interface(), cmp.Comparer(presenceComparer))
+				So(diff, ShouldBeEmpty)
+			})
+
+			Convey("should return properly formatted default v2 event payload with empty message", func() {
+				json := `{
+					"integrationKey": "abcdefgh0123456789",
+					"autoResolve": false
+				}`
+
+				settingsJSON, err := simplejson.NewJson([]byte(json))
+				So(err, ShouldBeNil)
+
+				model := &models.AlertNotification{
+					Name:     "pagerduty_testing",
+					Type:     "pagerduty",
+					Settings: settingsJSON,
+				}
+
+				not, err := NewPagerdutyNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
+				So(err, ShouldBeNil)
+
+				pagerdutyNotifier := not.(*PagerdutyNotifier)
+				evalContext := alerting.NewEvalContext(context.Background(), &alerting.Rule{
+					ID:    0,
+					Name:  "someRule",
+					State: models.AlertStateAlerting,
+				}, &validations.OSSPluginRequestValidator{})
+				evalContext.IsTestRun = true
+
+				payloadJSON, err := pagerdutyNotifier.buildEventPayload(evalContext)
+				So(err, ShouldBeNil)
+				payload, err := simplejson.NewJson(payloadJSON)
+				So(err, ShouldBeNil)
+
+				diff := cmp.Diff(map[string]interface{}{
+					"client":       "Grafana",
+					"client_url":   "",
+					"dedup_key":    "alertId-0",
+					"event_action": "trigger",
+					"links": []interface{}{
+						map[string]interface{}{
+							"href": "",
+						},
+					},
+					"payload": map[string]interface{}{
+						"component": "Grafana",
+						"source":    "<<PRESENCE>>",
+						"custom_details": map[string]interface{}{
+							"state": "alerting",
+						},
+						"severity":  "critical",
+						"summary":   "someRule",
+						"timestamp": "<<PRESENCE>>",
 					},
 					"routing_key": "abcdefgh0123456789",
 				}, payload.Interface(), cmp.Comparer(presenceComparer))
@@ -185,7 +245,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				not, err := NewPagerdutyNotifier(model)
+				not, err := NewPagerdutyNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				So(err, ShouldBeNil)
 
 				pagerdutyNotifier := not.(*PagerdutyNotifier)
@@ -194,7 +254,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 					Name:    "someRule",
 					Message: "someMessage",
 					State:   models.AlertStateAlerting,
-				})
+				}, &validations.OSSPluginRequestValidator{})
 				evalContext.IsTestRun = true
 				evalContext.EvalMatches = []*alerting.EvalMatch{
 					{
@@ -229,6 +289,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 							"queries": map[string]interface{}{
 								"someMetric": nil,
 							},
+							"state": "alerting",
 						},
 						"severity":  "critical",
 						"summary":   "someRule",
@@ -254,7 +315,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				not, err := NewPagerdutyNotifier(model)
+				not, err := NewPagerdutyNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				So(err, ShouldBeNil)
 
 				pagerdutyNotifier := not.(*PagerdutyNotifier)
@@ -272,7 +333,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 						{Key: "severity", Value: "warning"},
 						{Key: "dedup_key", Value: "key-" + strings.Repeat("x", 260)},
 					},
-				})
+				}, &validations.OSSPluginRequestValidator{})
 				evalContext.ImagePublicURL = "http://somewhere.com/omg_dont_panic.png"
 				evalContext.IsTestRun = true
 
@@ -301,6 +362,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 							"severity":  "warning",
 							"dedup_key": "key-" + strings.Repeat("x", 250),
 							"keyOnly":   "",
+							"state":     "alerting",
 						},
 						"severity":  "warning",
 						"summary":   "someRule - someMessage",
@@ -333,7 +395,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				not, err := NewPagerdutyNotifier(model)
+				not, err := NewPagerdutyNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				So(err, ShouldBeNil)
 
 				pagerdutyNotifier := not.(*PagerdutyNotifier)
@@ -350,7 +412,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 						{Key: "component", Value: "aComponent"},
 						{Key: "severity", Value: "info"},
 					},
-				})
+				}, &validations.OSSPluginRequestValidator{})
 				evalContext.ImagePublicURL = "http://somewhere.com/omg_dont_panic.png"
 				evalContext.IsTestRun = true
 
@@ -378,6 +440,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 							"component": "aComponent",
 							"severity":  "info",
 							"keyOnly":   "",
+							"state":     "alerting",
 						},
 						"severity":  "info",
 						"summary":   "someRule - someMessage",
@@ -411,7 +474,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 					Settings: settingsJSON,
 				}
 
-				not, err := NewPagerdutyNotifier(model)
+				not, err := NewPagerdutyNotifier(model, ossencryption.ProvideService().GetDecryptedValue)
 				So(err, ShouldBeNil)
 
 				pagerdutyNotifier := not.(*PagerdutyNotifier)
@@ -428,7 +491,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 						{Key: "component", Value: "aComponent"},
 						{Key: "severity", Value: "llama"},
 					},
-				})
+				}, &validations.OSSPluginRequestValidator{})
 				evalContext.ImagePublicURL = "http://somewhere.com/omg_dont_panic.png"
 				evalContext.IsTestRun = true
 
@@ -456,6 +519,7 @@ func TestPagerdutyNotifier(t *testing.T) {
 							"component": "aComponent",
 							"severity":  "llama",
 							"keyOnly":   "",
+							"state":     "alerting",
 						},
 						"severity":  "critical",
 						"summary":   "someRule - someMessage",

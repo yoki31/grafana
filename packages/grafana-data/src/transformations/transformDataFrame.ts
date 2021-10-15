@@ -2,7 +2,7 @@ import { MonoTypeOperatorFunction, Observable, of } from 'rxjs';
 import { map, mergeMap } from 'rxjs/operators';
 
 import { DataFrame, DataTransformerConfig } from '../types';
-import { standardTransformersRegistry, TransformerRegistyItem } from './standardTransformersRegistry';
+import { standardTransformersRegistry, TransformerRegistryItem } from './standardTransformersRegistry';
 
 const getOperator = (config: DataTransformerConfig): MonoTypeOperatorFunction<DataFrame[]> => (source) => {
   const info = standardTransformersRegistry.get(config.id);
@@ -21,7 +21,7 @@ const getOperator = (config: DataTransformerConfig): MonoTypeOperatorFunction<Da
 
 const postProcessTransform = (
   before: DataFrame[],
-  info: TransformerRegistyItem<any>
+  info: TransformerRegistryItem<any>
 ): MonoTypeOperatorFunction<DataFrame[]> => (source) =>
   source.pipe(
     map((after) => {
@@ -60,6 +60,11 @@ export function transformDataFrame(options: DataTransformerConfig[], data: DataF
 
   for (let index = 0; index < options.length; index++) {
     const config = options[index];
+
+    if (config.disabled) {
+      continue;
+    }
+
     operators.push(getOperator(config));
   }
 

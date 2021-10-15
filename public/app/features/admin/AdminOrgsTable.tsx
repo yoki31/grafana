@@ -13,7 +13,7 @@ export const AdminOrgsTable: FC<Props> = ({ orgs, onDelete }) => {
     <table className="filter-table form-inline filter-table--hover">
       <thead>
         <tr>
-          <th>Id</th>
+          <th>ID</th>
           <th>Name</th>
           <th style={{ width: '1%' }}></th>
         </tr>
@@ -28,7 +28,13 @@ export const AdminOrgsTable: FC<Props> = ({ orgs, onDelete }) => {
               <a href={`admin/orgs/edit/${org.id}`}>{org.name}</a>
             </td>
             <td className="text-right">
-              <Button variant="destructive" size="sm" icon="times" onClick={() => setDeleteOrg(org)} />
+              <Button
+                variant="destructive"
+                size="sm"
+                icon="times"
+                onClick={() => setDeleteOrg(org)}
+                aria-label="Delete org"
+              />
             </td>
           </tr>
         ))}

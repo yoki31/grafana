@@ -74,7 +74,15 @@ var (
 	allOauthes    = []string{"github", "gitlab", "google", "generic_oauth", "grafananet", grafanaCom, "azuread", "okta"}
 )
 
-func newSocialBase(name string, config *oauth2.Config, info *setting.OAuthInfo) *SocialBase {
+type Service interface {
+	GetOAuthProviders() map[string]bool
+	GetOAuthHttpClient(string) (*http.Client, error)
+	GetConnector(string) (SocialConnector, error)
+	GetOAuthInfoProvider(string) *OAuthInfo
+	GetOAuthInfoProviders() map[string]*OAuthInfo
+}
+
+func newSocialBase(name string, config *oauth2.Config, info *OAuthInfo) *SocialBase {
 	logger := log.New("oauth." + name)
 
 	return &SocialBase{
@@ -234,7 +242,7 @@ func NewOAuthService() {
 var GetOAuthProviders = func(cfg *setting.Cfg) map[string]bool {
 	result := map[string]bool{}
 
-	if cfg == nil || cfg.Raw == nil {
+	if ss.cfg == nil || ss.cfg.Raw == nil {
 		return result
 	}
 
@@ -243,7 +251,7 @@ var GetOAuthProviders = func(cfg *setting.Cfg) map[string]bool {
 			name = grafanaCom
 		}
 
-		sec := cfg.Raw.Section("auth." + name)
+		sec := ss.cfg.Raw.Section("auth." + name)
 		if sec == nil {
 			continue
 		}
@@ -308,7 +316,7 @@ func GetOAuthHttpClient(name string) (*http.Client, error) {
 	}
 	// The socialMap keys don't have "oauth_" prefix, but everywhere else in the system does
 	name = strings.TrimPrefix(name, "oauth_")
-	info, ok := setting.OAuthService.OAuthInfos[name]
+	info, ok := ss.oAuthProvider[name]
 	if !ok {
 		return nil, fmt.Errorf("could not find %q in OAuth Settings", name)
 	}

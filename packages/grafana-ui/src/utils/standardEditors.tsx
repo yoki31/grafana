@@ -22,6 +22,8 @@ import {
   FieldColor,
   FieldColorConfigSettings,
   StatsPickerConfigSettings,
+  displayNameOverrideProcessor,
+  FieldNamePickerConfigSettings,
 } from '@grafana/data';
 
 import { Switch } from '../components/Switch/Switch';
@@ -32,6 +34,7 @@ import {
   StringValueEditor,
   StringArrayEditor,
   SelectValueEditor,
+  MultiSelectValueEditor,
   TimeZonePicker,
 } from '../components';
 import { ValueMappingsValueEditor } from '../components/OptionsUI/mappings';
@@ -41,6 +44,7 @@ import { DataLinksValueEditor } from '../components/OptionsUI/links';
 import { ColorValueEditor } from '../components/OptionsUI/color';
 import { FieldColorEditor } from '../components/OptionsUI/fieldColor';
 import { StatsPickerEditor } from '../components/OptionsUI/stats';
+import { FieldNamePicker } from '../components/MatchersUI/FieldNamePicker';
 
 /**
  * Returns collection of common field config properties definitions
@@ -54,7 +58,7 @@ export const getStandardFieldConfigs = () => {
     description: 'Change the field or series name',
     editor: standardEditorsRegistry.get('text').editor as any,
     override: standardEditorsRegistry.get('text').editor as any,
-    process: stringOverrideProcessor,
+    process: displayNameOverrideProcessor,
     settings: {
       placeholder: 'none',
       expandTemplateVars: true,
@@ -77,7 +81,7 @@ export const getStandardFieldConfigs = () => {
       placeholder: 'none',
     },
 
-    shouldApply: (field) => field.type === FieldType.number,
+    shouldApply: () => true,
     category,
   };
 
@@ -220,11 +224,13 @@ export const getStandardFieldConfigs = () => {
     category,
   };
 
-  return [unit, min, max, decimals, displayName, noValue, color, thresholds, mappings, links];
+  return [unit, min, max, decimals, displayName, color, noValue, thresholds, mappings, links];
 };
 
 /**
  * Returns collection of standard option editors definitions
+ *
+ * @internal
  */
 export const getStandardOptionEditors = () => {
   const number: StandardEditorsRegistryItem<number> = {
@@ -269,6 +275,13 @@ export const getStandardOptionEditors = () => {
     name: 'Select',
     description: 'Allows option selection',
     editor: SelectValueEditor as any,
+  };
+
+  const multiSelect: StandardEditorsRegistryItem<any> = {
+    id: 'multi-select',
+    name: 'Multi select',
+    description: 'Allows for multiple option selection',
+    editor: MultiSelectValueEditor as any,
   };
 
   const radio: StandardEditorsRegistryItem<any> = {
@@ -338,6 +351,13 @@ export const getStandardOptionEditors = () => {
     editor: TimeZonePicker as any,
   };
 
+  const fieldName: StandardEditorsRegistryItem<string, FieldNamePickerConfigSettings> = {
+    id: 'field-name',
+    name: 'Field name',
+    description: 'Time zone selection',
+    editor: FieldNamePicker as any,
+  };
+
   return [
     text,
     number,
@@ -354,5 +374,7 @@ export const getStandardOptionEditors = () => {
     timeZone,
     fieldColor,
     color,
+    multiSelect,
+    fieldName,
   ];
 };

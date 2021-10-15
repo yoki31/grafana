@@ -15,9 +15,10 @@ import (
 
 type SocialOkta struct {
 	*SocialBase
-	apiUrl            string
-	allowedGroups     []string
-	roleAttributePath string
+	apiUrl              string
+	allowedGroups       []string
+	roleAttributePath   string
+	roleAttributeStrict bool
 }
 
 type OktaUserInfoJson struct {

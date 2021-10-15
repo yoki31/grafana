@@ -6,16 +6,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/opentracing/opentracing-go"
-	"github.com/opentracing/opentracing-go/ext"
-	tlog "github.com/opentracing/opentracing-go/log"
-
 	"github.com/benbjohnson/clock"
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/registry"
+	"github.com/grafana/grafana/pkg/infra/usagestats"
+	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/plugins"
+	"github.com/grafana/grafana/pkg/services/encryption"
 	"github.com/grafana/grafana/pkg/services/rendering"
 	"github.com/grafana/grafana/pkg/setting"
+	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
+	tlog "github.com/opentracing/opentracing-go/log"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -23,37 +25,50 @@ import (
 // schedules alert evaluations and makes sure notifications
 // are sent.
 type AlertEngine struct {
-	RenderService rendering.Service `inject:""`
-	Bus           bus.Bus           `inject:""`
+	RenderService    rendering.Service
+	Bus              bus.Bus
+	RequestValidator models.PluginRequestValidator
+	DataService      plugins.DataRequestHandler
+	Cfg              *setting.Cfg
 
-	execQueue     chan *Job
-	ticker        *Ticker
-	scheduler     scheduler
-	evalHandler   evalHandler
-	ruleReader    ruleReader
-	log           log.Logger
-	resultHandler resultHandler
-}
-
-func init() {
-	registry.RegisterService(&AlertEngine{})
+	execQueue         chan *Job
+	ticker            *Ticker
+	scheduler         scheduler
+	evalHandler       evalHandler
+	ruleReader        ruleReader
+	log               log.Logger
+	resultHandler     resultHandler
+	usageStatsService usagestats.Service
 }
 
 // IsDisabled returns true if the alerting service is disable for this instance.
 func (e *AlertEngine) IsDisabled() bool {
-	return !setting.AlertingEnabled || !setting.ExecuteAlerts
+	return !setting.AlertingEnabled || !setting.ExecuteAlerts || e.Cfg.UnifiedAlerting.Enabled
 }
 
-// Init initializes the AlertingService.
-func (e *AlertEngine) Init() error {
+// ProvideAlertEngine returns a new AlertEngine.
+func ProvideAlertEngine(renderer rendering.Service, bus bus.Bus, requestValidator models.PluginRequestValidator,
+	dataService plugins.DataRequestHandler, usageStatsService usagestats.Service, encryptionService encryption.Service,
+	cfg *setting.Cfg) *AlertEngine {
+	e := &AlertEngine{
+		Cfg:               cfg,
+		RenderService:     renderer,
+		Bus:               bus,
+		RequestValidator:  requestValidator,
+		DataService:       dataService,
+		usageStatsService: usageStatsService,
+	}
 	e.ticker = NewTicker(time.Now(), time.Second*0, clock.New(), 1)
 	e.execQueue = make(chan *Job, 1000)
 	e.scheduler = newScheduler()
-	e.evalHandler = NewEvalHandler()
+	e.evalHandler = NewEvalHandler(e.DataService)
 	e.ruleReader = newRuleReader()
 	e.log = log.New("alerting.engine")
-	e.resultHandler = newResultHandler(e.RenderService)
-	return nil
+	e.resultHandler = newResultHandler(e.RenderService, encryptionService.GetDecryptedValue)
+
+	e.registerUsageMetrics()
+
+	return e
 }
 
 // Run starts the alerting service background process.
@@ -164,7 +179,7 @@ func (e *AlertEngine) processJob(attemptID int, attemptChan chan int, cancelChan
 	span := opentracing.StartSpan("alert execution")
 	alertCtx = opentracing.ContextWithSpan(alertCtx, span)
 
-	evalContext := NewEvalContext(alertCtx, job.Rule)
+	evalContext := NewEvalContext(alertCtx, job.Rule, e.RequestValidator)
 	evalContext.Ctx = alertCtx
 
 	go func() {
@@ -228,4 +243,28 @@ func (e *AlertEngine) processJob(attemptID int, attemptChan chan int, cancelChan
 		e.log.Debug("Job Execution completed", "timeMs", evalContext.GetDurationMs(), "alertId", evalContext.Rule.ID, "name", evalContext.Rule.Name, "firing", evalContext.Firing, "attemptID", attemptID)
 		close(attemptChan)
 	}()
+}
+
+func (e *AlertEngine) registerUsageMetrics() {
+	e.usageStatsService.RegisterMetricsFunc(func() (map[string]interface{}, error) {
+		alertingUsageStats, err := e.QueryUsageStats()
+		if err != nil {
+			return nil, err
+		}
+
+		alertingOtherCount := 0
+		metrics := map[string]interface{}{}
+
+		for dsType, usageCount := range alertingUsageStats.DatasourceUsage {
+			if e.usageStatsService.ShouldBeReported(dsType) {
+				metrics[fmt.Sprintf("stats.alerting.ds.%s.count", dsType)] = usageCount
+			} else {
+				alertingOtherCount += usageCount
+			}
+		}
+
+		metrics["stats.alerting.ds.other.count"] = alertingOtherCount
+
+		return metrics, nil
+	})
 }

@@ -25,6 +25,8 @@ type IndexViewData struct {
 	AppleTouchIcon          template.URL
 	AppTitle                string
 	Sentry                  *setting.Sentry
+	ContentDeliveryURL      string
+	LoadingLogo             template.URL
 	// Nonce is a cryptographic identifier for use with Content Security Policy.
 	Nonce string
 }
@@ -61,3 +63,6 @@ type NavLink struct {
 	HideFromTabs bool       `json:"hideFromTabs,omitempty"`
 	Children     []*NavLink `json:"children,omitempty"`
 }
+
+// NavIDCfg is the id for org configuration navigation node
+const NavIDCfg = "cfg"

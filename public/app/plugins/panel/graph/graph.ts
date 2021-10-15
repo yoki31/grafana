@@ -9,7 +9,7 @@ import 'vendor/flot/jquery.flot.dashes';
 import './jquery.flot.events';
 
 import $ from 'jquery';
-import _ from 'lodash';
+import { clone, find, flatten, isUndefined, map, max as _max, min as _min, sortBy as _sortBy, toNumber } from 'lodash';
 import { tickStep } from 'app/core/utils/ticks';
 import { coreModule, updateLegendValues } from 'app/core/core';
 import GraphTooltip from './graph_tooltip';
@@ -24,8 +24,8 @@ import ReactDOM from 'react-dom';
 import { GraphLegendProps, Legend } from './Legend/Legend';
 
 import { GraphCtrl } from './module';
-import { graphTickFormatter, graphTimeFormat, IconName, MenuItem, MenuItemsGroup } from '@grafana/ui';
-import { getCurrentTheme, provideTheme } from 'app/core/utils/ConfigProvider';
+import { graphTickFormatter, graphTimeFormat, IconName, MenuItemProps, MenuItemsGroup } from '@grafana/ui';
+import { provideTheme } from 'app/core/utils/ConfigProvider';
 import {
   DataFrame,
   DataFrameView,
@@ -37,6 +37,7 @@ import {
   getTimeField,
   getValueFormat,
   hasLinks,
+  LegacyEventHandler,
   LegacyGraphHoverClearEvent,
   LegacyGraphHoverEvent,
   LinkModelSupplier,
@@ -46,7 +47,7 @@ import {
 import { GraphContextMenuCtrl } from './GraphContextMenuCtrl';
 import { TimeSrv } from 'app/features/dashboard/services/TimeSrv';
 import { ContextSrv } from 'app/core/services/context_srv';
-import { getFieldLinksSupplier } from 'app/features/panel/panellinks/linkSuppliers';
+import { getFieldLinksSupplier } from 'app/angular/panel/panellinks/linkSuppliers';
 import { DashboardModel } from '../../../features/dashboard/state';
 
 const LegendWithThemeProvider = provideTheme(Legend);
@@ -60,14 +61,20 @@ class GraphElement {
   panel: any;
   plot: any;
   sortedSeries?: any[];
-  data: any[];
+  data: any[] = [];
   panelWidth: number;
   eventManager: EventManager;
   thresholdManager: ThresholdManager;
   timeRegionManager: TimeRegionManager;
-  legendElem: HTMLElement;
+  declare legendElem: HTMLElement;
 
-  constructor(private scope: any, private elem: JQuery, private timeSrv: TimeSrv) {
+  constructor(
+    private scope: any,
+    private elem: JQuery & {
+      bind(eventType: string, handler: (eventObject: JQueryEventObject, ...args: any[]) => any): JQuery; // need to extend with Plot
+    },
+    private timeSrv: TimeSrv
+  ) {
     this.ctrl = scope.ctrl;
     this.contextMenu = scope.ctrl.contextMenuCtrl;
     this.dashboard = this.ctrl.dashboard;
@@ -167,7 +174,7 @@ class GraphElement {
     ReactDOM.unmountComponentAtNode(this.legendElem);
   }
 
-  onGraphHoverClear(event: any, info: any) {
+  onGraphHoverClear(handler: LegacyEventHandler<any>) {
     if (this.plot) {
       this.tooltip.clear(this.plot);
     }
@@ -207,6 +214,7 @@ class GraphElement {
               items: [
                 {
                   label: 'Add annotation',
+                  ariaLabel: 'Add annotation',
                   icon: 'comment-alt',
                   onClick: () => this.eventManager.updateTime({ from: flotPosition.x, to: null }),
                 },
@@ -221,9 +229,10 @@ class GraphElement {
 
       const dataLinks = [
         {
-          items: linksSupplier.getLinks(this.panel.replaceVariables).map<MenuItem>((link) => {
+          items: linksSupplier.getLinks(this.panel.replaceVariables).map<MenuItemProps>((link) => {
             return {
               label: link.title,
+              ariaLabel: link.title,
               url: link.href,
               target: link.target,
               icon: `${link.target === '_self' ? 'link' : 'external-link-alt'}` as IconName,
@@ -284,7 +293,7 @@ class GraphElement {
         };
         const fieldDisplay = getDisplayProcessor({
           field: { config: fieldConfig, type: FieldType.number },
-          theme: getCurrentTheme(),
+          theme: config.theme2,
           timeZone: this.dashboard.getTimezone(),
         })(field.values.get(dataIndex));
         linksSupplier = links.length
@@ -377,7 +386,6 @@ class GraphElement {
       }
       msg.appendTo(this.elem);
     }
-
     this.thresholdManager.draw(plot);
     this.timeRegionManager.draw(plot);
   }
@@ -471,7 +479,7 @@ class GraphElement {
       series.data = series.getFlotPairs(series.nullPointMode || this.panel.nullPointMode);
 
       if (series.transform === 'constant') {
-        series.data = getFlotPairsConstant(series.data, this.ctrl.range);
+        series.data = getFlotPairsConstant(series.data, this.ctrl.range!);
       }
 
       // if hidden remove points and disable stack
@@ -500,8 +508,8 @@ class GraphElement {
         let bucketSize: number;
 
         if (this.data.length) {
-          let histMin = _.min(_.map(this.data, (s) => s.stats.min));
-          let histMax = _.max(_.map(this.data, (s) => s.stats.max));
+          let histMin = _min(map(this.data, (s) => s.stats.min));
+          let histMax = _max(map(this.data, (s) => s.stats.max));
           const ticks = panel.xaxis.buckets || this.panelWidth / 50;
           if (panel.xaxis.min != null) {
             const isInvalidXaxisMin = tickStep(panel.xaxis.min, histMax, ticks) <= 0;
@@ -630,9 +638,9 @@ class GraphElement {
     const sortDesc = panel.legend.sortDesc === true ? -1 : 1;
 
     if (shouldSortBy) {
-      return _.sortBy(series, (s) => s.stats[sortBy] * sortDesc);
+      return _sortBy(series, (s) => s.stats[sortBy] * sortDesc);
     } else {
-      return _.sortBy(series, (s) => s.zindex);
+      return _sortBy(series, (s) => s.zindex);
     }
   }
 
@@ -656,8 +664,8 @@ class GraphElement {
 
   addTimeAxis(options: any) {
     const ticks = this.panelWidth / 100;
-    const min = _.isUndefined(this.ctrl.range.from) ? null : this.ctrl.range.from.valueOf();
-    const max = _.isUndefined(this.ctrl.range.to) ? null : this.ctrl.range.to.valueOf();
+    const min = isUndefined(this.ctrl.range!.from) ? null : this.ctrl.range!.from.valueOf();
+    const max = isUndefined(this.ctrl.range!.to) ? null : this.ctrl.range!.to.valueOf();
 
     options.xaxis = {
       timezone: this.dashboard.getTimezone(),
@@ -673,7 +681,7 @@ class GraphElement {
   }
 
   addXSeriesAxis(options: any) {
-    const ticks = _.map(this.data, (series, index) => {
+    const ticks = map(this.data, (series, index) => {
       return [index + 1, series.alias];
     });
 
@@ -705,8 +713,8 @@ class GraphElement {
       }
 
       ticks = Object.keys(tickValues).map((v) => Number(v));
-      min = _.min(ticks)!;
-      max = _.max(ticks)!;
+      min = _min(ticks)!;
+      max = _max(ticks)!;
 
       // Adjust tick step
       let tickStep = bucketSize;
@@ -747,14 +755,14 @@ class GraphElement {
   }
 
   addXTableAxis(options: any) {
-    let ticks = _.map(this.data, (series, seriesIndex) => {
-      return _.map(series.datapoints, (point, pointIndex) => {
+    let ticks = map(this.data, (series, seriesIndex) => {
+      return map(series.datapoints, (point, pointIndex) => {
         const tickIndex = seriesIndex * series.datapoints.length + pointIndex;
         return [tickIndex + 1, point[1]];
       });
     });
-    // @ts-ignore, potential bug? is this _.flattenDeep?
-    ticks = _.flatten(ticks, true);
+    // @ts-ignore, potential bug? is this flattenDeep?
+    ticks = flatten(ticks, true);
 
     options.xaxis = {
       timezone: this.dashboard.getTimezone(),
@@ -780,8 +788,8 @@ class GraphElement {
 
     options.yaxes.push(defaults);
 
-    if (_.find(data, { yaxis: 2 })) {
-      const secondY = _.clone(defaults);
+    if (find(data, { yaxis: 2 })) {
+      const secondY = clone(defaults);
       secondY.index = 2;
       secondY.show = this.panel.yaxes[1].show;
       secondY.logBase = this.panel.yaxes[1].logBase || 1;
@@ -811,7 +819,7 @@ class GraphElement {
       return null;
     }
 
-    return _.toNumber(value);
+    return toNumber(value);
   }
 
   applyLogScale(axis: any, data: any) {

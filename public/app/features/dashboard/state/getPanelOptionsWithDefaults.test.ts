@@ -8,6 +8,7 @@ import {
   standardEditorsRegistry,
   standardFieldConfigEditorRegistry,
   StandardOptionConfig,
+  ThresholdsMode,
 } from '@grafana/data';
 import { getPanelPlugin } from 'app/features/plugins/__mocks__/pluginMocks';
 import { mockStandardFieldConfigOptions } from 'test/helpers/fieldConfig';
@@ -59,9 +60,7 @@ describe('getPanelOptionsWithDefaults', () => {
       expect(result).toMatchInlineSnapshot(`
         Object {
           "fieldConfig": Object {
-            "defaults": Object {
-              "custom": Object {},
-            },
+            "defaults": Object {},
             "overrides": Array [],
           },
           "options": Object {},
@@ -79,6 +78,7 @@ describe('getPanelOptionsWithDefaults', () => {
           defaults: {},
           overrides: [],
         },
+        isAfterPluginChange: false,
       });
 
       expect(result).toMatchInlineSnapshot(`
@@ -129,6 +129,7 @@ describe('getPanelOptionsWithDefaults', () => {
           },
           overrides: [],
         },
+        isAfterPluginChange: true,
       });
 
       expect(result).toMatchInlineSnapshot(`
@@ -187,6 +188,7 @@ describe('getPanelOptionsWithDefaults', () => {
           },
           overrides: [],
         },
+        isAfterPluginChange: true,
       });
 
       expect(result.fieldConfig.defaults.color!.mode).toBe(FieldColorModeId.PaletteClassic);
@@ -223,8 +225,51 @@ describe('getPanelOptionsWithDefaults', () => {
             },
           },
         },
+        isAfterPluginChange: true,
       });
       expect(result.fieldConfig.defaults.color!.mode).toBe(FieldColorModeId.Thresholds);
+    });
+
+    it('should change to classic mode when panel supports bySeries', () => {
+      const result = runScenario({
+        defaults: {
+          color: { mode: FieldColorModeId.Thresholds },
+        },
+        standardOptions: {
+          [FieldConfigProperty.Color]: {
+            settings: {
+              byValueSupport: true,
+              bySeriesSupport: true,
+            },
+          },
+        },
+        isAfterPluginChange: true,
+      });
+      expect(result.fieldConfig.defaults.color!.mode).toBe(FieldColorModeId.PaletteClassic);
+    });
+  });
+
+  describe('when changing panel type to one that does not use standard field config', () => {
+    it('should clean defaults', () => {
+      const plugin = getPanelPlugin({ id: 'graph' });
+
+      const result = getPanelOptionsWithDefaults({
+        plugin,
+        currentOptions: {},
+        currentFieldConfig: {
+          defaults: {
+            color: { mode: FieldColorModeId.Thresholds },
+            thresholds: {
+              mode: ThresholdsMode.Absolute,
+              steps: [],
+            },
+          },
+          overrides: [],
+        },
+        isAfterPluginChange: true,
+      });
+
+      expect(result.fieldConfig.defaults.thresholds).toBeUndefined();
     });
   });
 
@@ -357,6 +402,7 @@ interface ScenarioOptions {
   standardOptions?: Partial<Record<FieldConfigProperty, StandardOptionConfig>>;
   plugin?: PanelPlugin;
   options?: any;
+  isAfterPluginChange?: boolean;
 }
 
 function runScenario(options: ScenarioOptions) {
@@ -386,5 +432,6 @@ function runScenario(options: ScenarioOptions) {
     plugin,
     currentOptions: options.options || {},
     currentFieldConfig: fieldConfig,
+    isAfterPluginChange: !!options.isAfterPluginChange,
   });
 }

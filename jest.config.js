@@ -8,19 +8,30 @@ module.exports = {
   transform: {
     '^.+\\.(ts|tsx|js|jsx)$': 'ts-jest',
   },
+  transformIgnorePatterns: [
+    'node_modules/(?!(ol)/)', // <- exclude the open layers library
+  ],
   moduleDirectories: ['node_modules', 'public'],
   roots: ['<rootDir>/public/app', '<rootDir>/public/test', '<rootDir>/packages', '<rootDir>/scripts'],
   testRegex: '(\\.|/)(test)\\.(jsx?|tsx?)$',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   setupFiles: ['jest-canvas-mock', './public/test/jest-shim.ts', './public/test/jest-setup.ts'],
+  testTimeout: 30000,
   setupFilesAfterEnv: ['./public/test/setupTests.ts'],
   snapshotSerializers: ['enzyme-to-json/serializer'],
-  globals: { 'ts-jest': { isolatedModules: true } },
+  globals: {
+    'ts-jest': { isolatedModules: true },
+    __webpack_public_path__: '', // empty string
+  },
   moduleNameMapper: {
     '\\.svg': '<rootDir>/public/test/mocks/svg.ts',
     '\\.css': '<rootDir>/public/test/mocks/style.ts',
     'monaco-editor/esm/vs/editor/editor.api': '<rootDir>/public/test/mocks/monaco.ts',
-    '^react($|/.+)': '<rootDir>/node_modules/react$1',
+    '^react($|/.+)$': '<rootDir>/node_modules/react$1',
+    '^react-router(.+)$': '<rootDir>/node_modules/react-router$1',
+    '^react-hook-form$': '<rootDir>/node_modules/react-hook-form',
+    '^enzyme($|/.+)$': '<rootDir>/node_modules/enzyme$1',
+    '^jquery$': '<rootDir>/node_modules/jquery',
   },
   watchPathIgnorePatterns: ['<rootDir>/node_modules/'],
 };

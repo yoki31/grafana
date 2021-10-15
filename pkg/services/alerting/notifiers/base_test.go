@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/models"
 	"github.com/grafana/grafana/pkg/services/alerting"
+	"github.com/grafana/grafana/pkg/services/validations"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestShouldSendAlertNotification(t *testing.T) {
@@ -169,7 +169,7 @@ func TestShouldSendAlertNotification(t *testing.T) {
 	for _, tc := range tcs {
 		evalContext := alerting.NewEvalContext(context.Background(), &alerting.Rule{
 			State: tc.prevState,
-		})
+		}, &validations.OSSPluginRequestValidator{})
 
 		if tc.state == nil {
 			tc.state = &models.AlertNotificationState{}

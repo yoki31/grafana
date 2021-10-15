@@ -3,21 +3,42 @@ import { KeyValue } from './data';
 import { NavModel } from './navModel';
 import { PluginMeta, GrafanaPlugin, PluginIncludeType } from './plugin';
 
+/**
+ * @public
+ * The app container that is loading another plugin (panel or query editor)
+ * */
 export enum CoreApp {
+  CloudAlerting = 'cloud-alerting',
   Dashboard = 'dashboard',
   Explore = 'explore',
+  Unknown = 'unknown',
+  PanelEditor = 'panel-editor',
+  PanelViewer = 'panel-viewer',
 }
 
 export interface AppRootProps<T = KeyValue> {
   meta: AppPluginMeta<T>;
-
-  path: string; // The URL path to this page
-  query: KeyValue; // The URL query parameters
+  /**
+   * base URL segment for an app, /app/pluginId
+   */
+  basename: string; // The URL path to this page
 
   /**
    * Pass the nav model to the container... is there a better way?
    */
   onNavChanged: (nav: NavModel) => void;
+
+  /**
+   * The URL query parameters
+   * @deprecated Use react-router instead
+   */
+  query: KeyValue;
+
+  /**
+   * The URL path to this page
+   * @deprecated Use react-router instead
+   */
+  path: string;
 }
 
 export interface AppPluginMeta<T = KeyValue> extends PluginMeta<T> {

@@ -1,7 +1,6 @@
 import { AnyAction } from 'redux';
-import { UrlQueryMap } from '@grafana/data';
 
-import { getRootReducer, getTemplatingAndLocationRootReducer, getTemplatingRootReducer } from './helpers';
+import { getRootReducer, getTemplatingRootReducer, RootReducerType, TemplatingReducerType } from './helpers';
 import { variableAdapters } from '../adapters';
 import { createQueryVariableAdapter } from '../query/adapter';
 import { createCustomVariableAdapter } from '../custom/adapter';
@@ -13,8 +12,10 @@ import {
   cancelVariables,
   changeVariableMultiValue,
   cleanUpVariables,
+  fixSelectedInconsistency,
   initDashboardTemplating,
   initVariablesTransaction,
+  isVariableUrlValueDifferentFromCurrent,
   processVariables,
   validateVariableSelectionState,
 } from './actions';
@@ -45,23 +46,25 @@ import { changeVariableName } from '../editor/actions';
 import {
   changeVariableNameFailed,
   changeVariableNameSucceeded,
+  cleanEditorState,
   initialVariableEditorState,
   setIdInEditor,
 } from '../editor/reducer';
-import { DashboardState, LocationState } from '../../../types';
 import {
   TransactionStatus,
   variablesClearTransaction,
   variablesCompleteTransaction,
   variablesInitTransaction,
 } from './transactionReducer';
-import { initialState } from '../pickers/OptionsPicker/reducer';
+import { cleanPickerState, initialState } from '../pickers/OptionsPicker/reducer';
 import { cleanVariables } from './variablesReducer';
 import { expect } from '../../../../test/lib/common';
 import { ConstantVariableModel, VariableRefresh } from '../types';
 import { updateVariableOptions } from '../query/reducer';
 import { setVariableQueryRunner, VariableQueryRunner } from '../query/VariableQueryRunner';
-import { setDataSourceSrv } from '@grafana/runtime';
+import { setDataSourceSrv, setLocationService } from '@grafana/runtime';
+import { LoadingState } from '@grafana/data';
+import { toAsyncOfResult } from '../../query/state/DashboardQueryRunner/testHelpers';
 
 variableAdapters.setInit(() => [
   createQueryVariableAdapter(),
@@ -144,20 +147,30 @@ describe('shared actions', () => {
       const custom = customBuilder().build();
       const textbox = textboxBuilder().build();
       const list = [query, constant, datasource, custom, textbox];
+      const preloadedState = {
+        templating: ({} as unknown) as TemplatingState,
+      };
+      const locationService: any = { getSearchObject: () => ({}) };
+      setLocationService(locationService);
+      const variableQueryRunner: any = {
+        cancelRequest: jest.fn(),
+        queueRequest: jest.fn(),
+        getResponse: () => toAsyncOfResult({ state: LoadingState.Done, identifier: toVariableIdentifier(query) }),
+        destroy: jest.fn(),
+      };
+      setVariableQueryRunner(variableQueryRunner);
 
-      const tester = await reduxTester<{ templating: TemplatingState; location: { query: UrlQueryMap } }>({
-        preloadedState: { templating: ({} as unknown) as TemplatingState, location: { query: {} } },
-      })
-        .givenRootReducer(getTemplatingAndLocationRootReducer())
+      const tester = await reduxTester<TemplatingReducerType>({ preloadedState })
+        .givenRootReducer(getTemplatingRootReducer())
         .whenActionIsDispatched(variablesInitTransaction({ uid: '' }))
         .whenActionIsDispatched(initDashboardTemplating(list))
         .whenAsyncActionIsDispatched(processVariables(), true);
 
       await tester.thenDispatchedActionsPredicateShouldEqual((dispatchedActions) => {
-        expect(dispatchedActions.length).toEqual(4);
+        expect(dispatchedActions.length).toEqual(5);
 
         expect(dispatchedActions[0]).toEqual(
-          variableStateCompleted(toVariablePayload({ ...query, id: dispatchedActions[0].payload.id }))
+          variableStateFetching(toVariablePayload({ ...query, id: dispatchedActions[0].payload.id }))
         );
 
         expect(dispatchedActions[1]).toEqual(
@@ -170,6 +183,10 @@ describe('shared actions', () => {
 
         expect(dispatchedActions[3]).toEqual(
           variableStateCompleted(toVariablePayload({ ...textbox, id: dispatchedActions[3].payload.id }))
+        );
+
+        expect(dispatchedActions[4]).toEqual(
+          variableStateCompleted(toVariablePayload({ ...query, id: dispatchedActions[4].payload.id }))
         );
 
         return true;
@@ -201,10 +218,14 @@ describe('shared actions', () => {
 
       const list = [stats, substats];
       const query = { orgId: '1', 'var-stats': 'response', 'var-substats': ALL_VARIABLE_TEXT };
-      const tester = await reduxTester<{ templating: TemplatingState; location: { query: UrlQueryMap } }>({
-        preloadedState: { templating: ({} as unknown) as TemplatingState, location: { query } },
-      })
-        .givenRootReducer(getTemplatingAndLocationRootReducer())
+      const locationService: any = { getSearchObject: () => query };
+      setLocationService(locationService);
+      const preloadedState = {
+        templating: ({} as unknown) as TemplatingState,
+      };
+
+      const tester = await reduxTester<TemplatingReducerType>({ preloadedState })
+        .givenRootReducer(getTemplatingRootReducer())
         .whenActionIsDispatched(variablesInitTransaction({ uid: '' }))
         .whenActionIsDispatched(initDashboardTemplating(list))
         .whenAsyncActionIsDispatched(processVariables(), true);
@@ -557,11 +578,6 @@ describe('shared actions', () => {
   });
 
   describe('initVariablesTransaction', () => {
-    type ReducersUsedInContext = {
-      templating: TemplatingState;
-      dashboard: DashboardState;
-      location: LocationState;
-    };
     const constant = constantBuilder().withId('constant').withName('constant').build();
     const templating: any = { list: [constant] };
     const uid = 'uid';
@@ -569,7 +585,7 @@ describe('shared actions', () => {
 
     describe('when called and the previous dashboard has completed', () => {
       it('then correct actions are dispatched', async () => {
-        const tester = await reduxTester<ReducersUsedInContext>()
+        const tester = await reduxTester<RootReducerType>()
           .givenRootReducer(getRootReducer())
           .whenAsyncActionIsDispatched(initVariablesTransaction(uid, dashboard));
 
@@ -597,7 +613,7 @@ describe('shared actions', () => {
       it('then correct actions are dispatched', async () => {
         const transactionState = { uid: 'previous-uid', status: TransactionStatus.Fetching };
 
-        const tester = await reduxTester<ReducersUsedInContext>({
+        const tester = await reduxTester<RootReducerType>({
           preloadedState: ({
             templating: {
               transaction: transactionState,
@@ -605,28 +621,30 @@ describe('shared actions', () => {
               optionsPicker: { ...initialState },
               editor: { ...initialVariableEditorState },
             },
-          } as unknown) as ReducersUsedInContext,
+          } as unknown) as RootReducerType,
         })
           .givenRootReducer(getRootReducer())
           .whenAsyncActionIsDispatched(initVariablesTransaction(uid, dashboard));
 
         tester.thenDispatchedActionsPredicateShouldEqual((dispatchedActions) => {
           expect(dispatchedActions[0]).toEqual(cleanVariables());
-          expect(dispatchedActions[1]).toEqual(variablesClearTransaction());
-          expect(dispatchedActions[2]).toEqual(variablesInitTransaction({ uid }));
-          expect(dispatchedActions[3].type).toEqual(addVariable.type);
-          expect(dispatchedActions[3].payload.id).toEqual('__dashboard');
-          expect(dispatchedActions[4].type).toEqual(addVariable.type);
-          expect(dispatchedActions[4].payload.id).toEqual('__org');
+          expect(dispatchedActions[1]).toEqual(cleanEditorState());
+          expect(dispatchedActions[2]).toEqual(cleanPickerState());
+          expect(dispatchedActions[3]).toEqual(variablesClearTransaction());
+          expect(dispatchedActions[4]).toEqual(variablesInitTransaction({ uid }));
           expect(dispatchedActions[5].type).toEqual(addVariable.type);
-          expect(dispatchedActions[5].payload.id).toEqual('__user');
-          expect(dispatchedActions[6]).toEqual(
+          expect(dispatchedActions[5].payload.id).toEqual('__dashboard');
+          expect(dispatchedActions[6].type).toEqual(addVariable.type);
+          expect(dispatchedActions[6].payload.id).toEqual('__org');
+          expect(dispatchedActions[7].type).toEqual(addVariable.type);
+          expect(dispatchedActions[7].payload.id).toEqual('__user');
+          expect(dispatchedActions[8]).toEqual(
             addVariable(toVariablePayload(constant, { global: false, index: 0, model: constant }))
           );
-          expect(dispatchedActions[7]).toEqual(variableStateNotStarted(toVariablePayload(constant)));
-          expect(dispatchedActions[8]).toEqual(variableStateCompleted(toVariablePayload(constant)));
-          expect(dispatchedActions[9]).toEqual(variablesCompleteTransaction({ uid }));
-          return dispatchedActions.length === 10;
+          expect(dispatchedActions[9]).toEqual(variableStateNotStarted(toVariablePayload(constant)));
+          expect(dispatchedActions[10]).toEqual(variableStateCompleted(toVariablePayload(constant)));
+          expect(dispatchedActions[11]).toEqual(variablesCompleteTransaction({ uid }));
+          return dispatchedActions.length === 12;
         });
       });
     });
@@ -638,7 +656,12 @@ describe('shared actions', () => {
         reduxTester<{ templating: TemplatingState }>()
           .givenRootReducer(getTemplatingRootReducer())
           .whenActionIsDispatched(cleanUpVariables())
-          .thenDispatchedActionsShouldEqual(cleanVariables(), variablesClearTransaction());
+          .thenDispatchedActionsShouldEqual(
+            cleanVariables(),
+            cleanEditorState(),
+            cleanPickerState(),
+            variablesClearTransaction()
+          );
       });
     });
   });
@@ -654,9 +677,162 @@ describe('shared actions', () => {
         reduxTester<{ templating: TemplatingState }>()
           .givenRootReducer(getTemplatingRootReducer())
           .whenActionIsDispatched(cancelVariables({ getBackendSrv: () => backendSrvMock }))
-          .thenDispatchedActionsShouldEqual(cleanVariables(), variablesClearTransaction());
+          .thenDispatchedActionsShouldEqual(
+            cleanVariables(),
+            cleanEditorState(),
+            cleanPickerState(),
+            variablesClearTransaction()
+          );
 
         expect(cancelAllInFlightRequestsMock).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
+  describe('fixSelectedInconsistency', () => {
+    describe('when called for a single value variable', () => {
+      describe('and there is an inconsistency between current and selected in options', () => {
+        it('then it should set the correct selected', () => {
+          const variable = customBuilder().withId('custom').withCurrent('A').withOptions('A', 'B', 'C').build();
+          variable.options[1].selected = true;
+
+          expect(variable.options).toEqual([
+            { text: 'A', value: 'A', selected: false },
+            { text: 'B', value: 'B', selected: true },
+            { text: 'C', value: 'C', selected: false },
+          ]);
+
+          fixSelectedInconsistency(variable);
+
+          expect(variable.options).toEqual([
+            { text: 'A', value: 'A', selected: true },
+            { text: 'B', value: 'B', selected: false },
+            { text: 'C', value: 'C', selected: false },
+          ]);
+        });
+      });
+
+      describe('and there is no matching option in options', () => {
+        it('then the first option should be selected', () => {
+          const variable = customBuilder().withId('custom').withCurrent('A').withOptions('X', 'Y', 'Z').build();
+
+          expect(variable.options).toEqual([
+            { text: 'X', value: 'X', selected: false },
+            { text: 'Y', value: 'Y', selected: false },
+            { text: 'Z', value: 'Z', selected: false },
+          ]);
+
+          fixSelectedInconsistency(variable);
+
+          expect(variable.options).toEqual([
+            { text: 'X', value: 'X', selected: true },
+            { text: 'Y', value: 'Y', selected: false },
+            { text: 'Z', value: 'Z', selected: false },
+          ]);
+        });
+      });
+    });
+
+    describe('when called for a multi value variable', () => {
+      describe('and there is an inconsistency between current and selected in options', () => {
+        it('then it should set the correct selected', () => {
+          const variable = customBuilder().withId('custom').withCurrent(['A', 'C']).withOptions('A', 'B', 'C').build();
+          variable.options[1].selected = true;
+
+          expect(variable.options).toEqual([
+            { text: 'A', value: 'A', selected: false },
+            { text: 'B', value: 'B', selected: true },
+            { text: 'C', value: 'C', selected: false },
+          ]);
+
+          fixSelectedInconsistency(variable);
+
+          expect(variable.options).toEqual([
+            { text: 'A', value: 'A', selected: true },
+            { text: 'B', value: 'B', selected: false },
+            { text: 'C', value: 'C', selected: true },
+          ]);
+        });
+      });
+
+      describe('and there is no matching option in options', () => {
+        it('then the first option should be selected', () => {
+          const variable = customBuilder().withId('custom').withCurrent(['A', 'C']).withOptions('X', 'Y', 'Z').build();
+
+          expect(variable.options).toEqual([
+            { text: 'X', value: 'X', selected: false },
+            { text: 'Y', value: 'Y', selected: false },
+            { text: 'Z', value: 'Z', selected: false },
+          ]);
+
+          fixSelectedInconsistency(variable);
+
+          expect(variable.options).toEqual([
+            { text: 'X', value: 'X', selected: true },
+            { text: 'Y', value: 'Y', selected: false },
+            { text: 'Z', value: 'Z', selected: false },
+          ]);
+        });
+      });
+    });
+  });
+
+  describe('isVariableUrlValueDifferentFromCurrent', () => {
+    describe('when called with a single valued variable', () => {
+      describe('and values are equal', () => {
+        it('then it should return false', () => {
+          const variable = queryBuilder().withMulti(false).withCurrent('A', 'A').build();
+          const urlValue = 'A';
+
+          expect(isVariableUrlValueDifferentFromCurrent(variable, urlValue)).toBe(false);
+        });
+      });
+
+      describe('and values are different', () => {
+        it('then it should return true', () => {
+          const variable = queryBuilder().withMulti(false).withCurrent('A', 'A').build();
+          const urlValue = 'B';
+
+          expect(isVariableUrlValueDifferentFromCurrent(variable, urlValue)).toBe(true);
+        });
+      });
+    });
+
+    describe('when called with a multi valued variable', () => {
+      describe('and values are equal', () => {
+        it('then it should return false', () => {
+          const variable = queryBuilder().withMulti(true).withCurrent(['A'], ['A']).build();
+          const urlValue = ['A'];
+
+          expect(isVariableUrlValueDifferentFromCurrent(variable, urlValue)).toBe(false);
+        });
+
+        describe('but urlValue is not an array', () => {
+          it('then it should return false', () => {
+            const variable = queryBuilder().withMulti(true).withCurrent(['A'], ['A']).build();
+            const urlValue = 'A';
+
+            expect(isVariableUrlValueDifferentFromCurrent(variable, urlValue)).toBe(false);
+          });
+        });
+      });
+
+      describe('and values are different', () => {
+        it('then it should return true', () => {
+          const variable = queryBuilder().withMulti(true).withCurrent(['A'], ['A']).build();
+          const urlValue = ['C'];
+
+          expect(isVariableUrlValueDifferentFromCurrent(variable, urlValue)).toBe(true);
+        });
+
+        describe('but urlValue is not an array', () => {
+          it('then it should return true', () => {
+            const variable = queryBuilder().withMulti(true).withCurrent(['A'], ['A']).build();
+            const urlValue = 'C';
+
+            expect(isVariableUrlValueDifferentFromCurrent(variable, urlValue)).toBe(true);
+          });
+        });
       });
     });
   });

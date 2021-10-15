@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import _isEqual from 'lodash/isEqual';
+import { isEqual as _isEqual } from 'lodash';
 
 // @ts-ignore
 import { getTraceSpanIdsAsTree } from '../selectors/trace';
 import { getConfigValue } from '../utils/config/get-config';
-import { TraceKeyValuePair, TraceSpan, Trace, TraceViewData } from '@grafana/data';
+import { TraceKeyValuePair, TraceSpan, Trace, TraceResponse } from '../types/trace';
 // @ts-ignore
 import TreeNode from '../utils/TreeNode';
+import { getTraceName } from './trace-viewer';
 
 // exported for tests
 export function deduplicateTags(spanTags: TraceKeyValuePair[]) {
@@ -71,7 +72,7 @@ export function orderTags(spanTags: TraceKeyValuePair[], topPrefixes?: string[])
  * NOTE: Mutates `data` - Transform the HTTP response data into the form the app
  * generally requires.
  */
-export default function transformTraceData(data: TraceViewData | undefined): Trace | null {
+export default function transformTraceData(data: TraceResponse | undefined): Trace | null {
   if (!data?.traceID) {
     return null;
   }
@@ -121,7 +122,6 @@ export default function transformTraceData(data: TraceViewData | undefined): Tra
   const tree = getTraceSpanIdsAsTree(data);
   const spans: TraceSpan[] = [];
   const svcCounts: Record<string, number> = {};
-  let traceName = '';
 
   // Eslint complains about number type not needed but then TS complains it is implicitly any.
   // eslint-disable-next-line @typescript-eslint/no-inferrable-types
@@ -135,9 +135,6 @@ export default function transformTraceData(data: TraceViewData | undefined): Tra
     }
     const { serviceName } = span.process;
     svcCounts[serviceName] = (svcCounts[serviceName] || 0) + 1;
-    if (!span.references || !span.references.length) {
-      traceName = `${serviceName}: ${span.operationName}`;
-    }
     span.relativeStartTime = span.startTime - traceStartTime;
     span.depth = depth - 1;
     span.hasChildren = node.children.length > 0;
@@ -166,6 +163,7 @@ export default function transformTraceData(data: TraceViewData | undefined): Tra
     });
     spans.push(span);
   });
+  const traceName = getTraceName(spans);
   const services = Object.keys(svcCounts).map((name) => ({ name, numberOfSpans: svcCounts[name] }));
   return {
     services,

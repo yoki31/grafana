@@ -13,8 +13,13 @@ import {
   ScopedVars,
   TIME_SERIES_TIME_FIELD_NAME,
   TIME_SERIES_VALUE_FIELD_NAME,
+  DataQueryResponse,
+  DataQueryRequest,
+  PreferredVisualisationType,
+  CoreApp,
 } from '@grafana/data';
 import { FetchResponse, getDataSourceSrv, getTemplateSrv } from '@grafana/runtime';
+import { partition } from 'lodash';
 import { descending, deviation } from 'd3';
 import {
   ExemplarTraceIdDestination,
@@ -37,6 +42,125 @@ interface TimeAndValue {
   [TIME_SERIES_VALUE_FIELD_NAME]: number;
 }
 
+const isTableResult = (dataFrame: DataFrame, options: DataQueryRequest<PromQuery>): boolean => {
+  // We want to process instant results in Explore as table
+  if ((options.app === CoreApp.Explore && dataFrame.meta?.custom?.resultType) === 'vector') {
+    return true;
+  }
+
+  // We want to process all dataFrames with target.format === 'table' as table
+  const target = options.targets.find((target) => target.refId === dataFrame.refId);
+  if (target?.format === 'table') {
+    return true;
+  }
+
+  return false;
+};
+
+// V2 result trasnformer used to transform query results from queries that were run trough prometheus backend
+export function transformV2(
+  response: DataQueryResponse,
+  request: DataQueryRequest<PromQuery>,
+  options: { exemplarTraceIdDestinations?: ExemplarTraceIdDestination[] }
+) {
+  const [tableResults, results]: [DataFrame[], DataFrame[]] = partition(response.data, (dataFrame) =>
+    isTableResult(dataFrame, request)
+  );
+
+  // TABLE FRAMES: For table results, we need to transform data frames to table data frames
+  const responseLength = request.targets.filter((target) => !target.hide).length;
+  const tableFrames = tableResults.map((dataFrame) => {
+    const df = transformDFoTable(dataFrame, responseLength);
+    return df;
+  });
+
+  const [exemplarResults, otherResults]: [DataFrame[], DataFrame[]] = partition(
+    results,
+    (dataFrame) => dataFrame.meta?.custom?.resultType === 'exemplar'
+  );
+
+  // EXEMPLAR FRAMES: We enrich exemplar frames with data links and add dataTopic meta info
+  const { exemplarTraceIdDestinations: destinations } = options;
+  const exemplarFrames = exemplarResults.map((dataFrame) => {
+    if (destinations?.length) {
+      for (const exemplarTraceIdDestination of destinations) {
+        const traceIDField = dataFrame.fields.find((field) => field.name === exemplarTraceIdDestination.name);
+        if (traceIDField) {
+          const links = getDataLinks(exemplarTraceIdDestination);
+          traceIDField.config.links = traceIDField.config.links?.length
+            ? [...traceIDField.config.links, ...links]
+            : links;
+        }
+      }
+    }
+
+    return { ...dataFrame, meta: { ...dataFrame.meta, dataTopic: DataTopic.Annotations } };
+  });
+
+  // OTHER FRAMES: Everything else is processed as time_series result and graph preferredVisualisationType
+  const otherFrames = otherResults.map((dataFrame) => {
+    const df = {
+      ...dataFrame,
+      meta: {
+        ...dataFrame.meta,
+        preferredVisualisationType: 'graph',
+      },
+    } as DataFrame;
+    return df;
+  });
+
+  return { ...response, data: [...otherFrames, ...tableFrames, ...exemplarFrames] };
+}
+
+export function transformDFoTable(df: DataFrame, responseLength: number): DataFrame {
+  if (df.length === 0) {
+    return df;
+  }
+
+  const timeField = df.fields[0];
+  const valueField = df.fields[1];
+
+  // Create label fields
+  const promLabels: PromMetric = valueField.labels ?? {};
+  const labelFields = Object.keys(promLabels)
+    .sort()
+    .map((label) => {
+      const numberField = label === 'le';
+      return {
+        name: label,
+        config: { filterable: true },
+        type: numberField ? FieldType.number : FieldType.string,
+        values: new ArrayVector(),
+      };
+    });
+
+  // Fill labelFields with label values
+  labelFields.forEach((field) => field.values.add(getLabelValue(promLabels, field.name)));
+
+  const tableDataFrame = {
+    ...df,
+    name: undefined,
+    meta: { ...df.meta, preferredVisualisationType: 'table' as PreferredVisualisationType },
+    fields: [
+      timeField,
+      ...labelFields,
+      {
+        ...valueField,
+        name: getValueText(responseLength, df.refId),
+        labels: undefined,
+        config: { ...valueField.config, displayNameFromDS: undefined },
+        state: { ...valueField.state, displayName: undefined },
+      },
+    ],
+  };
+
+  return tableDataFrame;
+}
+
+function getValueText(responseLength: number, refId = '') {
+  return responseLength > 1 ? `Value #${refId}` : 'Value';
+}
+
 export function transform(
   response: FetchResponse<PromDataSuccessResponse>,
   transformOptions: {
@@ -45,7 +169,6 @@ export function transform(
     target: PromQuery;
     responseListLength: number;
     scopedVars?: ScopedVars;
-    mixedQueries?: boolean;
   }
 ) {
   // Create options object from transformOptions
@@ -61,14 +184,8 @@ export function transform(
     refId: transformOptions.target.refId,
     valueWithRefId: transformOptions.target.valueWithRefId,
     meta: {
-      /**
-       * Fix for showing of Prometheus results in Explore table.
-       * We want to show result of instant query always in table and result of range query based on target.runAll;
-       */
-      preferredVisualisationType: getPreferredVisualisationType(
-        transformOptions.query.instant,
-        transformOptions.mixedQueries
-      ),
+      // Fix for showing of Prometheus results in Explore table
+      preferredVisualisationType: transformOptions.query.instant ? 'table' : 'graph',
     },
   };
   const prometheusResult = response.data.data;
@@ -78,9 +195,9 @@ export function transform(
     prometheusResult.forEach((exemplarData) => {
       const data = exemplarData.exemplars.map((exemplar) => {
         return {
-          [TIME_SERIES_TIME_FIELD_NAME]: exemplar.scrapeTimestamp,
-          [TIME_SERIES_VALUE_FIELD_NAME]: exemplar.exemplar.value,
-          ...exemplar.exemplar.labels,
+          [TIME_SERIES_TIME_FIELD_NAME]: exemplar.timestamp * 1000,
+          [TIME_SERIES_VALUE_FIELD_NAME]: exemplar.value,
+          ...exemplar.labels,
           ...exemplarData.seriesLabels,
         };
       });
@@ -96,7 +213,7 @@ export function transform(
     // Add data links if configured
     if (transformOptions.exemplarTraceIdDestinations?.length) {
       for (const exemplarTraceIdDestination of transformOptions.exemplarTraceIdDestinations) {
-        const traceIDField = dataFrame.fields.find((field) => field.name === exemplarTraceIdDestination!.name);
+        const traceIDField = dataFrame.fields.find((field) => field.name === exemplarTraceIdDestination.name);
         if (traceIDField) {
           const links = getDataLinks(exemplarTraceIdDestination);
           traceIDField.config.links = traceIDField.config.links?.length
@@ -156,7 +273,7 @@ function getDataLinks(options: ExemplarTraceIdDestination): DataLink[] {
       title: `Query with ${dsSettings?.name}`,
       url: '',
       internal: {
-        query: { query: '${__value.raw}', queryType: 'getTrace' },
+        query: { query: '${__value.raw}', queryType: 'traceId' },
         datasourceUid: options.datasourceUid,
         datasourceName: dsSettings?.name ?? 'Data source not found',
       },
@@ -165,8 +282,9 @@ function getDataLinks(options: ExemplarTraceIdDestination): DataLink[] {
 
   if (options.url) {
     dataLinks.push({
-      title: 'Open link',
+      title: `Go to ${options.url}`,
       url: options.url,
+      targetBlank: true,
     });
   }
   return dataLinks;
@@ -225,14 +343,6 @@ function sampleExemplars(events: TimeAndValue[], options: TransformOptions) {
     }
   }
   return sampledExemplars;
-}
-
-function getPreferredVisualisationType(isInstantQuery?: boolean, mixedQueries?: boolean) {
-  if (isInstantQuery) {
-    return 'table';
-  }
-
-  return mixedQueries ? 'graph' : undefined;
 }
 
 /**
@@ -299,10 +409,13 @@ function transformMetricDataToTable(md: MatrixOrVectorResult[], options: Transfo
   const metricFields = Object.keys(md.reduce((acc, series) => ({ ...acc, ...series.metric }), {}))
     .sort()
     .map((label) => {
+      // Labels have string field type, otherwise table tries to figure out the type which can result in unexpected results
+      // Only "le" label has a number field type
+      const numberField = label === 'le';
       return {
         name: label,
         config: { filterable: true },
-        type: FieldType.other,
+        type: numberField ? FieldType.number : FieldType.string,
         values: new ArrayVector(),
       };
     });
