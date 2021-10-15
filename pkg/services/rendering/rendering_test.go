@@ -75,7 +75,8 @@ func TestRenderingServiceVersionFail(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("{\"version\":\"2.7.1828\"}"))
+			_, err := w.Write([]byte("{\"version\":\"2.7.1828\"}"))
+			require.NoError(t, err)
 		}))
 		defer server.Close()
 
@@ -111,7 +112,8 @@ func TestRenderingServiceVersionFail(t *testing.T) {
 			} else {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("{\"version\":\"3.1.4159\"}"))
+				_, err := w.Write([]byte("{\"version\":\"3.1.4159\"}"))
+				require.NoError(t, err)
 				cancel()
 				lastRetryHit <- struct{}{}
 			}
@@ -121,7 +123,9 @@ func TestRenderingServiceVersionFail(t *testing.T) {
 		rs.Cfg.RendererUrl = server.URL + "/render"
 		rs.remoteVersionFetchInterval = time.Millisecond
 		rs.remoteVersionFetchRetries = 5
-		go rs.Run(ctx)
+		go func() {
+			require.NoError(t, rs.Run(ctx))
+		}()
 
 		select {
 		case <-time.After(time.Second):
