@@ -2436,7 +2436,7 @@ __metadata:
     "@rollup/plugin-node-resolve": 10.0.0
     "@types/node": 13.7.7
     "@types/rollup-plugin-visualizer": 2.6.0
-    "@types/systemjs": ^0.20.6
+    "@types/systemjs": 6.1.1
     commander: 5.0.0
     execa: 5.1.1
     rollup: 2.33.3
@@ -2517,7 +2517,7 @@ __metadata:
     "@types/history": ^4.7.8
     "@types/jest": 26.0.15
     "@types/rollup-plugin-visualizer": 2.6.0
-    "@types/systemjs": ^0.20.6
+    "@types/systemjs": 6.1.1
     history: 4.10.1
     lodash: 4.17.21
     rollup: 2.33.3
@@ -8324,10 +8324,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/systemjs@npm:^0.20.6":
-  version: 0.20.8
-  resolution: "@types/systemjs@npm:0.20.8"
-  checksum: 10bf85416521b89cd20c6eddd72f7414ab6eff31ff8c577152d6f5dd952daf7f9c5eed32d3c482ddbfbe2e9586ed5287838b6dc8a7d6b3963fdad8afbece717b
+"@types/systemjs@npm:6.1.1":
+  version: 6.1.1
+  resolution: "@types/systemjs@npm:6.1.1"
+  checksum: 16f8178b438d5223837995f458927da2d144adcf98c732b8e018e29f1d3364ede8d082edb4de2b31a371c5858485df3496b400fc90868b7ac6d4611e5a7bfa5d
   languageName: node
   linkType: hard
 
