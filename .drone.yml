@@ -233,6 +233,8 @@ steps:
   image: grafana/build-container:1.4.3
   name: mysql-integration-tests
 trigger:
+  event:
+  - pull_request
   paths:
     exclude:
     - docs/**
@@ -334,6 +336,8 @@ steps:
   image: grafana/docs-base:latest
   name: build-docs-website
 trigger:
+  event:
+  - pull_request
   paths:
     include:
     - docs/**
@@ -3560,6 +3564,6 @@ kind: secret
 name: drone_token
 ---
 kind: signature
-hmac: cc40cb5173859605d8214cf8c04d7fbb0a533db70e3bd8d74caa03382f60a38b
+hmac: f7d243e5a90041c518bf959893f265b245050c1489c6607916a7bc302b8644ba
 
 ...
