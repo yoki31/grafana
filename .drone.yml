@@ -30,6 +30,8 @@ steps:
   - mkdir -p bin
   - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.2/grabpl
   - chmod +x bin/grabpl
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   - ./bin/grabpl gen-version --build-id ${DRONE_BUILD_NUMBER}
@@ -254,6 +256,8 @@ steps:
   - mkdir -p bin
   - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.2/grabpl
   - chmod +x bin/grabpl
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   - ./bin/grabpl gen-version --build-id ${DRONE_BUILD_NUMBER}
@@ -366,6 +370,8 @@ steps:
   - mkdir -p bin
   - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.2/grabpl
   - chmod +x bin/grabpl
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   - ./bin/grabpl gen-version --build-id ${DRONE_BUILD_NUMBER}
@@ -741,6 +747,8 @@ steps:
   - mkdir -p bin
   - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.2/grabpl
   - chmod +x bin/grabpl
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   image: grafana/build-container:1.4.3
@@ -829,6 +837,8 @@ steps:
   - mkdir -p bin
   - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.2/grabpl
   - chmod +x bin/grabpl
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   - ./bin/grabpl verify-version ${DRONE_TAG}
@@ -1205,6 +1215,8 @@ steps:
   - mv /tmp/grafana-enterprise/deployment_tools_config.json deployment_tools_config.json
   - mkdir bin
   - mv /tmp/grabpl bin/
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   - ./bin/grabpl verify-version ${DRONE_TAG}
@@ -1660,6 +1672,8 @@ steps:
   - mkdir -p bin
   - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.2/grabpl
   - chmod +x bin/grabpl
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   - ./bin/grabpl verify-version ${DRONE_TAG}
@@ -1767,6 +1781,8 @@ steps:
   - mkdir -p bin
   - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.2/grabpl
   - chmod +x bin/grabpl
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   - ./bin/grabpl verify-version v7.3.0-test
@@ -2132,6 +2148,8 @@ steps:
   - mv /tmp/grafana-enterprise/deployment_tools_config.json deployment_tools_config.json
   - mkdir bin
   - mv /tmp/grabpl bin/
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   - ./bin/grabpl verify-version v7.3.0-test
@@ -2580,6 +2598,8 @@ steps:
   - mkdir -p bin
   - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.2/grabpl
   - chmod +x bin/grabpl
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   - ./bin/grabpl verify-version v7.3.0-test
@@ -2692,6 +2712,8 @@ steps:
   - mkdir -p bin
   - curl -fL -o bin/grabpl https://grafana-downloads.storage.googleapis.com/grafana-build-pipeline/v2.5.2/grabpl
   - chmod +x bin/grabpl
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   - ./bin/grabpl gen-version --build-id ${DRONE_BUILD_NUMBER}
@@ -3029,6 +3051,8 @@ steps:
   - mv /tmp/grafana-enterprise/deployment_tools_config.json deployment_tools_config.json
   - mkdir bin
   - mv /tmp/grabpl bin/
+  - echo $DRONE_BUILD_TRIGGER
+  - echo $DRONE_BUILD_EVENT
   - ./bin/grabpl verify-drone
   - make gen-go
   - ./bin/grabpl gen-version --build-id ${DRONE_BUILD_NUMBER}
@@ -3536,6 +3560,6 @@ kind: secret
 name: drone_token
 ---
 kind: signature
-hmac: ecaff8abef7cad82cf047a894923e6b4c61cb7431e68b8d30c39478a25713c9d
+hmac: cc40cb5173859605d8214cf8c04d7fbb0a533db70e3bd8d74caa03382f60a38b
 
 ...
