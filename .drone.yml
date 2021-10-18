@@ -332,6 +332,8 @@ steps:
   image: grafana/docs-base:latest
   name: build-docs-website
 trigger:
+  event:
+  - custom
   paths:
     include:
     - docs/**
@@ -3538,6 +3540,6 @@ kind: secret
 name: drone_token
 ---
 kind: signature
-hmac: 158c463b1812c404f3e2f34a1db508ecbde5d22cfebb3789f378cd0948e8cbeb
+hmac: ead62ddcf1216482ac0fd08c06a3dcddb6be30ffd5e89167bf07750d935a0e35
 
 ...
