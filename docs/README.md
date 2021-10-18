@@ -4,7 +4,7 @@ When you, it is a good practice to build the docs on your local machine to make 
 
 ## Requirements
 
-Docker >= 2.1.0.3
+Docker >= 2.1.0.3test
 Yarn >= 1.22.4
 
 ## Build the doc site
