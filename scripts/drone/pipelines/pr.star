@@ -90,7 +90,6 @@ def pr_pipelines(edition):
         ])
 
     trigger = {
-        'event': ['pull_request',],
         'paths': {
             'exclude': [
                 'docs/**',
