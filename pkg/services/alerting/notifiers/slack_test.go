@@ -69,7 +69,7 @@ func TestSlackNotifier(t *testing.T) {
                       "mentionUsers": "user1, user2",
                       "mentionGroups": "group1, group2",
                       "mentionChannel": "here",
-                      "token": "xoxb-XXXXXXXX-XXXXXXXX-Info"
+                      "token": "xoxb-XXXXXXXX-XXXXXXXX-XXXXXXXXXX"
                     }`
 
 		settingsJSON, err := simplejson.NewJson([]byte(json))
