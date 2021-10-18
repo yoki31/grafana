@@ -160,12 +160,8 @@
                   "$ref": "#/definitions/CalculateDiffTarget"
                 },
                 "diffType": {
-                  "description": "The type of diff to return",
+                  "description": "The type of diff to return\nDescription:\n`basic`\n`json`",
                   "type": "string",
-                  "enum": [
-                    "[\"basic\"",
-                    " \"json\"]"
-                  ],
                   "x-go-name": "DiffType"
                 },
                 "new": {
@@ -857,11 +853,6 @@
           "description": "Permission level\nDescription:\n`1` - View\n`2` - Edit\n`4` - Admin",
           "type": "integer",
           "format": "int64",
-          "enum": [
-            "[1",
-            " 2",
-            " 4]"
-          ],
           "x-go-name": "Permission"
         },
         "role": {
