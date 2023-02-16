@@ -72,7 +72,7 @@ require (
 	github.com/magefile/mage v1.12.1
 	github.com/mattn/go-isatty v0.0.12
 	github.com/mattn/go-sqlite3 v1.14.7
-	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369
+	github.com/matttproud/golang_protobuf_extensions v1.0.4
 	github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f
 	github.com/ohler55/ojg v1.12.9
 	github.com/opentracing/opentracing-go v1.2.0
@@ -183,7 +183,7 @@ require (
 	github.com/gomodule/redigo v2.0.0+incompatible // indirect
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/flatbuffers v2.0.0+incompatible // indirect
-	github.com/googleapis/gax-go/v2 v2.1.1
+	github.com/googleapis/gax-go/v2 v2.1.1 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/grafana/grafana-google-sdk-go v0.0.0-20211104130251-b190293eaf58
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.1-0.20191002090509-6af20e3a5340 // indirect
@@ -242,34 +242,34 @@ require (
 	go.mongodb.org/mongo-driver v1.7.0 // indirect
 	go.opencensus.io v0.23.0 // indirect
 	go.uber.org/atomic v1.9.0
-	go.uber.org/goleak v1.1.11-0.20210813005559-691160354723 // indirect
-	golang.org/x/sys v0.0.0-20220114195835-da31bd327af9 // indirect
+	go.uber.org/goleak v1.1.12 // indirect
+	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f // indirect
 	golang.org/x/text v0.3.7 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
-	google.golang.org/genproto v0.0.0-20211118181313-81c1377c94b1
+	google.golang.org/genproto v0.0.0-20211118181313-81c1377c94b1 // indirect
 	gopkg.in/asn1-ber.v1 v1.0.0-20181015200546-f715ec2f112d // indirect
 )
 
 require (
 	cloud.google.com/go/kms v1.1.0
-	github.com/Azure/go-autorest/autorest/adal v0.9.17
 	github.com/golang-migrate/migrate/v4 v4.7.0
-	github.com/grafana/dskit v0.0.0-20211011144203-3a88ec0b675f
 	gocloud.dev v0.24.0
 )
 
 require (
+	github.com/Azure/go-autorest/autorest/adal v0.9.17 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.3.0 // indirect
 	github.com/chromedp/cdproto v0.0.0-20220208224320-6efb837e6bc2 // indirect
 	github.com/cncf/udpa/go v0.0.0-20210930031921-04548b0d99d4 // indirect
 	github.com/cncf/xds/go v0.0.0-20211011173535-cb28da3451f1 // indirect
-	github.com/containerd/containerd v1.5.9 // indirect
+	github.com/containerd/containerd v1.5.18 // indirect
 	github.com/elazarl/goproxy v0.0.0-20220115173737-adb46da277ac // indirect
 	github.com/envoyproxy/go-control-plane v0.10.1 // indirect
 	github.com/envoyproxy/protoc-gen-validate v0.6.2 // indirect
 	github.com/getkin/kin-openapi v0.91.0 // indirect
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32 // indirect
+	github.com/grafana/dskit v0.0.0-20211011144203-3a88ec0b675f // indirect
 	github.com/imdario/mergo v0.3.12 // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
 	github.com/opencontainers/image-spec v1.0.2 // indirect
