@@ -1,5 +1,5 @@
-import { DataSourceRef } from '@grafana/data';
-import { AdHocVariableFilter, AdHocVariableModel } from 'app/features/variables/types';
+import { AdHocVariableFilter, AdHocVariableModel, DataSourceRef } from '@grafana/data';
+
 import { VariableBuilder } from './variableBuilder';
 
 export class AdHocVariableBuilder extends VariableBuilder<AdHocVariableModel> {

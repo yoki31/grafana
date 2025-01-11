@@ -4,6 +4,7 @@
 package log
 
 import (
+	"fmt"
 	"log/syslog"
 	"os"
 
@@ -23,33 +24,26 @@ type SysLogHandler struct {
 	logger   log.Logger
 }
 
-var selector = func(keyvals ...interface{}) syslog.Priority {
+var selector = func(keyvals ...any) syslog.Priority {
 	for i := 0; i < len(keyvals); i += 2 {
 		if keyvals[i] == level.Key() {
-			if v, ok := keyvals[i+1].(string); ok {
-				switch v {
-				case "emergency":
-					return syslog.LOG_EMERG
-				case "alert":
-					return syslog.LOG_ALERT
-				case "critical":
-					return syslog.LOG_CRIT
-				case "error":
+			val := keyvals[i+1]
+			if val != nil {
+				switch val {
+				case level.ErrorValue():
 					return syslog.LOG_ERR
-				case "warning":
+				case level.WarnValue():
 					return syslog.LOG_WARNING
-				case "notice":
-					return syslog.LOG_NOTICE
-				case "info":
+				case level.InfoValue():
 					return syslog.LOG_INFO
-				case "debug":
+				case level.DebugValue():
 					return syslog.LOG_DEBUG
 				}
-				return syslog.LOG_LOCAL0
 			}
+			break
 		}
 	}
-	return syslog.LOG_LOCAL0
+	return syslog.LOG_INFO
 }
 
 func NewSyslog(sec *ini.Section, format Formatedlogger) *SysLogHandler {
@@ -62,10 +56,18 @@ func NewSyslog(sec *ini.Section, format Formatedlogger) *SysLogHandler {
 	handler.Tag = sec.Key("tag").MustString("")
 
 	if err := handler.Init(); err != nil {
-		_ = level.Error(root).Log("Failed to init syslog log handler", "error", err)
+		fmt.Printf("Failed to init syslog handler. Error: %v\n", err)
+		root.Error("Failed to init syslog log handler", "error", err)
 		os.Exit(1)
 	}
 	handler.logger = gokitsyslog.NewSyslogLogger(handler.syslog, format, gokitsyslog.PrioritySelectorOption(selector))
+
+	if err := handler.Log("msg", "syslog logger initialized"); err != nil {
+		fmt.Printf("Failed to log to syslog handler. Error: %v\n", err)
+		root.Error("Failed to log to syslog log handler", "error", err)
+		os.Exit(1)
+	}
+
 	return handler
 }
 
@@ -82,7 +84,7 @@ func (sw *SysLogHandler) Init() error {
 	return nil
 }
 
-func (sw *SysLogHandler) Log(keyvals ...interface{}) error {
+func (sw *SysLogHandler) Log(keyvals ...any) error {
 	err := sw.logger.Log(keyvals...)
 	return err
 }

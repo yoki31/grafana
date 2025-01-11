@@ -1,6 +1,7 @@
 package cloudwatch
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -165,7 +166,7 @@ func TestLogsResultsToDataframes(t *testing.T) {
 		aws.String("fakelogstream"),
 	})
 	hiddenLogStreamField.SetConfig(&data.FieldConfig{
-		Custom: map[string]interface{}{
+		Custom: map[string]any{
 			"hidden": true,
 		},
 	})
@@ -176,7 +177,7 @@ func TestLogsResultsToDataframes(t *testing.T) {
 		aws.String("fakelog"),
 	})
 	hiddenLogField.SetConfig(&data.FieldConfig{
-		Custom: map[string]interface{}{
+		Custom: map[string]any{
 			"hidden": true,
 		},
 	})
@@ -193,7 +194,7 @@ func TestLogsResultsToDataframes(t *testing.T) {
 		},
 		RefID: "",
 		Meta: &data.FrameMeta{
-			Custom: map[string]interface{}{
+			Custom: map[string]any{
 				"Status": "ok",
 			},
 			Stats: []data.QueryStat{
@@ -215,6 +216,128 @@ func TestLogsResultsToDataframes(t *testing.T) {
 
 	// Splitting these assertions up so it's clearer what's wrong should the test
 	// fail in the future
+	assert.Equal(t, expectedDataframe.Name, dataframes.Name)
+	assert.Equal(t, expectedDataframe.RefID, dataframes.RefID)
+	assert.Equal(t, expectedDataframe.Meta, dataframes.Meta)
+	assert.ElementsMatch(t, expectedDataframe.Fields, dataframes.Fields)
+}
+
+func TestLogsResultsToDataframes_MixedTypes_NumericValuesMixedWithStringFallBackToStringValues(t *testing.T) {
+	dataframes, err := logsResultsToDataframes(&cloudwatchlogs.GetQueryResultsOutput{
+		Results: [][]*cloudwatchlogs.ResultField{
+			{
+				&cloudwatchlogs.ResultField{
+					Field: aws.String("numberOrString"),
+					Value: aws.String("-1.234"),
+				},
+			},
+			{
+				&cloudwatchlogs.ResultField{
+					Field: aws.String("numberOrString"),
+					Value: aws.String("1"),
+				},
+			},
+			{
+				&cloudwatchlogs.ResultField{
+					Field: aws.String("numberOrString"),
+					Value: aws.String("not a number"),
+				},
+			},
+			{
+				&cloudwatchlogs.ResultField{
+					Field: aws.String("numberOrString"),
+					Value: aws.String("2.000"),
+				},
+			},
+		},
+		Status: aws.String("ok"),
+	})
+	require.NoError(t, err)
+
+	expectedDataframe := &data.Frame{
+		Name: "CloudWatchLogsResponse",
+		Fields: []*data.Field{
+			data.NewField("numberOrString", nil, []*string{
+				aws.String("-1.234"),
+				aws.String("1"),
+				aws.String("not a number"),
+				aws.String("2.000"),
+			}),
+		},
+		RefID: "",
+		Meta: &data.FrameMeta{
+			Custom: map[string]any{
+				"Status": "ok",
+			},
+		},
+	}
+
+	assert.Equal(t, expectedDataframe.Name, dataframes.Name)
+	assert.Equal(t, expectedDataframe.RefID, dataframes.RefID)
+	assert.Equal(t, expectedDataframe.Meta, dataframes.Meta)
+	assert.ElementsMatch(t, expectedDataframe.Fields, dataframes.Fields)
+}
+
+func TestLogsResultsToDataframes_With_Millisecond_Timestamps(t *testing.T) {
+	stringTimeField := "2020-03-02 15:04:05.000"
+	timestampField := int64(1732749534876)
+	ingestionTimeField := int64(1732790372916)
+
+	dataframes, err := logsResultsToDataframes(&cloudwatchlogs.GetQueryResultsOutput{
+		Results: [][]*cloudwatchlogs.ResultField{
+			{
+				&cloudwatchlogs.ResultField{
+					Field: aws.String("@timestamp"),
+					Value: aws.String(fmt.Sprintf("%d", timestampField)),
+				},
+				&cloudwatchlogs.ResultField{
+					Field: aws.String("@ingestionTime"),
+					Value: aws.String(fmt.Sprintf("%d", ingestionTimeField)),
+				},
+				&cloudwatchlogs.ResultField{
+					Field: aws.String("stringTimeField"),
+					Value: aws.String(stringTimeField),
+				},
+				&cloudwatchlogs.ResultField{
+					Field: aws.String("message"),
+					Value: aws.String("log message"),
+				},
+			},
+		},
+		Status: aws.String("ok"),
+	})
+	require.NoError(t, err)
+
+	timeStampResult := time.Unix(timestampField/1000, (timestampField%1000)*int64(time.Millisecond))
+	ingestionTimeResult := time.Unix(ingestionTimeField/1000, (ingestionTimeField%1000)*int64(time.Millisecond))
+	stringTimeFieldResult, err := time.Parse(cloudWatchTSFormat, stringTimeField)
+	require.NoError(t, err)
+
+	expectedDataframe := &data.Frame{
+		Name: "CloudWatchLogsResponse",
+		Fields: []*data.Field{
+			data.NewField("@timestamp", nil, []*time.Time{
+				&timeStampResult,
+			}),
+			data.NewField("@ingestionTime", nil, []*time.Time{
+				&ingestionTimeResult,
+			}),
+			data.NewField("stringTimeField", nil, []*time.Time{
+				&stringTimeFieldResult,
+			}),
+			data.NewField("message", nil, []*string{
+				aws.String("log message"),
+			}),
+		},
+		RefID: "",
+		Meta: &data.FrameMeta{
+			Custom: map[string]any{
+				"Status": "ok",
+			},
+		},
+	}
+	expectedDataframe.Fields[0].SetConfig(&data.FieldConfig{DisplayName: "Time"})
+
 	assert.Equal(t, expectedDataframe.Name, dataframes.Name)
 	assert.Equal(t, expectedDataframe.RefID, dataframes.RefID)
 	assert.Equal(t, expectedDataframe.Meta, dataframes.Meta)
@@ -361,7 +484,7 @@ func TestGroupingResults(t *testing.T) {
 		},
 	}
 
-	groupedResults, err := groupResults(fakeDataFrame, []string{"@log"})
+	groupedResults, err := groupResults(fakeDataFrame, []string{"@log"}, false)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, expectedGroupedFrames, groupedResults)
 }
@@ -482,7 +605,74 @@ func TestGroupingResultsWithNumericField(t *testing.T) {
 		},
 	}
 
-	groupedResults, err := groupResults(fakeDataFrame, []string{"httpresponse"})
+	groupedResults, err := groupResults(fakeDataFrame, []string{"httpresponse"}, false)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, expectedGroupedFrames, groupedResults)
+}
+
+func TestGroupingResultsWithFromSyncQueryTrue(t *testing.T) {
+	logField := data.NewField("@log", data.Labels{}, []*string{
+		aws.String("fakelog-a"),
+		aws.String("fakelog-b"),
+		aws.String("fakelog-a"),
+		aws.String("fakelog-b"),
+	})
+
+	streamField := data.NewField("stream", data.Labels{}, []*int32{
+		aws.Int32(1),
+		aws.Int32(1),
+		aws.Int32(1),
+		aws.Int32(1),
+	})
+
+	countField := data.NewField("count", data.Labels{}, []*string{
+		aws.String("100"),
+		aws.String("150"),
+		aws.String("57"),
+		aws.String("62"),
+	})
+
+	timeA := time.Time{}
+	timeB := time.Time{}.Add(1 * time.Minute)
+	fakeDataFrame := &data.Frame{
+		Name: "CloudWatchLogsResponse",
+		Fields: []*data.Field{
+			data.NewField("@timestamp", data.Labels{}, []*time.Time{&timeA, &timeA, &timeB, &timeB}),
+			logField,
+			streamField,
+			countField,
+		},
+		RefID: "",
+	}
+
+	expectedGroupedFrames := []*data.Frame{
+		{
+			Name: "fakelog-a1",
+			Fields: []*data.Field{
+				data.NewField("@timestamp", data.Labels{}, []*time.Time{&timeA, &timeB}),
+				data.NewField("count", data.Labels{"@log": "fakelog-a", "stream": "1"}, []*string{
+					aws.String("100"),
+					aws.String("57"),
+				}),
+			},
+			RefID: "",
+		},
+		{
+			Name: "fakelog-b1",
+			Fields: []*data.Field{
+				data.NewField("@timestamp", data.Labels{}, []*time.Time{&timeA, &timeB}),
+				data.NewField("count", data.Labels{"@log": "fakelog-b", "stream": "1"}, []*string{
+					aws.String("150"),
+					aws.String("62"),
+				}),
+			},
+			RefID: "",
+		},
+	}
+	expectedGroupedFrames[0].Fields[1].Config = &data.FieldConfig{DisplayNameFromDS: "fakelog-a1"}
+	expectedGroupedFrames[1].Fields[1].Config = &data.FieldConfig{DisplayNameFromDS: "fakelog-b1"}
+
+	groupedResults, err := groupResults(fakeDataFrame, []string{"@log", "stream"}, true)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, expectedGroupedFrames, groupedResults)
 }

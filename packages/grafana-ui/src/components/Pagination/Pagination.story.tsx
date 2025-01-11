@@ -1,14 +1,13 @@
-import React, { useState } from 'react';
-import { Story } from '@storybook/react';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
-import { Pagination } from '@grafana/ui';
-import mdx from './Pagination.mdx';
-import { Props } from './Pagination';
+import { Meta, StoryFn } from '@storybook/react';
+import { useState } from 'react';
 
-export default {
+import { Pagination } from '@grafana/ui';
+
+import mdx from './Pagination.mdx';
+
+const meta: Meta<typeof Pagination> = {
   title: 'Buttons/Pagination',
   component: Pagination,
-  decorators: [withCenteredStory],
   parameters: {
     docs: {
       page: mdx,
@@ -27,7 +26,7 @@ export default {
   },
 };
 
-export const WithPages: Story<Props> = ({ numberOfPages, hideWhenSinglePage }) => {
+export const WithPages: StoryFn<typeof Pagination> = ({ numberOfPages, hideWhenSinglePage }) => {
   const [page, setPage] = useState(1);
   return (
     <Pagination
@@ -42,3 +41,5 @@ WithPages.args = {
   numberOfPages: 5,
   hideWhenSinglePage: false,
 };
+
+export default meta;

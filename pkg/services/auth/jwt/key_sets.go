@@ -3,21 +3,26 @@ package jwt
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"time"
+
+	jose "github.com/go-jose/go-jose/v3"
 
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/infra/remotecache"
-	jose "gopkg.in/square/go-jose.v2"
+	"github.com/grafana/grafana/pkg/setting"
 )
 
 var ErrFailedToParsePemFile = errors.New("failed to parse pem-encoded file")
@@ -44,13 +49,13 @@ type keySetHTTP struct {
 
 func (s *AuthService) checkKeySetConfiguration() error {
 	var count int
-	if s.Cfg.JWTAuthKeyFile != "" {
+	if s.Cfg.JWTAuth.KeyFile != "" {
 		count++
 	}
-	if s.Cfg.JWTAuthJWKSetFile != "" {
+	if s.Cfg.JWTAuth.JWKSetFile != "" {
 		count++
 	}
-	if s.Cfg.JWTAuthJWKSetURL != "" {
+	if s.Cfg.JWTAuth.JWKSetURL != "" {
 		count++
 	}
 
@@ -70,7 +75,7 @@ func (s *AuthService) initKeySet() error {
 		return err
 	}
 
-	if keyFilePath := s.Cfg.JWTAuthKeyFile; keyFilePath != "" {
+	if keyFilePath := s.Cfg.JWTAuth.KeyFile; keyFilePath != "" {
 		// nolint:gosec
 		// We can ignore the gosec G304 warning on this one because `fileName` comes from grafana configuration file
 		file, err := os.Open(keyFilePath)
@@ -83,7 +88,7 @@ func (s *AuthService) initKeySet() error {
 			}
 		}()
 
-		data, err := ioutil.ReadAll(file)
+		data, err := io.ReadAll(file)
 		if err != nil {
 			return err
 		}
@@ -92,7 +97,7 @@ func (s *AuthService) initKeySet() error {
 			return ErrFailedToParsePemFile
 		}
 
-		var key interface{}
+		var key any
 		switch block.Type {
 		case "PUBLIC KEY":
 			if key, err = x509.ParsePKIXPublicKey(block.Bytes); err != nil {
@@ -118,12 +123,12 @@ func (s *AuthService) initKeySet() error {
 			return fmt.Errorf("unknown pem block type %q", block.Type)
 		}
 
-		s.keySet = keySetJWKS{
+		s.keySet = &keySetJWKS{
 			jose.JSONWebKeySet{
-				Keys: []jose.JSONWebKey{{Key: key}},
+				Keys: []jose.JSONWebKey{{Key: key, KeyID: s.Cfg.JWTAuth.KeyID}},
 			},
 		}
-	} else if keyFilePath := s.Cfg.JWTAuthJWKSetFile; keyFilePath != "" {
+	} else if keyFilePath := s.Cfg.JWTAuth.JWKSetFile; keyFilePath != "" {
 		// nolint:gosec
 		// We can ignore the gosec G304 warning on this one because `fileName` comes from grafana configuration file
 		file, err := os.Open(keyFilePath)
@@ -141,21 +146,37 @@ func (s *AuthService) initKeySet() error {
 			return err
 		}
 
-		s.keySet = keySetJWKS{jwks}
-	} else if urlStr := s.Cfg.JWTAuthJWKSetURL; urlStr != "" {
+		s.keySet = &keySetJWKS{jwks}
+	} else if urlStr := s.Cfg.JWTAuth.JWKSetURL; urlStr != "" {
 		urlParsed, err := url.Parse(urlStr)
 		if err != nil {
 			return err
 		}
-		if urlParsed.Scheme != "https" {
+		if urlParsed.Scheme != "https" && s.Cfg.Env != setting.Dev {
 			return ErrJWTSetURLMustHaveHTTPSScheme
 		}
 		s.keySet = &keySetHTTP{
-			url:             urlStr,
-			log:             s.log,
-			client:          &http.Client{},
+			url: urlStr,
+			log: s.log,
+			client: &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{
+						Renegotiation: tls.RenegotiateFreelyAsClient,
+					},
+					Proxy: http.ProxyFromEnvironment,
+					DialContext: (&net.Dialer{
+						Timeout:   time.Second * 30,
+						KeepAlive: 15 * time.Second,
+					}).DialContext,
+					TLSHandshakeTimeout:   10 * time.Second,
+					ExpectContinueTimeout: 1 * time.Second,
+					MaxIdleConns:          100,
+					IdleConnTimeout:       30 * time.Second,
+				},
+				Timeout: time.Second * 30,
+			},
 			cacheKey:        fmt.Sprintf("auth-jwt:jwk-%s", urlStr),
-			cacheExpiration: s.Cfg.JWTAuthCacheTTL,
+			cacheExpiration: s.Cfg.JWTAuth.CacheTTL,
 			cache:           s.RemoteCache,
 		}
 	}
@@ -163,7 +184,7 @@ func (s *AuthService) initKeySet() error {
 	return nil
 }
 
-func (ks keySetJWKS) Key(ctx context.Context, keyID string) ([]jose.JSONWebKey, error) {
+func (ks *keySetJWKS) Key(ctx context.Context, keyID string) ([]jose.JSONWebKey, error) {
 	return ks.JSONWebKeySet.Key(keyID), nil
 }
 
@@ -172,8 +193,12 @@ func (ks *keySetHTTP) getJWKS(ctx context.Context) (keySetJWKS, error) {
 
 	if ks.cacheExpiration > 0 {
 		if val, err := ks.cache.Get(ctx, ks.cacheKey); err == nil {
-			err := json.Unmarshal(val.([]byte), &jwks)
-			return jwks, err
+			err := json.Unmarshal(val, &jwks)
+			if err != nil {
+				ks.log.Warn("Failed to unmarshal key set from cache", "err", err)
+			} else {
+				return jwks, err
+			}
 		}
 	}
 
@@ -200,9 +225,38 @@ func (ks *keySetHTTP) getJWKS(ctx context.Context) (keySetJWKS, error) {
 	}
 
 	if ks.cacheExpiration > 0 {
-		err = ks.cache.Set(ctx, ks.cacheKey, jsonBuf.Bytes(), ks.cacheExpiration)
+		cacheExpiration := ks.getCacheExpiration(resp.Header.Get("cache-control"))
+
+		ks.log.Debug("Setting key set in cache", "url", ks.url,
+			"cacheExpiration", cacheExpiration, "cacheControl", resp.Header.Get("cache-control"))
+		err = ks.cache.Set(ctx, ks.cacheKey, jsonBuf.Bytes(), cacheExpiration)
 	}
 	return jwks, err
+}
+
+func (ks *keySetHTTP) getCacheExpiration(cacheControl string) time.Duration {
+	cacheDuration := ks.cacheExpiration
+	if cacheControl == "" {
+		return cacheDuration
+	}
+
+	parts := strings.Split(cacheControl, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "max-age=") {
+			maxAge, err := strconv.Atoi(part[8:])
+			if err != nil {
+				return cacheDuration
+			}
+
+			// If the cache duration is 0 or the max-age is less than the cache duration, use the max-age
+			if cacheDuration == 0 || time.Duration(maxAge)*time.Second < cacheDuration {
+				return time.Duration(maxAge) * time.Second
+			}
+		}
+	}
+
+	return cacheDuration
 }
 
 func (ks keySetHTTP) Key(ctx context.Context, kid string) ([]jose.JSONWebKey, error) {

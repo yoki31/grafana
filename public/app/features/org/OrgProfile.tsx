@@ -1,5 +1,5 @@
-import React, { FC } from 'react';
-import { Input, Field, FieldSet, Button, Form } from '@grafana/ui';
+import { Input, Field, FieldSet, Button } from '@grafana/ui';
+import { Form } from 'app/core/components/Form/Form';
 import { contextSrv } from 'app/core/core';
 import { AccessControlAction } from 'app/types';
 
@@ -12,7 +12,7 @@ interface FormDTO {
   orgName: string;
 }
 
-const OrgProfile: FC<Props> = ({ onSubmit, orgName }) => {
+const OrgProfile = ({ onSubmit, orgName }: Props) => {
   const canWriteOrg = contextSrv.hasPermission(AccessControlAction.OrgsWrite);
 
   return (

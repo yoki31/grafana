@@ -1,24 +1,28 @@
-import React, { ComponentType, PureComponent } from 'react';
-import { bindActionCreators } from 'redux';
+import { css } from '@emotion/css';
+import { ComponentType, PureComponent } from 'react';
 import { connect, ConnectedProps } from 'react-redux';
-import { ClickOutsideWrapper } from '@grafana/ui';
-import { LoadingState } from '@grafana/data';
+import { bindActionCreators } from 'redux';
 
+import { LoadingState, VariableOption, VariableWithMultiSupport, VariableWithOptions } from '@grafana/data';
+import { selectors } from '@grafana/e2e-selectors';
+import { ClickOutsideWrapper } from '@grafana/ui';
 import { StoreState, ThunkDispatch } from 'app/types';
+
+import { VARIABLE_PREFIX } from '../../constants';
+import { isMulti } from '../../guard';
+import { getVariableQueryRunner } from '../../query/VariableQueryRunner';
+import { formatVariableLabel } from '../../shared/formatVariable';
+import { toKeyedAction } from '../../state/keyedVariablesReducer';
+import { getVariablesState } from '../../state/selectors';
+import { KeyedVariableIdentifier } from '../../state/types';
+import { toKeyedVariableIdentifier } from '../../utils';
 import { VariableInput } from '../shared/VariableInput';
+import { VariableLink } from '../shared/VariableLink';
+import VariableOptions from '../shared/VariableOptions';
+import { NavigationKey, VariablePickerProps } from '../types';
+
 import { commitChangesToVariable, filterOrSearchOptions, navigateOptions, openOptions } from './actions';
 import { initialOptionPickerState, OptionsPickerState, toggleAllOptions, toggleOption } from './reducer';
-import { VariableOption, VariableWithMultiSupport, VariableWithOptions } from '../../types';
-import { VariableOptions } from '../shared/VariableOptions';
-import { isMulti } from '../../guard';
-import { NavigationKey, VariablePickerProps } from '../types';
-import { formatVariableLabel } from '../../shared/formatVariable';
-import { KeyedVariableIdentifier } from '../../state/types';
-import { getVariableQueryRunner } from '../../query/VariableQueryRunner';
-import { VariableLink } from '../shared/VariableLink';
-import { getVariablesState } from '../../state/selectors';
-import { toKeyedAction } from '../../state/keyedVariablesReducer';
-import { toKeyedVariableIdentifier } from '../../utils';
 
 export const optionPickerFactory = <Model extends VariableWithOptions | VariableWithMultiSupport>(): ComponentType<
   VariablePickerProps<Model>
@@ -109,9 +113,10 @@ export const optionPickerFactory = <Model extends VariableWithOptions | Variable
     render() {
       const { variable, picker } = this.props;
       const showOptions = picker.id === variable.id;
+      const styles = getStyles();
 
       return (
-        <div className="variable-link-wrapper">
+        <div className={styles.variableLinkWrapper} data-testid={selectors.components.Variables.variableLinkWrapper}>
           {showOptions ? this.renderOptions(picker) : this.renderLink(variable)}
         </div>
       );
@@ -123,11 +128,12 @@ export const optionPickerFactory = <Model extends VariableWithOptions | Variable
 
       return (
         <VariableLink
-          id={variable.id}
+          id={VARIABLE_PREFIX + variable.id}
           text={linkText}
           onClick={this.onShowOptions}
           loading={loading}
           onCancel={this.onCancel}
+          disabled={this.props.readOnly}
         />
       );
     }
@@ -141,7 +147,7 @@ export const optionPickerFactory = <Model extends VariableWithOptions | Variable
       return (
         <ClickOutsideWrapper onClick={this.onHideOptions}>
           <VariableInput
-            id={id}
+            id={VARIABLE_PREFIX + id}
             value={picker.queryValue}
             onChange={this.onFilterOrSearchOptions}
             onNavigate={this.onNavigate}
@@ -167,3 +173,10 @@ export const optionPickerFactory = <Model extends VariableWithOptions | Variable
 
   return OptionsPicker;
 };
+
+const getStyles = () => ({
+  variableLinkWrapper: css({
+    display: 'inline-block',
+    position: 'relative',
+  }),
+});

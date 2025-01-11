@@ -1,7 +1,7 @@
 package notifications
 
 import (
-	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/services/user"
 	"github.com/grafana/grafana/pkg/setting"
 )
 
@@ -24,13 +24,18 @@ type Message struct {
 	AttachedFiles []*AttachedFile
 }
 
-func setDefaultTemplateData(cfg *setting.Cfg, data map[string]interface{}, u *models.User) {
-	data["AppUrl"] = setting.AppUrl
+func setDefaultTemplateData(cfg *setting.Cfg, data map[string]any, u *user.User) {
+	data["AppUrl"] = cfg.AppURL
 	data["BuildVersion"] = setting.BuildVersion
 	data["BuildStamp"] = setting.BuildStamp
 	data["EmailCodeValidHours"] = cfg.EmailCodeValidMinutes / 60
-	data["Subject"] = map[string]interface{}{}
+	data["Subject"] = map[string]any{}
 	if u != nil {
 		data["Name"] = u.NameOrFallback()
 	}
+	dataCopy := map[string]any{}
+	for k, v := range data {
+		dataCopy[k] = v
+	}
+	data["TemplateData"] = dataCopy
 }

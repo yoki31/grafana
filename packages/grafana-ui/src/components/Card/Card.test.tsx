@@ -1,8 +1,9 @@
-import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { Card } from './Card';
+
 import { Button } from '../Button';
 import { IconButton } from '../IconButton/IconButton';
+
+import { Card } from './Card';
 
 describe('Card', () => {
   it('should execute callback when clicked', () => {
@@ -25,7 +26,7 @@ describe('Card', () => {
             <Button>Click Me</Button>
           </Card.Actions>
           <Card.SecondaryActions>
-            <IconButton name="trash-alt" aria-label="Delete" />
+            <IconButton name="trash-alt" aria-label="Delete" tooltip="Delete" />
           </Card.SecondaryActions>
         </Card>
       );
@@ -40,7 +41,7 @@ describe('Card', () => {
             <Button>Click Me</Button>
           </Card.Actions>
           <Card.SecondaryActions>
-            <IconButton name="trash-alt" aria-label="Delete" />
+            <IconButton name="trash-alt" aria-label="Delete" tooltip="Delete" />
           </Card.SecondaryActions>
         </Card>
       );
@@ -57,7 +58,7 @@ describe('Card', () => {
             <Button disabled>Click Me</Button>
           </Card.Actions>
           <Card.SecondaryActions>
-            <IconButton name="trash-alt" aria-label="Delete" disabled />
+            <IconButton name="trash-alt" aria-label="Delete" tooltip="Delete" disabled />
           </Card.SecondaryActions>
         </Card>
       );
@@ -72,7 +73,7 @@ describe('Card', () => {
             <Button disabled={false}>Click Me</Button>
           </Card.Actions>
           <Card.SecondaryActions>
-            <IconButton name="trash-alt" aria-label="Delete" disabled={false} />
+            <IconButton name="trash-alt" aria-label="Delete" tooltip="Delete" disabled={false} />
           </Card.SecondaryActions>
         </Card>
       );
@@ -91,7 +92,7 @@ describe('Card', () => {
             {shouldNotRender && <Button>Delete</Button>}
           </Card.Actions>
           <Card.SecondaryActions>
-            {shouldNotRender && <IconButton name="trash-alt" aria-label="Delete" disabled={false} />}
+            {shouldNotRender && <IconButton name="trash-alt" aria-label="Delete" tooltip="Delete" disabled={false} />}
           </Card.SecondaryActions>
         </Card>
       );

@@ -1,21 +1,24 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import * as React from 'react';
+
 import { Input, defaultIntervals, Field } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { getTimeSrv } from '../../services/TimeSrv';
 
 export interface Props {
-  refreshIntervals: string[];
+  refreshIntervals?: string[];
   onRefreshIntervalChange: (interval: string[]) => void;
   getIntervalsFunc?: typeof getValidIntervals;
   validateIntervalsFunc?: typeof validateIntervals;
 }
 
-export const AutoRefreshIntervals: FC<Props> = ({
+export const AutoRefreshIntervals = ({
   refreshIntervals,
   onRefreshIntervalChange,
   getIntervalsFunc = getValidIntervals,
   validateIntervalsFunc = validateIntervals,
-}) => {
+}: Props) => {
   const [intervals, setIntervals] = useState<string[]>(getIntervalsFunc(refreshIntervals ?? defaultIntervals));
   const [invalidIntervalsMessage, setInvalidIntervalsMessage] = useState<string | null>(null);
 
@@ -57,8 +60,11 @@ export const AutoRefreshIntervals: FC<Props> = ({
 
   return (
     <Field
-      label="Auto refresh"
-      description="Define the auto refresh intervals that should be available in the auto refresh list."
+      label={t('dashboard-settings.general.auto-refresh-label', 'Auto refresh')}
+      description={t(
+        'dashboard-settings.general.auto-refresh-description',
+        "Define the auto refresh intervals that should be available in the auto refresh list. Use the format '5s' for seconds, '1m' for minutes, '1h' for hours, and '1d' for days (e.g.: '5s,10s,30s,1m,5m,15m,30m,1h,2h,1d')."
+      )}
       error={invalidIntervalsMessage}
       invalid={!!invalidIntervalsMessage}
     >
@@ -81,7 +87,7 @@ export const validateIntervals = (
     getValidIntervals(intervals, dependencies);
     return null;
   } catch (err) {
-    return err.message;
+    return err instanceof Error ? err.message : 'Invalid intervals';
   }
 };
 

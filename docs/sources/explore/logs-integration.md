@@ -1,139 +1,195 @@
-+++
-title = "Logs in Explore"
-description = "Logs in Explore"
-keywords = ["explore", "logs",]
-weight = 15
-+++
+---
+description: Logs in Explore
+keywords:
+  - explore
+  - logs
+labels:
+  products:
+    - cloud
+    - enterprise
+    - oss
+title: Logs in Explore
+weight: 25
+---
 
 # Logs in Explore
 
-Along with metrics, Explore allows you to investigate your logs in the following data sources:
+Explore is a powerful tool for logging and log analysis. It allows you to investigate logs from different data sources including:
 
-- [Elasticsearch]({{< relref "../datasources/elasticsearch.md" >}})
-- [InfluxDB]({{< relref "../datasources/influxdb/_index.md" >}})
-- [Loki]({{< relref "../datasources/loki.md" >}})
+- [Loki](/docs/grafana/<GRAFANA_VERSION>/datasources/loki/)
+- [Elasticsearch](/docs/grafana/<GRAFANA_VERSION>/datasources/elasticsearch/)
+- [Cloudwatch](/docs/grafana/<GRAFANA_VERSION>/datasources/aws-cloudwatch/)
+- [InfluxDB](/docs/grafana/<GRAFANA_VERSION>/datasources/influxdb/)
+- [Azure Monitor](/docs/grafana/<GRAFANA_VERSION>/datasources/azure-monitor/)
+- [ClickHouse](https://github.com/grafana/clickhouse-datasource)
 
-During an infrastructure monitoring and incident response, you can dig deeper into the metrics and logs to find the cause. Explore also allows you to correlate metrics and logs by viewing them side-by-side. This creates a new debugging workflow:
+With Explore, you can efficiently monitor, troubleshoot, and respond to incidents by analyzing your logs and identifying the root causes. It also helps you to correlate logs with other telemetry signals such as metrics, traces or profiles, by viewing them side-by-side.
 
-1. Receive an alert.
-1. Drill down and examine metrics.
-1. Drill down again and search logs related to the metric and time interval (and in the future, distributed traces).
+The results of log queries display as individual log lines and as a graph showing the logs volume for the selected time period.
 
-### Logs visualization
+## Logs volume
 
-Results of log queries are shown as histograms in the graph and individual logs are explained in the following sections.
+When working with data sources that support a full range logs volume, Explore automatically displays a graph showing the log distribution for all submitted log queries. This feature is currently supported by the Elasticsearch and Loki data sources.
 
-If the data source supports a full range log volume histogram, the graph with log distribution for all entered log queries is shown automatically. This feature is currently supported by Elasticsearch and Loki data sources.
+{{< admonition type="note" >}}
+In Loki, generating the full range log volume via a metric query can be resource-intensive, depending on the time range queried. This is especially challenging for smaller Loki installations. To mitigate this, we recommend that you use a proxy like [nginx](https://www.nginx.com/) in front of Loki with a timeout like 10ss. Log volume histogram queries can be identified by looking for queries with the HTTP header `X-Query-Tags` with value `Source=logvolhist`; these headers are added by Grafana to all log volume histogram queries.
+{{< /admonition >}}
 
-If the data source does not support loading full range log volume histogram, the logs model computes a time series based on the log row counts bucketed by an automatically calculated time interval, and the first log row's timestamp then anchors the start of the histogram from the result. The end of the time series is anchored to the time picker's **To** range.
+If the data source doesn't support loading the full range logs volume, the logs model calculates a time series by counting log rows and organizing them into buckets based on an automatically calculated time interval. The timestamp of the first log row is used to anchor the start of the logs volume in the results. The end of the time series is anchored to the time picker's **To** range. This way, you can still analyze and visualize log data efficiently even when the data source doesn't offer full range support.
 
-#### Log level
+## Logs
 
-For logs where a level label is specified, we use the value of the label to determine the log level and update color accordingly. If the log doesn't have a level label specified, we try to find out if its content matches any of the supported expressions (see below for more information). The log level is always determined by the first match. In case Grafana is not able to determine a log level, it will be visualized with an unknown log level.
-
-> **Tip:** If you use Loki data source and the "level" is in your log-line, use parsers (JSON, logfmt, regex,..) to extract the level information into a level label that is used to determine log level. This will allow the histogram to show the various log levels in separate bars.
-
-**Supported log levels and mapping of log level abbreviation and expressions:**
-
-| Supported expressions | Log level |      Color |
-| --------------------- | :-------: | ---------: |
-| emerg                 | critical  |     purple |
-| fatal                 | critical  |     purple |
-| alert                 | critical  |     purple |
-| crit                  | critical  |     purple |
-| critical              | critical  |     purple |
-| err                   |   error   |        red |
-| eror                  |   error   |        red |
-| error                 |   error   |        red |
-| warn                  |  warning  |     yellow |
-| warning               |  warning  |     yellow |
-| info                  |   info    |      green |
-| information           |   info    |      green |
-| notice                |   info    |      green |
-| dbug                  |   debug   |       blue |
-| debug                 |   debug   |       blue |
-| trace                 |   trace   | light blue |
-| \*                    |  unknown  |       grey |
+The following sections provide detailed explanations on how to visualize and interact with individual logs in Explore.
 
 ### Logs navigation
 
-Logs navigation next to the log lines can be used to request more logs. You can do this by clicking on Older logs button on the bottom of navigation. This is especially useful when you hit the line limit and you want to see more logs. Each request that is run from the navigation is then displayed in the navigation as separate page. Every page is showing from and to timestamp of the incoming log lines. You can see previous results by clicking on the page. Explore is caching last five requests run from the logs navigation, so you are not re-running the same queries when clicking on the pages.
+Logs navigation, located at the right side of the log lines, can be used to easily request additional logs by clicking **Older logs** at the bottom of the navigation. This is especially useful when you reach the line limit and you want to see more logs. Each request run from the navigation displays in the navigation as separate page. Every page shows `from` and `to` timestamps of the incoming log lines. You can see previous results by clicking on each page. Explore caches the last five requests run from the logs navigation so you're not re-running the same queries when clicking on the pages, saving time and resources.
 
 ![Navigate logs in Explore](/static/img/docs/explore/navigate-logs-8-0.png)
 
 ### Visualization options
 
-You can customize how logs are displayed and select which columns are shown.
+You have the option to customize the display of logs and choose which columns to show. Following is a list of available options.
 
-#### Time
+| Option                    | Description                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Time**                  | Shows or hides the time column. This is the timestamp associated with the log line as reported from the data source.                                                                                                                                                                                                                                                                                                                                      |
+| **Unique labels**         | Shows or hides the unique labels column that includes only non-common labels. All common labels are displayed above.                                                                                                                                                                                                                                                                                                                                      |
+| **Wrap lines**            | Set this to `true` if you want the display to use line wrapping. If set to `false`, it will result in horizontal scrolling.                                                                                                                                                                                                                                                                                                                               |
+| **Prettify JSON**         | Set this to `true` to pretty print all JSON logs. This setting does not affect logs in any format other than JSON.                                                                                                                                                                                                                                                                                                                                        |
+| **Deduplication**         | Log data can be very repetitive. Explore hides duplicate log lines using a few different deduplication algorithms. **Exact** matches are done on the whole line except for date fields. **Numbers** matches are done on the line after stripping out numbers such as durations, IP addresses, and so on. **Signature** is the most aggressive deduplication as it strips all letters and numbers and matches on the remaining whitespace and punctuation. |
+| **Display results order** | You can change the order of received logs from the default descending order (newest first) to ascending order (oldest first).                                                                                                                                                                                                                                                                                                                             |
 
-Shows or hides the time column. This is the timestamp associated with the log line as reported from the data source.
+### Download log lines
 
-#### Unique labels
+This feature lets you save log data for further analysis or to share it with others in a convenient and accessible format.
 
-Shows or hides the unique labels column that includes only non-common labels. All common labels are displayed above.
+In Explore there are three export options:
 
-#### Wrap lines
+- **TXT** - will export the data as visible on the screen, meaning it will take into account formatting, like `line_format`.
+- **JSON** - will export the raw data, regardless of the formatting, like `line_format`.
+- **CSV** - will export the raw data, regardless of the formatting, like `line_format`.
 
-Set this to True if you want the display to use line wrapping. If set to False, it will result in horizontal scrolling.
+Click **Download** and select `TXT`, `JSON` or `CSV` to download log results.
 
-#### Prettify JSON
+### Log result meta information
 
-Set this to `true` to pretty print all JSON logs. This setting does not affect logs in any format other than JSON.
+The following meta information displays above the retrieved log lines:
 
-#### Deduping
+- **Number of received logs -** Indicates the total count of logs received for the current query or time range.
+- **Error -** Displays any errors in your log results.
+- **Common labels -** Displays common labels.
+- **Total bytes processed -** Represents the cumulative size of the log data processed in bytes.
 
-Log data can be very repetitive and Explore can help by hiding duplicate log lines. There are a few different deduplication algorithms that you can use:
+{{< admonition type="note" >}}
+The availability of certain metadata may vary depending on the data source, so you might only see details related to those specific data sources.
+{{< /admonition >}}
 
-- **Exact -** Exact matches are done on the whole line except for date fields.
-- **Numbers -** Matches on the line after stripping out numbers such as durations, IP addresses, and so on.
-- **Signature -** The most aggressive deduping, this strips all letters and numbers and matches on the remaining whitespace and punctuation.
+### Escaping newlines
 
-#### Flip results order
+Explore automatically detects some incorrectly escaped sequences in log lines, such as newlines (`\n`, `\r`) or tabs (`\t`). When it detects such sequences, Explore provides an **Escape newlines** option.
 
-You can change the order of received logs from the default descending order (newest first) to ascending order (oldest first).
+To automatically fix incorrectly escaped sequences that Explore has detected:
 
-### Labels and detected fields
+1. Click **Escape newlines** to replace the sequences.
+2. Review returned log lines.
 
-Each log row has an extendable area with its labels and detected fields, for more robust interaction. For all labels we have added the ability to filter for (positive filter) and filter out (negative filter) selected labels. Each field or label also has a stats icon to display ad-hoc statistics in relation to all displayed logs.
+Explore replaces these sequences, changing the option from **Escape newlines** to **Remove escaping**. Assess the changes, as the parsing may not be accurate based on the input. To revert the replacements, click **Remove escaping**.
 
-#### Derived fields links
+### Log level
 
-By using Derived fields, you can turn any part of a log message into an internal or external link. The created link is visible as a button next to the Detected field in the Log details view.
-{{< figure src="/static/img/docs/explore/detected-fields-link-7-4.png" max-width="800px" caption="Detected fields link in Explore" >}}
+For logs where a `level` label is specified, the value of this label is used to determine the log level and update the color of each log line accordingly.
+If the log doesn't have a specified level label, Grafana attempts to determine if its content matches any of the supported expressions.
+Refer to the following table for more information. The log level is always determined by the first match. If Grafana isn't able to infer a log level field, it gets visualized as an unknown log level.
 
-#### Toggle detected fields
+{{< admonition type="tip" >}}
+When using the Loki data source, if `level` is part of your log line, you can use parsers such as `json`, `logfmt`, or `regex` to extract the level information into a level label. This label is used to determine the level value, allowing the histogram to display the various log levels as separate bars.
+{{< /admonition >}}
 
-> **Note:** Available in Grafana 7.2 and later versions.
+**Log levels supported and mapping of log level abbreviation and expressions:**
 
-If your logs are structured in `json` or `logfmt`, then you can show or hide detected fields. Expand a log line and then click the eye icon to show or hide fields.
+| Log level | Color      | Supported expressions                          |
+| :-------- | :--------- | ---------------------------------------------- |
+| critical  | purple     | emerg, fatal, alert, crit, critical, 0, 1, 2   |
+| error     | red        | err, eror, error, 3                            |
+| warning   | yellow     | warn, warning, 4                               |
+| info      | green      | info, information, informational, notice, 5, 6 |
+| debug     | blue       | dbug, debug, 7                                 |
+| trace     | light blue | trace                                          |
+| unknown   | grey       | \*                                             |
 
-{{< figure src="/static/img/docs/explore/parsed-fields-7-2.gif" max-width="800px" caption="Toggling detected fields in Explore" >}}
+### Highlight searched words
 
-### Loki-specific features
+When your query includes specific words or expressions for keyword search, Explore highlights them in log lines to enhance visibility. This highlighting feature facilitates easier identification and focus on the relevant content within your logs.
 
-As mentioned, one of the log integrations is for the new open source log aggregation system from Grafana Labs - [Loki](https://github.com/grafana/loki). Loki is designed to be very cost effective, as it does not index the contents of the logs, but rather a set of labels for each log stream. The logs from Loki are queried in a similar way to querying with label selectors in Prometheus. It uses labels to group log streams which can be made to match up with your Prometheus labels. For more information about Grafana Loki, refer to [Grafana Loki](https://github.com/grafana/loki) or the Grafana Labs hosted variant: [Grafana Cloud Logs](https://grafana.com/loki).
+{{< admonition type="note" >}}
+The ability to highlight search words varies depending on data source. For some data sources, the highlighting of search words may not be available.
+{{< /admonition >}}
 
-For more information, refer to [Loki's data source documentation]({{< relref "../datasources/loki.md" >}}) on how to query for log data.
+### Log details view
 
-#### Switch from metrics to logs
+In Explore, each log line has an expandable section called **Log details** that you open by clicking on the log line. The Log details view provides additional information and exploration options in the form of **Fields** and **Links** attached to the log lines, enabling a more robust interaction and analysis.
 
-If you switch from a Prometheus query to a logs query (you can do a split first to have your metrics and logs side by side) then it will keep the labels from your query that exist in the logs and use those to query the log streams. For example, the following Prometheus query:
+#### Fields
 
-`grafana_alerting_active_alerts{job="grafana"}`
+Within the **Log details** view, you have the ability to filter the displayed fields in two ways: a positive filter, which focuses on an specific field and a negative filter, which excludes certain fields.
+These filters modify the corresponding query that generated the log line, incorporating equality and inequality expressions accordingly.
 
-after switching to the Logs data source, the query changes to:
+If the data source supports it, as is the case with Loki and Elasticsearch, log details will verify whether the field is already included in the current query, indicating an active state for positive filters. This enables you to toggle it off from the query or convert the filter expression from positive to negative as necessary.
 
-`{job="grafana"}`
+Click the **eye icon** to select a subset of fields to visualize in the logs list instead of the complete log line.
 
-This will return a chunk of logs in the selected time range that can be grepped/text searched.
+Each field has a **stats icon**, which displays ad-hoc statistics in relation to all displayed logs.
 
-#### Live tailing
+#### Links
 
-Use the Live tailing feature to see real-time logs on supported data sources.
+Grafana provides data links or correlations, allowing you to convert any part of a log message into an internal or external link. These links enable you to navigate to related data or external resources, offering a seamless and convenient way to explore additional information.
 
-Click the **Live** button in the Explore toolbar to switch to Live tail view.
+{{< figure src="/static/img/docs/explore/data-link-9-4.png" max-width="800px" caption="Data link in Explore" >}}
 
-While in Live tail view new logs will come from the bottom of the screen and will have fading contrasting background so you can keep track of what is new. Click the **Pause** button or scroll the logs view to pause the Live tailing and explore previous logs without interruption. Click **Resume** button to resume the Live tailing or click **Stop** button to exit Live tailing and go back to standard Explore view.
+### Log context
 
-{{< figure src="/static/img/docs/v64/explore_live_tailing.gif" class="docs-image--no-shadow" caption="Explore Live tailing in action" >}}
+Log context is a feature that displays additional lines of context surrounding a log entry that matches a specific search query. This helps in understanding the context of the log entry and is similar to the `-C` parameter in the `grep` command.
+
+Toggle **Wrap lines** if you encounter long lines of text that make it difficult to read and analyze the context around log entries. By enabling this toggle, Grafana automatically wraps long lines of text to fit within the visible width of the viewer, making the log entries easier to read and understand.
+
+Click **Open in split view** to execute the context query for a log entry in a split screen in the Explore view. Clicking this button opens a new Explore pane with the context query displayed alongside the log entry, making it easier to analyze and understand the surrounding context.
+
+Use Command-click or Ctrl+click to open the log context query in a new browser to view the context model. All previously selected filters get applied.
+
+### Copy log line
+
+Click **Copy log line** to copy the content of a selected log line to the clipboard.
+
+### Copy link to log line
+
+Linking log lines in Grafana allows you to quickly navigate to specific log entries for detailed and precise analysis. Click **Copy shortlink** to generate and copy a [short URL](/docs/grafana/<GRAFANA_VERSION>/developers/http_api/short_url/) that provides direct access to the exact log entry within an absolute time range. When you open the link, Grafana automatically scrolls to the corresponding log line and highlights it in blue, making it easy to identify and focus on relevant information.
+
+{{< admonition type="note" >}}
+The short URL feature is currently only supported in Loki and other data sources that provide an `id` field.
+{{< /admonition >}}
+
+## Live tailing
+
+Use the **Live tail** feature to view real-time logs from data sources.
+
+1. Click **Live** in the Explore toolbar to switch to Live tail view.
+1. In **Live tail view**, new logs appear at the bottom of the screen, and have a contrasting background, allowing you to easily track what's new.
+1. Click **Pause** to pause live tailing and explore previous logs without interruptions. or simply scroll through the logs view.
+1. Click **Clear logs** to remove all displayed logs. This action resets the log view and provides a clean slate to continue your log analysis
+1. Click **Resume** to resume live tailing and continue viewing real-time logs.
+1. Click **Stop** to exit live tailing and return to the standard Explore view.
+
+The **Live tailing feature** allows you to monitor the latest logs in real-time, making it easier to track events as they occur and promptly detect issues.
+
+{{< video-embed src="/static/img/docs/v95/explore_live_tailing.mp4" >}}
+
+### Logs sample
+
+If the selected data source supports log samples and both log and metric queries, you will automatically see log line samples that contribute to the visualized metrics for metric queries. **This feature is currently only supported by the Loki data source.**
+
+### Switch from metrics to logs
+
+If you are transitioning from a metrics data source that implements `DataSourceWithQueryExportSupport` (such as Prometheus) to a logging data source that supports `DataSourceWithQueryImportSupport` (such as Loki), Explore retains the labels from your query that exist in the logs and use them to query the log streams.
+
+For example, after switching to the Loki data source, the Prometheus query `grafana_alerting_active_alerts{job="grafana"}` changes to `{job="grafana"}`. This will retrieve a set of logs within the specified time range, which can be searched using grep or text search.

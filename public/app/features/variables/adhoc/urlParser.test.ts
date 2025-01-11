@@ -1,6 +1,6 @@
+import { AdHocVariableFilter, UrlQueryValue } from '@grafana/data';
+
 import { toFilters, toUrl } from './urlParser';
-import { AdHocVariableFilter } from 'app/features/variables/types';
-import { UrlQueryValue } from '@grafana/data';
 
 describe('urlParser', () => {
   describe('parsing toUrl with no filters', () => {
@@ -48,7 +48,6 @@ describe('urlParser', () => {
         value: '',
         key: 'key',
         operator: '',
-        condition: '',
       };
 
       const filters: AdHocVariableFilter[] = [a];
@@ -66,7 +65,6 @@ describe('urlParser', () => {
         value: undefined,
         key: 'key',
         operator: undefined,
-        condition: '',
       } as unknown as AdHocVariableFilter;
 
       const filters: AdHocVariableFilter[] = [a];
@@ -84,7 +82,6 @@ describe('urlParser', () => {
         value: 1974,
         key: 'key',
         operator: '=',
-        condition: '',
       } as unknown as AdHocVariableFilter;
 
       const filters: AdHocVariableFilter[] = [a];
@@ -102,7 +99,6 @@ describe('urlParser', () => {
         value: false,
         key: 'key',
         operator: '=',
-        condition: '',
       } as unknown as AdHocVariableFilter;
 
       const filters: AdHocVariableFilter[] = [a];
@@ -170,7 +166,6 @@ describe('urlParser', () => {
           value: '',
           key: 'key',
           operator: '',
-          condition: '',
         },
       ];
 
@@ -192,6 +187,5 @@ function createFilter(value: string, operator = '='): AdHocVariableFilter {
     value: `${value}-value`,
     key: `${value}-key`,
     operator: operator,
-    condition: '',
   };
 }

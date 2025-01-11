@@ -1,10 +1,9 @@
-import React, { PureComponent } from 'react';
-
 import { difference } from 'lodash';
+import { PureComponent } from 'react';
+
+import { fieldReducers, SelectableValue, FieldReducerInfo } from '@grafana/data';
 
 import { Select } from '../Select/Select';
-
-import { fieldReducers, SelectableValue } from '@grafana/data';
 
 export interface Props {
   placeholder?: string;
@@ -16,6 +15,7 @@ export interface Props {
   width?: number;
   menuPlacement?: 'auto' | 'bottom' | 'top';
   inputId?: string;
+  filterOptions?: (ext: FieldReducerInfo) => boolean;
 }
 
 export class StatsPicker extends PureComponent<Props> {
@@ -64,12 +64,12 @@ export class StatsPicker extends PureComponent<Props> {
   };
 
   render() {
-    const { stats, allowMultiple, defaultStat, placeholder, className, menuPlacement, width, inputId } = this.props;
+    const { stats, allowMultiple, defaultStat, placeholder, className, menuPlacement, width, inputId, filterOptions } =
+      this.props;
 
-    const select = fieldReducers.selectOptions(stats);
+    const select = fieldReducers.selectOptions(stats, filterOptions);
     return (
       <Select
-        menuShouldPortal
         value={select.current}
         className={className}
         isClearable={!defaultStat}

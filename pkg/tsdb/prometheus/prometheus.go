@@ -2,119 +2,81 @@ package prometheus
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"regexp"
 
-	"github.com/grafana/grafana/pkg/tsdb/prometheus/promclient"
-
+	"github.com/grafana/grafana-azure-sdk-go/v2/azsettings"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
-	"github.com/grafana/grafana/pkg/infra/httpclient"
-	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/infra/tracing"
-	"github.com/grafana/grafana/pkg/tsdb/intervalv2"
-	"github.com/grafana/grafana/pkg/util/maputil"
-	apiv1 "github.com/prometheus/client_golang/api/prometheus/v1"
-)
+	sdkhttpclient "github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 
-var (
-	plog         = log.New("tsdb.prometheus")
-	legendFormat = regexp.MustCompile(`\{\{\s*(.+?)\s*\}\}`)
-	safeRes      = 11000
+	"github.com/grafana/grafana/pkg/promlib"
+	"github.com/grafana/grafana/pkg/tsdb/prometheus/azureauth"
 )
 
 type Service struct {
-	intervalCalculator intervalv2.Calculator
-	im                 instancemgmt.InstanceManager
-	tracer             tracing.Tracer
+	lib *promlib.Service
 }
 
-func ProvideService(httpClientProvider httpclient.Provider, tracer tracing.Tracer) *Service {
-	plog.Debug("initializing")
+func ProvideService(httpClientProvider *sdkhttpclient.Provider) *Service {
+	plog := backend.NewLoggerWith("logger", "tsdb.prometheus")
+	plog.Debug("Initializing")
 	return &Service{
-		intervalCalculator: intervalv2.NewCalculator(),
-		im:                 datasource.NewInstanceManager(newInstanceSettings(httpClientProvider)),
-		tracer:             tracer,
-	}
-}
-
-func newInstanceSettings(httpClientProvider httpclient.Provider) datasource.InstanceFactoryFunc {
-	return func(settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-		var jsonData map[string]interface{}
-		err := json.Unmarshal(settings.JSONData, &jsonData)
-		if err != nil {
-			return nil, fmt.Errorf("error reading settings: %w", err)
-		}
-
-		p := promclient.NewProvider(settings, jsonData, httpClientProvider, plog)
-		pc, err := promclient.NewProviderCache(p)
-		if err != nil {
-			return nil, err
-		}
-
-		timeInterval, err := maputil.GetStringOptional(jsonData, "timeInterval")
-		if err != nil {
-			return nil, err
-		}
-
-		mdl := DatasourceInfo{
-			ID:           settings.ID,
-			URL:          settings.URL,
-			TimeInterval: timeInterval,
-			getClient:    pc.GetClient,
-		}
-
-		return mdl, nil
+		lib: promlib.NewService(httpClientProvider, plog, extendClientOpts),
 	}
 }
 
 func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-	if len(req.Queries) == 0 {
-		return &backend.QueryDataResponse{}, fmt.Errorf("query contains no queries")
+	return s.lib.QueryData(ctx, req)
+}
+
+func (s *Service) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
+	return s.lib.CallResource(ctx, req, sender)
+}
+
+func (s *Service) GetBuildInfo(ctx context.Context, req promlib.BuildInfoRequest) (*promlib.BuildInfoResponse, error) {
+	return s.lib.GetBuildInfo(ctx, req)
+}
+
+func (s *Service) GetHeuristics(ctx context.Context, req promlib.HeuristicsRequest) (*promlib.Heuristics, error) {
+	return s.lib.GetHeuristics(ctx, req)
+}
+
+func (s *Service) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult,
+	error) {
+	return s.lib.CheckHealth(ctx, req)
+}
+
+func (s *Service) ValidateAdmission(ctx context.Context, req *backend.AdmissionRequest) (*backend.ValidationResponse, error) {
+	return s.lib.ValidateAdmission(ctx, req)
+}
+
+func (s *Service) MutateAdmission(ctx context.Context, req *backend.AdmissionRequest) (*backend.MutationResponse, error) {
+	return s.lib.MutateAdmission(ctx, req)
+}
+func (s *Service) ConvertObjects(ctx context.Context, req *backend.ConversionRequest) (*backend.ConversionResponse, error) {
+	return s.lib.ConvertObjects(ctx, req)
+}
+
+func extendClientOpts(ctx context.Context, settings backend.DataSourceInstanceSettings, clientOpts *sdkhttpclient.Options, plog log.Logger) error {
+	// Set SigV4 service namespace
+	if clientOpts.SigV4 != nil {
+		clientOpts.SigV4.Service = "aps"
 	}
 
-	q := req.Queries[0]
-	dsInfo, err := s.getDSInfo(req.PluginContext)
+	azureSettings, err := azsettings.ReadSettings(ctx)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to read Azure settings from Grafana: %v", err)
 	}
 
-	var result *backend.QueryDataResponse
-	switch q.QueryType {
-	case "timeSeriesQuery":
-		fallthrough
-	default:
-		result, err = s.executeTimeSeriesQuery(ctx, req, dsInfo)
+	audienceOverride := backend.GrafanaConfigFromContext(ctx).FeatureToggles().IsEnabled("prometheusAzureOverrideAudience")
+
+	// Set Azure authentication
+	if azureSettings.AzureAuthEnabled {
+		err = azureauth.ConfigureAzureAuthentication(settings, azureSettings, clientOpts, audienceOverride, plog)
+		if err != nil {
+			return fmt.Errorf("error configuring Azure auth: %v", err)
+		}
 	}
 
-	return result, err
-}
-
-func (s *Service) getDSInfo(pluginCtx backend.PluginContext) (*DatasourceInfo, error) {
-	i, err := s.im.Get(pluginCtx)
-	if err != nil {
-		return nil, err
-	}
-
-	instance := i.(DatasourceInfo)
-
-	return &instance, nil
-}
-
-// IsAPIError returns whether err is or wraps a Prometheus error.
-func IsAPIError(err error) bool {
-	// Check if the right error type is in err's chain.
-	var e *apiv1.Error
-	return errors.As(err, &e)
-}
-
-func ConvertAPIError(err error) error {
-	var e *apiv1.Error
-	if errors.As(err, &e) {
-		return fmt.Errorf("%s: %s", e.Msg, e.Detail)
-	}
-	return err
+	return nil
 }

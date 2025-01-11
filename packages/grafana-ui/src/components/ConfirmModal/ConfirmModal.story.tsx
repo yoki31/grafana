@@ -1,17 +1,15 @@
-import React from 'react';
-import { Meta, Story } from '@storybook/react';
 import { action } from '@storybook/addon-actions';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
+import { Meta, StoryFn } from '@storybook/react';
+
 import { ConfirmModal } from '@grafana/ui';
+
 import mdx from './ConfirmModal.mdx';
-import { ConfirmModalProps } from './ConfirmModal';
 
 const defaultExcludes = ['onConfirm', 'onDismiss', 'onAlternative'];
 
-export default {
+const meta: Meta<typeof ConfirmModal> = {
   title: 'Overlays/ConfirmModal',
   component: ConfirmModal,
-  decorators: [withCenteredStory],
   parameters: {
     docs: {
       page: mdx,
@@ -25,7 +23,7 @@ export default {
     body: { control: { type: 'text' } },
     description: { control: { type: 'text' } },
   },
-} as Meta;
+};
 
 const defaultActions = {
   onConfirm: () => {
@@ -39,11 +37,12 @@ const defaultActions = {
   },
 };
 
-export const Basic: Story<ConfirmModalProps> = ({
+export const Basic: StoryFn<typeof ConfirmModal> = ({
   title,
   body,
   description,
   confirmText,
+  confirmButtonVariant,
   dismissText,
   icon,
   isOpen,
@@ -56,6 +55,7 @@ export const Basic: Story<ConfirmModalProps> = ({
       body={body}
       description={description}
       confirmText={confirmText}
+      confirmButtonVariant={confirmButtonVariant}
       dismissText={dismissText}
       icon={icon}
       onConfirm={onConfirm}
@@ -75,12 +75,13 @@ Basic.args = {
   body: 'Are you sure you want to delete this user?',
   description: 'Removing the user will not remove any dashboards the user has created',
   confirmText: 'Delete',
+  confirmButtonVariant: 'destructive',
   dismissText: 'Cancel',
   icon: 'exclamation-triangle',
   isOpen: true,
 };
 
-export const AlternativeAction: Story<ConfirmModalProps> = ({
+export const AlternativeAction: StoryFn<typeof ConfirmModal> = ({
   title,
   body,
   description,
@@ -110,7 +111,7 @@ export const AlternativeAction: Story<ConfirmModalProps> = ({
 
 AlternativeAction.parameters = {
   controls: {
-    exclude: [...defaultExcludes, 'confirmationText'],
+    exclude: [...defaultExcludes, 'confirmationText', 'confirmButtonVariant'],
   },
 };
 
@@ -124,7 +125,7 @@ AlternativeAction.args = {
   isOpen: true,
 };
 
-export const WithConfirmation: Story<ConfirmModalProps> = ({
+export const WithConfirmation: StoryFn<typeof ConfirmModal> = ({
   title,
   body,
   description,
@@ -153,7 +154,7 @@ export const WithConfirmation: Story<ConfirmModalProps> = ({
 
 WithConfirmation.parameters = {
   controls: {
-    exclude: [...defaultExcludes, 'alternativeText'],
+    exclude: [...defaultExcludes, 'alternativeText', 'confirmButtonVariant'],
   },
 };
 
@@ -167,3 +168,5 @@ WithConfirmation.args = {
   icon: 'trash-alt',
   isOpen: true,
 };
+
+export default meta;

@@ -1,6 +1,9 @@
-import { BucketsConfiguration } from '../../../types';
-import { defaultFilter } from './SettingsEditor/FiltersSettingsEditor/utils';
 import { InternalTimeZones, SelectableValue } from '@grafana/data';
+
+import { defaultGeoHashPrecisionString } from '../../../queryDef';
+import { BucketsConfiguration } from '../../../types';
+
+import { defaultFilter } from './SettingsEditor/FiltersSettingsEditor/utils';
 
 export const bucketAggregationConfig: BucketsConfiguration = {
   terms: {
@@ -24,7 +27,7 @@ export const bucketAggregationConfig: BucketsConfiguration = {
     label: 'Geo Hash Grid',
     requiresField: true,
     defaultSettings: {
-      precision: '3',
+      precision: defaultGeoHashPrecisionString,
     },
   },
   date_histogram: {
@@ -44,6 +47,11 @@ export const bucketAggregationConfig: BucketsConfiguration = {
       interval: '1000',
       min_doc_count: '0',
     },
+  },
+  nested: {
+    label: 'Nested (experimental)',
+    requiresField: true,
+    defaultSettings: {},
   },
 };
 

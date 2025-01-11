@@ -1,7 +1,11 @@
-import React, { memo, useCallback } from 'react';
-import { MatcherUIProps, FieldMatcherUIRegistryItem } from './types';
+import { memo, useCallback } from 'react';
+import * as React from 'react';
+
 import { FieldMatcherID, fieldMatchers } from '@grafana/data';
+
 import { Input } from '../Input/Input';
+
+import { MatcherUIProps, FieldMatcherUIRegistryItem } from './types';
 
 export const FieldNameByRegexMatcherEditor = memo<MatcherUIProps<string>>((props) => {
   const { options, onChange } = props;

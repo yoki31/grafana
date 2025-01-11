@@ -3,14 +3,13 @@ package ldap
 import (
 	"testing"
 
+	"github.com/go-ldap/ldap/v3"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stretchr/testify/assert"
-
-	"gopkg.in/ldap.v3"
-
 	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/services/login"
+	"github.com/grafana/grafana/pkg/services/org"
 )
 
 func TestServer_getSearchRequest(t *testing.T) {
@@ -53,7 +52,12 @@ func TestServer_getSearchRequest(t *testing.T) {
 
 func TestSerializeUsers(t *testing.T) {
 	t.Run("simple case", func(t *testing.T) {
+		cfg := &Config{
+			Enabled: true,
+		}
+
 		server := &Server{
+			cfg: cfg,
 			Config: &ServerConfig{
 				Attr: AttributeMap{
 					Username: "username",
@@ -88,7 +92,12 @@ func TestSerializeUsers(t *testing.T) {
 	})
 
 	t.Run("without lastname", func(t *testing.T) {
+		cfg := &Config{
+			Enabled: true,
+		}
+
 		server := &Server{
+			cfg: cfg,
 			Config: &ServerConfig{
 				Attr: AttributeMap{
 					Username: "username",
@@ -121,12 +130,17 @@ func TestSerializeUsers(t *testing.T) {
 	})
 
 	t.Run("mark user without matching group as disabled", func(t *testing.T) {
+		cfg := &Config{
+			Enabled: true,
+		}
+
 		server := &Server{
+			cfg: cfg,
 			Config: &ServerConfig{
 				Groups: []*GroupToOrgRole{{
 					GroupDN: "foo",
 					OrgId:   1,
-					OrgRole: models.ROLE_EDITOR,
+					OrgRole: org.RoleEditor,
 				}},
 			},
 			Connection: &MockConnection{},
@@ -151,14 +165,19 @@ func TestSerializeUsers(t *testing.T) {
 
 func TestServer_validateGrafanaUser(t *testing.T) {
 	t.Run("no group config", func(t *testing.T) {
+		cfg := &Config{
+			Enabled: true,
+		}
+
 		server := &Server{
+			cfg: cfg,
 			Config: &ServerConfig{
 				Groups: []*GroupToOrgRole{},
 			},
 			log: logger.New("test"),
 		}
 
-		user := &models.ExternalUserInfo{
+		user := &login.ExternalUserInfo{
 			Login: "markelog",
 		}
 
@@ -167,7 +186,12 @@ func TestServer_validateGrafanaUser(t *testing.T) {
 	})
 
 	t.Run("user in group", func(t *testing.T) {
+		cfg := &Config{
+			Enabled: true,
+		}
+
 		server := &Server{
+			cfg: cfg,
 			Config: &ServerConfig{
 				Groups: []*GroupToOrgRole{
 					{
@@ -178,9 +202,9 @@ func TestServer_validateGrafanaUser(t *testing.T) {
 			log: logger.New("test"),
 		}
 
-		user := &models.ExternalUserInfo{
+		user := &login.ExternalUserInfo{
 			Login: "markelog",
-			OrgRoles: map[int64]models.RoleType{
+			OrgRoles: map[int64]org.RoleType{
 				1: "test",
 			},
 		}
@@ -190,7 +214,12 @@ func TestServer_validateGrafanaUser(t *testing.T) {
 	})
 
 	t.Run("user not in group", func(t *testing.T) {
+		cfg := &Config{
+			Enabled: true,
+		}
+
 		server := &Server{
+			cfg: cfg,
 			Config: &ServerConfig{
 				Groups: []*GroupToOrgRole{
 					{
@@ -201,7 +230,7 @@ func TestServer_validateGrafanaUser(t *testing.T) {
 			log: logger.New("test"),
 		}
 
-		user := &models.ExternalUserInfo{
+		user := &login.ExternalUserInfo{
 			Login: "markelog",
 		}
 

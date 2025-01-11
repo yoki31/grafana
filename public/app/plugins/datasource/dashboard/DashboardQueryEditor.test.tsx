@@ -1,16 +1,23 @@
-import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+
 import { getDefaultTimeRange, LoadingState } from '@grafana/data';
-import { SHARED_DASHBOARD_QUERY } from './types';
-import { DashboardQueryEditor } from './DashboardQueryEditor';
-import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
-import { DashboardModel } from 'app/features/dashboard/state';
 import { setDataSourceSrv } from '@grafana/runtime';
 import { mockDataSource, MockDataSourceSrv } from 'app/features/alerting/unified/mocks';
+import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
+import { DashboardModel } from 'app/features/dashboard/state/DashboardModel';
+
+import {
+  createDashboardModelFixture,
+  createPanelSaveModel,
+} from '../../../features/dashboard/state/__fixtures__/dashboardFixtures';
+
+import { DashboardQueryEditor } from './DashboardQueryEditor';
+import { SHARED_DASHBOARD_QUERY } from './constants';
+import { DashboardDatasource } from './datasource';
 
 jest.mock('app/core/config', () => ({
-  ...(jest.requireActual('app/core/config') as unknown as object),
+  ...jest.requireActual('app/core/config'),
   panels: {
     timeseries: {
       info: {
@@ -40,21 +47,21 @@ describe('DashboardQueryEditor', () => {
   let mockDashboard: DashboardModel;
 
   beforeEach(() => {
-    mockDashboard = new DashboardModel({
+    mockDashboard = createDashboardModelFixture({
       panels: [
-        {
+        createPanelSaveModel({
           targets: [],
           type: 'timeseries',
           id: 1,
           title: 'My first panel',
-        },
-        {
+        }),
+        createPanelSaveModel({
           targets: [],
           id: 2,
           type: 'timeseries',
           title: 'Another panel',
-        },
-        {
+        }),
+        createPanelSaveModel({
           datasource: {
             uid: SHARED_DASHBOARD_QUERY,
           },
@@ -62,7 +69,7 @@ describe('DashboardQueryEditor', () => {
           id: 3,
           type: 'timeseries',
           title: 'A dashboard query panel',
-        },
+        }),
       ],
     });
     jest.spyOn(getDashboardSrv(), 'getCurrent').mockImplementation(() => mockDashboard);
@@ -71,15 +78,16 @@ describe('DashboardQueryEditor', () => {
   it('does not show a panel with the SHARED_DASHBOARD_QUERY datasource as an option in the dropdown', async () => {
     render(
       <DashboardQueryEditor
-        queries={mockQueries}
-        panelData={mockPanelData}
+        datasource={{} as DashboardDatasource}
+        query={mockQueries[0]}
+        data={mockPanelData}
         onChange={mockOnChange}
-        onRunQueries={mockOnRunQueries}
+        onRunQuery={mockOnRunQueries}
       />
     );
     const select = screen.getByText('Choose panel');
 
-    userEvent.click(select);
+    await userEvent.click(select);
 
     const myFirstPanel = await screen.findByText('My first panel');
     expect(myFirstPanel).toBeInTheDocument();
@@ -94,15 +102,16 @@ describe('DashboardQueryEditor', () => {
     mockDashboard.initEditPanel(mockDashboard.panels[0]);
     render(
       <DashboardQueryEditor
-        queries={mockQueries}
-        panelData={mockPanelData}
+        datasource={{} as DashboardDatasource}
+        query={mockQueries[0]}
+        data={mockPanelData}
         onChange={mockOnChange}
-        onRunQueries={mockOnRunQueries}
+        onRunQuery={mockOnRunQueries}
       />
     );
     const select = screen.getByText('Choose panel');
 
-    userEvent.click(select);
+    await userEvent.click(select);
 
     expect(screen.queryByText('My first panel')).not.toBeInTheDocument();
 

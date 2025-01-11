@@ -1,5 +1,7 @@
 import { ScopedVars, DataSourceApi, DataSourceInstanceSettings, DataSourceRef } from '@grafana/data';
 
+import { RuntimeDataSource } from './RuntimeDataSource';
+
 /**
  * This is the entry point for communicating with a datasource that is added as
  * a plugin (both external and internal). Via this service you will get access
@@ -33,6 +35,15 @@ export interface DataSourceSrv {
    * Reloads the DataSourceSrv
    */
   reload(): void;
+
+  /**
+   * Registers a runtime data source. Make sure your data source uid is unique.
+   */
+  registerRuntimeDataSource(entry: RuntimeDataSourceRegistration): void;
+}
+
+export interface RuntimeDataSourceRegistration {
+  dataSource: RuntimeDataSource;
 }
 
 /** @public */
@@ -45,6 +56,9 @@ export interface GetDataSourceListFilters {
 
   /** Only return data sources that support tracing response */
   tracing?: boolean;
+
+  /** Only return data sources that support logging response */
+  logs?: boolean;
 
   /** Only return data sources that support annotations */
   annotations?: boolean;

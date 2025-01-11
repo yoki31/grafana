@@ -1,8 +1,9 @@
-import React from 'react';
-import { FuncDefs, FuncInstance } from '../gfunc';
-import { GraphiteFunctionEditor } from './GraphiteFunctionEditor';
-import { AddGraphiteFunction } from './AddGraphiteFunction';
 import { SegmentSection } from '@grafana/ui';
+
+import { FuncDefs, FuncInstance } from '../gfunc';
+
+import { AddGraphiteFunction } from './AddGraphiteFunction';
+import { GraphiteFunctionEditor } from './GraphiteFunctionEditor';
 
 type Props = {
   functions: FuncInstance[];

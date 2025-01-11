@@ -1,14 +1,14 @@
+import { getActiveThreshold } from '../field/thresholds';
+import { stringToJsRegex } from '../text/string';
+import { ThresholdsConfig } from '../types/thresholds';
 import {
   MappingType,
   SpecialValueMatch,
-  ThresholdsConfig,
+  SpecialValueOptions,
   ValueMap,
   ValueMapping,
   ValueMappingResult,
-  SpecialValueOptions,
-} from '../types';
-import { getActiveThreshold } from '../field';
-import { stringToJsRegex } from '../text/string';
+} from '../types/valueMapping';
 
 export function getValueMappingResult(valueMappings: ValueMapping[], value: any): ValueMappingResult | null {
   for (const vm of valueMappings) {
@@ -30,7 +30,7 @@ export function getValueMappingResult(valueMappings: ValueMapping[], value: any)
           continue;
         }
 
-        const valueAsNumber = parseFloat(value as string);
+        const valueAsNumber = parseFloat(value);
         if (isNaN(valueAsNumber)) {
           continue;
         }
@@ -76,13 +76,13 @@ export function getValueMappingResult(valueMappings: ValueMapping[], value: any)
             break;
           }
           case SpecialValueMatch.NaN: {
-            if (isNaN(value as any)) {
+            if (typeof value === 'number' && isNaN(value)) {
               return vm.options.result;
             }
             break;
           }
           case SpecialValueMatch.NullAndNaN: {
-            if (isNaN(value as any) || value == null) {
+            if ((typeof value === 'number' && isNaN(value)) || value == null) {
               return vm.options.result;
             }
             break;
@@ -113,7 +113,7 @@ export function getValueMappingResult(valueMappings: ValueMapping[], value: any)
 }
 
 // Ref https://stackoverflow.com/a/58550111
-export function isNumeric(num: any) {
+export function isNumeric(num: unknown) {
   return (typeof num === 'number' || (typeof num === 'string' && num.trim() !== '')) && !isNaN(num as number);
 }
 
@@ -124,77 +124,6 @@ export function isNumeric(num: any) {
 export enum LegacyMappingType {
   ValueToText = 1,
   RangeToText = 2,
-}
-
-/**
- * @deprecated use MappingType instead
- * @internal
- */
-export interface LegacyBaseMap {
-  id: number; // this could/should just be the array index
-  text: string; // the final display value
-  type: LegacyMappingType;
-}
-
-/**
- * @deprecated use ValueMapping instead
- * @internal
- */
-export type LegacyValueMapping = LegacyValueMap | LegacyRangeMap;
-
-/**
- * @deprecated use ValueMap instead
- * @internal
- */
-export interface LegacyValueMap extends LegacyBaseMap {
-  value: string;
-}
-
-/**
- * @deprecated use RangeMap instead
- * @internal
- */
-export interface LegacyRangeMap extends LegacyBaseMap {
-  from: string;
-  to: string;
-}
-
-/**
- * @deprecated use getValueMappingResult instead
- * @internal
- */
-export function getMappedValue(valueMappings: LegacyValueMapping[], value: any): LegacyValueMapping {
-  const emptyResult = { type: LegacyMappingType.ValueToText, value: '', text: '', from: '', to: '', id: 0 };
-  if (!valueMappings?.length) {
-    return emptyResult;
-  }
-
-  const upgraded: ValueMapping[] = [];
-  for (const vm of valueMappings) {
-    if (isValueMapping(vm)) {
-      upgraded.push(vm);
-      continue;
-    }
-    upgraded.push(upgradeOldAngularValueMapping(vm));
-  }
-
-  if (!upgraded?.length) {
-    return emptyResult;
-  }
-
-  const result = getValueMappingResult(upgraded, value);
-  if (!result) {
-    return emptyResult;
-  }
-
-  return {
-    type: LegacyMappingType.ValueToText,
-    value: result.text,
-    text: result.text ?? '',
-    from: '',
-    to: '',
-    id: result.index ?? 0,
-  };
 }
 
 /**
@@ -308,12 +237,4 @@ function upgradeOldAngularValueMapping(old: any, thresholds?: ThresholdsConfig):
   }
 
   return newMappings[0];
-}
-
-function isValueMapping(map: any): map is ValueMapping {
-  if (!map) {
-    return false;
-  }
-
-  return map.hasOwnProperty('options') && typeof map.options === 'object';
 }

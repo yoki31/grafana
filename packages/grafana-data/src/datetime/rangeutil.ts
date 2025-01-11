@@ -1,10 +1,10 @@
-import { each, has } from 'lodash';
+import { each } from 'lodash';
 
 import { RawTimeRange, TimeRange, TimeZone, IntervalValues, RelativeTimeRange, TimeOption } from '../types/time';
 
 import * as dateMath from './datemath';
-import { isDateTime, DateTime, dateTime } from './moment_wrapper';
 import { timeZoneAbbrevation, dateTimeFormat, dateTimeFormatTimeAgo } from './formatter';
+import { isDateTime, DateTime, dateTime } from './moment_wrapper';
 import { dateTimeParse } from './parser';
 
 const spans: { [key: string]: { display: string; section?: number } } = {
@@ -86,11 +86,11 @@ const hiddenRangeOptions: TimeOption[] = [
   { from: 'now', to: 'now+5y', display: 'Next 5 years' },
 ];
 
-const rangeIndex: any = {};
-each(rangeOptions, (frame: any) => {
+const rangeIndex: Record<string, TimeOption> = {};
+each(rangeOptions, (frame) => {
   rangeIndex[frame.from + ' to ' + frame.to] = frame;
 });
-each(hiddenRangeOptions, (frame: any) => {
+each(hiddenRangeOptions, (frame) => {
   rangeIndex[frame.from + ' to ' + frame.to] = frame;
 });
 
@@ -100,7 +100,7 @@ each(hiddenRangeOptions, (frame: any) => {
 // now/d to now
 // now/d
 // if no to <expr> then to now is assumed
-export function describeTextRange(expr: any) {
+export function describeTextRange(expr: string): TimeOption {
   const isLast = expr.indexOf('+') !== 0;
   if (expr.indexOf('now') === -1) {
     expr = (isLast ? 'now-' : 'now') + expr;
@@ -112,9 +112,9 @@ export function describeTextRange(expr: any) {
   }
 
   if (isLast) {
-    opt = { from: expr, to: 'now' };
+    opt = { from: expr, to: 'now', display: '' };
   } else {
-    opt = { from: 'now', to: expr };
+    opt = { from: 'now', to: expr, display: '' };
   }
 
   const parts = /^now([-+])(\d+)(\w)/.exec(expr);
@@ -198,20 +198,28 @@ export const describeTimeRangeAbbreviation = (range: TimeRange, timeZone?: TimeZ
   return parsed ? timeZoneAbbrevation(parsed, { timeZone }) : '';
 };
 
-export const convertRawToRange = (raw: RawTimeRange, timeZone?: TimeZone, fiscalYearStartMonth?: number): TimeRange => {
-  const from = dateTimeParse(raw.from, { roundUp: false, timeZone, fiscalYearStartMonth });
-  const to = dateTimeParse(raw.to, { roundUp: true, timeZone, fiscalYearStartMonth });
+export const convertRawToRange = (
+  raw: RawTimeRange,
+  timeZone?: TimeZone,
+  fiscalYearStartMonth?: number,
+  format?: string
+): TimeRange => {
+  const from = dateTimeParse(raw.from, { roundUp: false, timeZone, fiscalYearStartMonth, format });
+  const to = dateTimeParse(raw.to, { roundUp: true, timeZone, fiscalYearStartMonth, format });
 
-  if (dateMath.isMathString(raw.from) || dateMath.isMathString(raw.to)) {
-    return { from, to, raw };
-  }
-
-  return { from, to, raw: { from, to } };
+  return {
+    from,
+    to,
+    raw: {
+      from: dateMath.isMathString(raw.from) ? raw.from : from,
+      to: dateMath.isMathString(raw.to) ? raw.to : to,
+    },
+  };
 };
 
-function isRelativeTime(v: DateTime | string) {
+export function isRelativeTime(v: DateTime | string) {
   if (typeof v === 'string') {
-    return (v as string).indexOf('now') >= 0;
+    return v.indexOf('now') >= 0;
   }
   return false;
 }
@@ -293,7 +301,7 @@ export function calculateInterval(range: TimeRange, resolution: number, lowLimit
 
 const interval_regex = /(-?\d+(?:\.\d+)?)(ms|[Mwdhmsy])/;
 // histogram & trends
-const intervals_in_seconds = {
+const intervals_in_seconds: Record<string, number> = {
   y: 31536000,
   M: 2592000,
   w: 604800,
@@ -315,15 +323,24 @@ export function describeInterval(str: string) {
   }
 
   const matches = str.match(interval_regex);
-  if (!matches || !has(intervals_in_seconds, matches[2])) {
+  if (!matches) {
     throw new Error(
       `Invalid interval string, has to be either unit-less or end with one of the following units: "${Object.keys(
         intervals_in_seconds
       ).join(', ')}"`
     );
   }
+
+  const sec = intervals_in_seconds[matches[2]];
+  if (sec === undefined) {
+    // this can never happen, because above we
+    // already made sure the key is correct,
+    // but we handle it to be safe.
+    throw new Error('describeInterval failed: invalid interval string');
+  }
+
   return {
-    sec: (intervals_in_seconds as any)[matches[2]] as number,
+    sec,
     type: matches[2],
     count: parseInt(matches[1], 10),
   };
@@ -341,6 +358,9 @@ export function intervalToMs(str: string): number {
 
 export function roundInterval(interval: number) {
   switch (true) {
+    // 0.01s
+    case interval < 10:
+      return 1; // 0.001s
     // 0.015s
     case interval < 15:
       return 10; // 0.01s
@@ -392,7 +412,7 @@ export function roundInterval(interval: number) {
     // 12.5m
     case interval < 750000:
       return 600000; // 10m
-    // 12.5m
+    // 17.5m
     case interval < 1050000:
       return 900000; // 15m
     // 25m

@@ -1,16 +1,16 @@
-import React from 'react';
-import { Story, Meta } from '@storybook/react';
-import { BarGauge, BarGaugeDisplayMode } from '@grafana/ui';
+import { StoryFn, Meta } from '@storybook/react';
+
 import { VizOrientation, ThresholdsMode, Field, FieldType, getDisplayProcessor } from '@grafana/data';
-import { Props } from './BarGauge';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
-import mdx from './BarGauge.mdx';
+import { BarGauge, BarGaugeDisplayMode } from '@grafana/ui';
+
 import { useTheme2 } from '../../themes';
 
-export default {
+import { Props } from './BarGauge';
+import mdx from './BarGauge.mdx';
+
+const meta: Meta = {
   title: 'Visualizations/BarGauge',
   component: BarGauge,
-  decorators: [withCenteredStory],
   parameters: {
     docs: {
       page: mdx,
@@ -55,7 +55,7 @@ export default {
     threshold1Color: { control: 'color' },
     threshold2Color: { control: 'color' },
   },
-} as Meta;
+};
 
 interface StoryProps extends Partial<Props> {
   numeric: number;
@@ -109,16 +109,18 @@ const AddBarGaugeStory = (storyProps: StoryProps) => {
   return <BarGauge {...props} />;
 };
 
-export const barGaugeVertical: Story<StoryProps> = AddBarGaugeStory.bind({});
+export const barGaugeVertical: StoryFn<StoryProps> = AddBarGaugeStory.bind({});
 barGaugeVertical.args = {
   height: 500,
   width: 100,
   orientation: VizOrientation.Vertical,
 };
 
-export const barGaugeHorizontal: Story<StoryProps> = AddBarGaugeStory.bind({});
+export const barGaugeHorizontal: StoryFn<StoryProps> = AddBarGaugeStory.bind({});
 barGaugeHorizontal.args = {
   height: 100,
   width: 500,
   orientation: VizOrientation.Horizontal,
 };
+
+export default meta;

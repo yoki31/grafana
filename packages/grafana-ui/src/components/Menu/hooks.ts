@@ -1,6 +1,5 @@
 import { RefObject, useEffect, useState } from 'react';
 import { useEffectOnce } from 'react-use';
-import { MenuItemElement } from './MenuItem';
 
 const modulo = (a: number, n: number) => ((a % n) + n) % n;
 const UNFOCUSED = -1;
@@ -9,8 +8,6 @@ const UNFOCUSED = -1;
 export interface UseMenuFocusProps {
   localRef: RefObject<HTMLDivElement>;
   isMenuOpen?: boolean;
-  openedWithArrow?: boolean;
-  setOpenedWithArrow?: (openedWithArrow: boolean) => void;
   close?: () => void;
   onOpen?: (focusOnItem: (itemId: number) => void) => void;
   onClose?: () => void;
@@ -18,14 +15,12 @@ export interface UseMenuFocusProps {
 }
 
 /** @internal */
-export type UseMenuFocusReturn = [(event: React.KeyboardEvent) => void, () => void];
+export type UseMenuFocusReturn = [(event: React.KeyboardEvent) => void];
 
 /** @internal */
 export const useMenuFocus = ({
   localRef,
   isMenuOpen,
-  openedWithArrow,
-  setOpenedWithArrow,
   close,
   onOpen,
   onClose,
@@ -34,30 +29,29 @@ export const useMenuFocus = ({
   const [focusedItem, setFocusedItem] = useState(UNFOCUSED);
 
   useEffect(() => {
-    if (isMenuOpen && openedWithArrow) {
+    if (isMenuOpen) {
       setFocusedItem(0);
-      setOpenedWithArrow?.(false);
     }
-  }, [isMenuOpen, openedWithArrow, setOpenedWithArrow]);
+  }, [isMenuOpen]);
 
   useEffect(() => {
-    const menuItems = localRef?.current?.querySelectorAll(`[data-role="menuitem"]`);
-    (menuItems?.[focusedItem] as MenuItemElement)?.focus();
+    const menuItems = localRef?.current?.querySelectorAll<HTMLElement | HTMLButtonElement | HTMLAnchorElement>(
+      '[data-role="menuitem"]:not([data-disabled])'
+    );
+    menuItems?.[focusedItem]?.focus();
     menuItems?.forEach((menuItem, i) => {
-      (menuItem as MenuItemElement).tabIndex = i === focusedItem ? 0 : -1;
+      menuItem.tabIndex = i === focusedItem ? 0 : -1;
     });
   }, [localRef, focusedItem]);
 
   useEffectOnce(() => {
-    const firstMenuItem = localRef?.current?.querySelector(`[data-role="menuitem"]`) as MenuItemElement | null;
-    if (firstMenuItem) {
-      firstMenuItem.tabIndex = 0;
-    }
     onOpen?.(setFocusedItem);
   });
 
   const handleKeys = (event: React.KeyboardEvent) => {
-    const menuItems = localRef?.current?.querySelectorAll(`[data-role="menuitem"]`);
+    const menuItems = localRef?.current?.querySelectorAll<HTMLElement | HTMLButtonElement | HTMLAnchorElement>(
+      '[data-role="menuitem"]:not([data-disabled])'
+    );
     const menuItemsCount = menuItems?.length ?? 0;
 
     switch (event.key) {
@@ -90,14 +84,13 @@ export const useMenuFocus = ({
       case 'Enter':
         event.preventDefault();
         event.stopPropagation();
-        (menuItems?.[focusedItem] as MenuItemElement)?.click();
+        menuItems?.[focusedItem]?.click();
         break;
       case 'Escape':
-        event.preventDefault();
-        event.stopPropagation();
         onClose?.();
         break;
       case 'Tab':
+        event.preventDefault();
         onClose?.();
         break;
       default:
@@ -108,11 +101,5 @@ export const useMenuFocus = ({
     onKeyDown?.(event);
   };
 
-  const handleFocus = () => {
-    if (focusedItem === UNFOCUSED) {
-      setFocusedItem(0);
-    }
-  };
-
-  return [handleKeys, handleFocus];
+  return [handleKeys];
 };

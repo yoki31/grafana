@@ -1,16 +1,19 @@
-import React, { FC } from 'react';
-import { useStyles } from '@grafana/ui';
-import { GrafanaTheme } from '@grafana/data';
 import { css } from '@emotion/css';
+import * as React from 'react';
 
-const getStyles = (theme: GrafanaTheme) => css`
-  margin: 0;
-  margin-left: ${theme.spacing.md};
-  font-size: ${theme.typography.size.sm};
-  color: ${theme.colors.textWeak};
-`;
+import { GrafanaTheme2 } from '@grafana/data';
+import { useStyles2 } from '@grafana/ui';
 
-export const DetailText: FC = ({ children }) => {
-  const collapsedTextStyles = useStyles(getStyles);
-  return <p className={collapsedTextStyles}>{children}</p>;
+const getStyles = (theme: GrafanaTheme2) =>
+  css({
+    padding: theme.spacing(0, 2),
+    fontSize: theme.typography.bodySmall.fontSize,
+    color: theme.colors.text.secondary,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  });
+
+export const DetailText = ({ children }: React.PropsWithChildren<{}>) => {
+  const collapsedTextStyles = useStyles2(getStyles);
+  return <div className={collapsedTextStyles}>{children}</div>;
 };

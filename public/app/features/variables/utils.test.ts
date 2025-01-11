@@ -1,13 +1,22 @@
+import { UrlQueryMap, VariableRefresh } from '@grafana/data';
+import { locationService } from '@grafana/runtime';
+
 import {
   containsVariable,
   ensureStringValues,
   findTemplateVarChanges,
   getCurrentText,
   getVariableRefresh,
+  getVariablesFromUrl,
   isAllVariable,
 } from './utils';
-import { VariableRefresh } from './types';
-import { UrlQueryMap } from '@grafana/data';
+
+jest.mock('@grafana/runtime', () => ({
+  ...jest.requireActual('@grafana/runtime'),
+  getTemplateSrv: () => ({
+    getVariables: () => [{ name: 'query0' }, { name: 'query1' }],
+  }),
+}));
 
 describe('isAllVariable', () => {
   it.each`
@@ -184,13 +193,39 @@ describe('ensureStringValues', () => {
 
 describe('containsVariable', () => {
   it.each`
-    value                               | expected
-    ${''}                               | ${false}
-    ${'$var'}                           | ${true}
-    ${{ thing1: '${var}' }}             | ${true}
-    ${{ thing1: ['1', '${var}'] }}      | ${true}
-    ${{ thing1: { thing2: '${var}' } }} | ${true}
+    value                                 | expected
+    ${''}                                 | ${false}
+    ${'$var'}                             | ${true}
+    ${{ thing1: '${var}' }}               | ${true}
+    ${{ thing1: '${var:fmt}' }}           | ${true}
+    ${{ thing1: '${var.fieldPath}' }}     | ${true}
+    ${{ thing1: '${var.fieldPath:fmt}' }} | ${true}
+    ${{ thing1: ['1', '${var}'] }}        | ${true}
+    ${{ thing1: ['1', '[[var]]'] }}       | ${true}
+    ${{ thing1: ['1', '[[var:fmt]]'] }}   | ${true}
+    ${{ thing1: { thing2: '${var}' } }}   | ${true}
+    ${{ params: [['param', '$var']] }}    | ${true}
+    ${{ params: [['param', '${var}']] }}  | ${true}
   `('when called with value:$value then result should be:$expected', ({ value, expected }) => {
     expect(containsVariable(value, 'var')).toEqual(expected);
+  });
+});
+
+describe('getVariablesFromUrl', () => {
+  it('when called with simple var values for a var, then it returns just the value', () => {
+    locationService.push('/test?orgId=1&var-query0=1&var-query1=value1');
+    const expected = {
+      query0: '1',
+      query1: 'value1',
+    };
+    expect(getVariablesFromUrl()).toEqual(expected);
+  });
+  it('when called with multiple var values for the same var, then it returns the correct array', () => {
+    locationService.push('/test?orgId=1&var-query0=1&var-query1=value1&var-query1=value2&var-query1=value3');
+    const expected = {
+      query0: '1',
+      query1: ['value1', 'value2', 'value3'],
+    };
+    expect(getVariablesFromUrl()).toEqual(expected);
   });
 });

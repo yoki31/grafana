@@ -1,5 +1,7 @@
-import React, { ChangeEvent, useState } from 'react';
-import { Button, Icon, InlineField, InlineFieldRow, Input } from '@grafana/ui';
+import { ChangeEvent, useState } from 'react';
+
+import { Box, Button, Icon, InlineField, InlineFieldRow, Input } from '@grafana/ui';
+
 import MappingsHelp from './MappingsHelp';
 
 type Props = {
@@ -18,14 +20,14 @@ export const MappingsConfiguration = (props: Props): JSX.Element => {
       <h3 className="page-heading">Label mappings</h3>
       {!props.showHelp && (
         <p>
-          <Button variant="link" onClick={props.onRestoreHelp}>
+          <Button fill="text" onClick={props.onRestoreHelp}>
             Learn how label mappings work
           </Button>
         </p>
       )}
       {props.showHelp && <MappingsHelp onDismiss={props.onDismiss} />}
 
-      <div className="gf-form-group">
+      <Box marginBottom={5}>
         {mappings.map((mapping, i) => (
           <InlineFieldRow key={i}>
             <InlineField label={`Mapping (${i + 1})`}>
@@ -69,7 +71,7 @@ export const MappingsConfiguration = (props: Props): JSX.Element => {
         >
           Add label mapping
         </Button>
-      </div>
+      </Box>
     </div>
   );
 };

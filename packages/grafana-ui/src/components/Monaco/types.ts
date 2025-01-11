@@ -1,6 +1,6 @@
 // We use `import type` to guarantee it'll be erased from the JS and it doesnt accidently bundle monaco
-import type * as monacoType from 'monaco-editor/esm/vs/editor/editor.api';
 import type { EditorProps } from '@monaco-editor/react';
+import type * as monacoType from 'monaco-editor/esm/vs/editor/editor.api';
 
 // we do not allow customizing the theme.
 // (theme is complicated in Monaco, right now there is
@@ -27,6 +27,7 @@ export interface CodeEditorProps {
   readOnly?: boolean;
   showMiniMap?: boolean;
   showLineNumbers?: boolean;
+  wordWrap?: boolean;
   monacoOptions?: MonacoOptions;
 
   /**
@@ -39,8 +40,17 @@ export interface CodeEditorProps {
    */
   onEditorDidMount?: (editor: MonacoEditor, monaco: Monaco) => void;
 
+  /** Callback before the edior has unmounted */
+  onEditorWillUnmount?: () => void;
+
   /** Handler to be performed when editor is blurred */
   onBlur?: CodeEditorChangeHandler;
+
+  /** Handler to be performed when editor is focused */
+  onFocus?: CodeEditorChangeHandler;
+
+  /** Handler to be performed whenever the text inside the editor changes */
+  onChange?: CodeEditorChangeHandler;
 
   /** Handler to be performed when Cmd/Ctrl+S is pressed */
   onSave?: CodeEditorChangeHandler;
@@ -49,6 +59,8 @@ export interface CodeEditorProps {
    * Language agnostic suggestion completions -- typically for template variables
    */
   getSuggestions?: CodeEditorSuggestionProvider;
+
+  containerStyles?: string;
 }
 
 /**
@@ -142,4 +154,11 @@ export interface MonacoOptionsWithGrafanaDefaults extends monacoType.editor.ISta
    * Defaults to true.
    */
   automaticLayout?: boolean;
+
+  /**
+   * Always consume mouse wheel events (always call preventDefault() and stopPropagation() on the browser events).
+   * Always consuming mouse wheel events will prevent the page from scrolling if the cursor is over the editor.
+   * Defaults to `false`.
+   */
+  alwaysConsumeMouseWheel?: boolean;
 }

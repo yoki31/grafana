@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useRef } from 'react';
-import { GrafanaTheme2, MappingType, SpecialValueMatch, SelectableValue, ValueMappingResult } from '@grafana/data';
-import { Draggable } from 'react-beautiful-dnd';
 import { css } from '@emotion/css';
+import { Draggable } from '@hello-pangea/dnd';
+import { useCallback, useEffect, useRef } from 'react';
+import * as React from 'react';
+
+import { GrafanaTheme2, MappingType, SpecialValueMatch, SelectableValue, ValueMappingResult } from '@grafana/data';
 import { useStyles2, Icon, Select, HorizontalGroup, ColorPicker, IconButton, Input, Button } from '@grafana/ui';
-import { ResourcePicker } from '../ResourcePicker';
+
 import { ResourcePickerSize, ResourceFolderName, MediaType } from '../../types';
+import { ResourcePicker } from '../ResourcePicker';
 
 export interface ValueMappingEditRowModel {
   type: MappingType;
@@ -15,6 +18,7 @@ export interface ValueMappingEditRowModel {
   isNew?: boolean;
   specialMatch?: SpecialValueMatch;
   result: ValueMappingResult;
+  id: string;
 }
 
 interface Props {
@@ -27,7 +31,7 @@ interface Props {
 }
 
 export function ValueMappingEditRow({ mapping, index, onChange, onRemove, onDuplicate, showIconPicker }: Props) {
-  const { key, result } = mapping;
+  const { key, result, id } = mapping;
   const styles = useStyles2(getStyles);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -124,11 +128,11 @@ export function ValueMappingEditRow({ mapping, index, onChange, onRemove, onDupl
   ];
 
   return (
-    <Draggable draggableId={`mapping-${index}`} index={index}>
+    <Draggable key={id} draggableId={id} index={index}>
       {(provided) => (
-        <tr ref={provided.innerRef} {...provided.draggableProps}>
+        <tr className={styles.dragRow} ref={provided.innerRef} {...provided.draggableProps}>
           <td>
-            <div {...provided.dragHandleProps} className={styles.dragHandle}>
+            <div className={styles.dragHandle} {...provided.dragHandleProps}>
               <Icon name="draggabledots" size="lg" />
             </div>
           </td>
@@ -171,7 +175,6 @@ export function ValueMappingEditRow({ mapping, index, onChange, onRemove, onDupl
             )}
             {mapping.type === MappingType.SpecialValue && (
               <Select
-                menuShouldPortal
                 value={specialMatchOptions.find((v) => v.value === mapping.specialMatch)}
                 options={specialMatchOptions}
                 onChange={onChangeSpecialMatch}
@@ -218,8 +221,20 @@ export function ValueMappingEditRow({ mapping, index, onChange, onRemove, onDupl
           )}
           <td className={styles.textAlignCenter}>
             <HorizontalGroup spacing="sm">
-              <IconButton name="copy" onClick={() => onDuplicate(index)} data-testid="duplicate-value-mapping" />
-              <IconButton name="trash-alt" onClick={() => onRemove(index)} data-testid="remove-value-mapping" />
+              <IconButton
+                name="copy"
+                onClick={() => onDuplicate(index)}
+                data-testid="duplicate-value-mapping"
+                aria-label="Duplicate value mapping"
+                tooltip="Duplicate"
+              />
+              <IconButton
+                name="trash-alt"
+                onClick={() => onRemove(index)}
+                data-testid="remove-value-mapping"
+                aria-label="Delete value mapping"
+                tooltip="Delete"
+              />
             </HorizontalGroup>
           </td>
         </tr>
@@ -229,8 +244,23 @@ export function ValueMappingEditRow({ mapping, index, onChange, onRemove, onDupl
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
+  dragRow: css({
+    position: 'relative',
+  }),
   dragHandle: css({
     cursor: 'grab',
+    // create focus ring around the whole row when the drag handle is tab-focused
+    // needs position: relative on the drag row to work correctly
+    '&:focus-visible&:after': {
+      bottom: 0,
+      content: '""',
+      left: 0,
+      position: 'absolute',
+      right: 0,
+      top: 0,
+      outline: `2px solid ${theme.colors.primary.main}`,
+      outlineOffset: '-2px',
+    },
   }),
   rangeInputWrapper: css({
     display: 'flex',

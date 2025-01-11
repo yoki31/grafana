@@ -1,34 +1,27 @@
-import React, { PureComponent } from 'react';
-import { connect, ConnectedProps } from 'react-redux';
-import { includes } from 'lodash';
+import { createSelector } from '@reduxjs/toolkit';
+import { memo, useRef } from 'react';
+import { useParams } from 'react-router-dom-v5-compat';
+import { useAsync } from 'react-use';
+
+import { featureEnabled } from '@grafana/runtime';
+import { Page } from 'app/core/components/Page/Page';
+import { UpgradeBox } from 'app/core/components/Upgrade/UpgradeBox';
 import config from 'app/core/config';
-import Page from 'app/core/components/Page/Page';
-import TeamMembers from './TeamMembers';
-import TeamPermissions from './TeamPermissions';
-import TeamSettings from './TeamSettings';
-import TeamGroupSync from './TeamGroupSync';
-import { AccessControlAction, StoreState } from 'app/types';
-import { loadTeam, loadTeamMembers } from './state/actions';
-import { getTeam, getTeamMembers, isSignedInUserTeamAdmin } from './state/selectors';
-import { getTeamLoadingNav } from './state/navModel';
 import { getNavModel } from 'app/core/selectors/navModel';
 import { contextSrv } from 'app/core/services/context_srv';
-import { NavModel } from '@grafana/data';
-import { featureEnabled, reportExperimentView } from '@grafana/runtime';
-import { GrafanaRouteComponentProps } from 'app/core/navigation/types';
-import { UpgradeBox } from 'app/core/components/Upgrade/UpgradeBox';
+import { AccessControlAction, StoreState, useDispatch, useSelector } from 'app/types';
 
-interface TeamPageRouteParams {
-  id: string;
-  page: string | null;
-}
+import TeamGroupSync, { TeamSyncUpgradeContent } from './TeamGroupSync';
+import TeamPermissions from './TeamPermissions';
+import TeamSettings from './TeamSettings';
+import { loadTeam } from './state/actions';
+import { getTeamLoadingNav } from './state/navModel';
+import { getTeam } from './state/selectors';
 
-export interface OwnProps extends GrafanaRouteComponentProps<TeamPageRouteParams> {}
-
-interface State {
-  isSyncEnabled: boolean;
-  isLoading: boolean;
-}
+type TeamPageRouteParams = {
+  uid: string;
+  page?: string;
+};
 
 enum PageTypes {
   Members = 'members',
@@ -36,169 +29,87 @@ enum PageTypes {
   GroupSync = 'groupsync',
 }
 
-function mapStateToProps(state: StoreState, props: OwnProps) {
-  const teamId = parseInt(props.match.params.id, 10);
-  const team = getTeam(state.team, teamId);
+const PAGES = ['members', 'settings', 'groupsync'];
+
+const teamSelector = createSelector(
+  [(state: StoreState) => state.team, (_: StoreState, teamUid: string) => teamUid],
+  (team, teamUid) => getTeam(team, teamUid)
+);
+
+const pageNavSelector = createSelector(
+  [
+    (state: StoreState) => state.navIndex,
+    (_state: StoreState, pageName: string) => pageName,
+    (_state: StoreState, _pageName: string, teamUid: string) => teamUid,
+  ],
+  (navIndex, pageName, teamUid) => {
+    const teamLoadingNav = getTeamLoadingNav(pageName);
+    return getNavModel(navIndex, `team-${pageName}-${teamUid}`, teamLoadingNav).main;
+  }
+);
+
+const TeamPages = memo(() => {
+  const isSyncEnabled = useRef(featureEnabled('teamsync'));
+  const { uid: teamUid = '', page } = useParams<TeamPageRouteParams>();
+  const team = useSelector((state) => teamSelector(state, teamUid));
+
   let defaultPage = 'members';
-  if (contextSrv.accessControlEnabled()) {
-    // With FGAC the settings page will always be available
-    if (!team || !contextSrv.hasPermissionInMetadata(AccessControlAction.ActionTeamsPermissionsRead, team)) {
-      defaultPage = 'settings';
-    }
+  // With RBAC the settings page will always be available
+  if (!team || !contextSrv.hasPermissionInMetadata(AccessControlAction.ActionTeamsPermissionsRead, team)) {
+    defaultPage = 'settings';
   }
-  const pageName = props.match.params.page ?? defaultPage;
-  const teamLoadingNav = getTeamLoadingNav(pageName as string);
-  const navModel = getNavModel(state.navIndex, `team-${pageName}-${teamId}`, teamLoadingNav);
-  const members = getTeamMembers(state.team);
+  const pageName = page ?? defaultPage;
+  const pageNav = useSelector((state) => pageNavSelector(state, pageName, teamUid));
 
-  return {
-    navModel,
-    teamId: teamId,
-    pageName: pageName,
-    team,
-    members,
-    editorsCanAdmin: config.editorsCanAdmin, // this makes the feature toggle mockable/controllable from tests,
-    signedInUser: contextSrv.user, // this makes the feature toggle mockable/controllable from tests,
-  };
-}
+  const dispatch = useDispatch();
+  const { loading: isLoading } = useAsync(async () => dispatch(loadTeam(teamUid)), [teamUid]);
 
-const mapDispatchToProps = {
-  loadTeam,
-  loadTeamMembers,
-};
+  const renderPage = () => {
+    const currentPage = PAGES.includes(pageName) ? pageName : PAGES[0];
 
-const connector = connect(mapStateToProps, mapDispatchToProps);
-
-export type Props = OwnProps & ConnectedProps<typeof connector>;
-
-export class TeamPages extends PureComponent<Props, State> {
-  constructor(props: Props) {
-    super(props);
-
-    this.state = {
-      isLoading: false,
-      isSyncEnabled: featureEnabled('teamsync'),
-    };
-  }
-
-  async componentDidMount() {
-    await this.fetchTeam();
-
-    const { isSyncEnabled } = this.state;
-    const currentPage = this.getCurrentPage();
-
-    if (currentPage === PageTypes.GroupSync && !isSyncEnabled && config.featureToggles.featureHighlights) {
-      reportExperimentView('feature-highlights-team-sync', 'test', '');
-    }
-  }
-
-  async fetchTeam() {
-    const { loadTeam, teamId } = this.props;
-    this.setState({ isLoading: true });
-    const team = await loadTeam(teamId);
-    // With accesscontrol, the TeamPermissions will fetch team members
-    if (!contextSrv.accessControlEnabled()) {
-      await this.props.loadTeamMembers();
-    }
-    this.setState({ isLoading: false });
-    return team;
-  }
-
-  getCurrentPage() {
-    const pages = ['members', 'settings', 'groupsync'];
-    const currentPage = this.props.pageName;
-    return includes(pages, currentPage) ? currentPage : pages[0];
-  }
-
-  textsAreEqual = (text1: string, text2: string) => {
-    if (!text1 && !text2) {
-      return true;
-    }
-
-    if (!text1 || !text2) {
-      return false;
-    }
-
-    return text1.toLocaleLowerCase() === text2.toLocaleLowerCase();
-  };
-
-  hideTabsFromNonTeamAdmin = (navModel: NavModel, isSignedInUserTeamAdmin: boolean) => {
-    if (contextSrv.accessControlEnabled()) {
-      return navModel;
-    }
-
-    if (!isSignedInUserTeamAdmin && navModel.main && navModel.main.children) {
-      navModel.main.children
-        .filter((navItem) => !this.textsAreEqual(navItem.text, PageTypes.Members))
-        .map((navItem) => {
-          navItem.hideFromTabs = true;
-        });
-    }
-
-    return navModel;
-  };
-
-  renderPage(isSignedInUserTeamAdmin: boolean): React.ReactNode {
-    const { isSyncEnabled } = this.state;
-    const { members, team } = this.props;
-    const currentPage = this.getCurrentPage();
-
-    const canReadTeam = contextSrv.hasAccessInMetadata(
-      AccessControlAction.ActionTeamsRead,
-      team!,
-      isSignedInUserTeamAdmin
-    );
-    const canReadTeamPermissions = contextSrv.hasAccessInMetadata(
+    const canReadTeam = contextSrv.hasPermissionInMetadata(AccessControlAction.ActionTeamsRead, team!);
+    const canReadTeamPermissions = contextSrv.hasPermissionInMetadata(
       AccessControlAction.ActionTeamsPermissionsRead,
-      team!,
-      isSignedInUserTeamAdmin
+      team!
     );
-    const canWriteTeamPermissions = contextSrv.hasAccessInMetadata(
+    const canWriteTeamPermissions = contextSrv.hasPermissionInMetadata(
       AccessControlAction.ActionTeamsPermissionsWrite,
-      team!,
-      isSignedInUserTeamAdmin
+      team!
     );
 
     switch (currentPage) {
       case PageTypes.Members:
-        if (contextSrv.accessControlEnabled()) {
+        if (canReadTeamPermissions) {
           return <TeamPermissions team={team!} />;
-        } else {
-          return <TeamMembers syncEnabled={isSyncEnabled} members={members} />;
         }
+        return null;
       case PageTypes.Settings:
         return canReadTeam && <TeamSettings team={team!} />;
       case PageTypes.GroupSync:
-        if (isSyncEnabled) {
+        if (isSyncEnabled.current) {
           if (canReadTeamPermissions) {
             return <TeamGroupSync isReadOnly={!canWriteTeamPermissions} />;
           }
         } else if (config.featureToggles.featureHighlights) {
           return (
-            <UpgradeBox
-              text={
-                "Team Sync immediately updates each user's Grafana teams and permissions based on their LDAP or Oauth group membership, instead of updating when users sign in."
-              }
-            />
+            <>
+              <UpgradeBox featureName={'team sync'} featureId={'team-sync'} />
+              <TeamSyncUpgradeContent />
+            </>
           );
         }
     }
 
     return null;
-  }
+  };
 
-  render() {
-    const { team, navModel, members, editorsCanAdmin, signedInUser } = this.props;
-    const isTeamAdmin = isSignedInUserTeamAdmin({ members, editorsCanAdmin, signedInUser });
+  return (
+    <Page navId="teams" pageNav={pageNav}>
+      <Page.Contents isLoading={isLoading}>{team && Object.keys(team).length !== 0 && renderPage()}</Page.Contents>
+    </Page>
+  );
+});
 
-    return (
-      <Page navModel={this.hideTabsFromNonTeamAdmin(navModel, isTeamAdmin)}>
-        <Page.Contents isLoading={this.state.isLoading}>
-          {team && Object.keys(team).length !== 0 && this.renderPage(isTeamAdmin)}
-        </Page.Contents>
-      </Page>
-    );
-  }
-}
+TeamPages.displayName = 'TeamPages';
 
-export default connector(TeamPages);
+export default TeamPages;

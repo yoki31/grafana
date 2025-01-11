@@ -1,24 +1,48 @@
-import angular from 'angular';
+import 'angular';
 import 'angular-route';
 import 'angular-sanitize';
 import 'angular-bindonce';
-import 'vendor/bootstrap/bootstrap';
-import 'vendor/angular-other/angular-strap';
+
+import angular from 'angular'; // eslint-disable-line no-duplicate-imports
+import { extend } from 'lodash';
+
+import { getTemplateSrv } from '@grafana/runtime';
+import { coreModule, angularModules } from 'app/angular/core_module';
+import appEvents from 'app/core/app_events';
 import { config } from 'app/core/config';
-import coreModule, { angularModules } from 'app/angular/core_module';
+import { contextSrv } from 'app/core/services/context_srv';
 import { DashboardLoaderSrv } from 'app/features/dashboard/services/DashboardLoaderSrv';
+import { getTimeSrv } from 'app/features/dashboard/services/TimeSrv';
+import { setAngularPanelReactWrapper } from 'app/features/plugins/importPanelPlugin';
+import { SystemJS } from 'app/features/plugins/loader/systemjs';
+import { buildImportMap } from 'app/features/plugins/loader/utils';
+import * as sdk from 'app/plugins/sdk';
+
 import { registerAngularDirectives } from './angular_wrappers';
 import { initAngularRoutingBridge } from './bridgeReactAngularRouting';
 import { monkeyPatchInjectorWithPreAssignedBindings } from './injectorMonkeyPatch';
-import { extend } from 'lodash';
-import { getTimeSrv } from 'app/features/dashboard/services/TimeSrv';
-import { getTemplateSrv } from '@grafana/runtime';
-import { registerComponents } from './registerComponents';
-import { exposeToPlugin } from 'app/features/plugins/plugin_loader';
-import appEvents from 'app/core/app_events';
-import { contextSrv } from 'app/core/services/context_srv';
-import * as sdk from 'app/plugins/sdk';
+import { getAngularPanelReactWrapper } from './panel/AngularPanelReactWrapper';
 import { promiseToDigest } from './promiseToDigest';
+import { registerComponents } from './registerComponents';
+
+// Angular plugin dependencies map
+const importMap = {
+  angular: {
+    ...angular,
+    default: angular,
+  },
+  'app/core/core_module': {
+    default: coreModule,
+    __useDefault: true,
+  },
+  'app/core/core': {
+    appEvents: appEvents,
+    contextSrv: contextSrv,
+    coreModule: coreModule,
+  },
+  'app/plugins/sdk': sdk,
+  'app/core/utils/promiseToDigest': { promiseToDigest },
+} as Record<string, System.Module>;
 
 export class AngularApp {
   ngModuleDependencies: any[];
@@ -34,19 +58,32 @@ export class AngularApp {
   init() {
     const app = angular.module('grafana', []);
 
-    app.config(
+    setAngularPanelReactWrapper(getAngularPanelReactWrapper);
+
+    app.config([
+      '$controllerProvider',
+      '$compileProvider',
+      '$filterProvider',
+      '$httpProvider',
+      '$provide',
+      '$sceDelegateProvider',
       (
         $controllerProvider: angular.IControllerProvider,
         $compileProvider: angular.ICompileProvider,
         $filterProvider: angular.IFilterProvider,
         $httpProvider: angular.IHttpProvider,
-        $provide: angular.auto.IProvideService
+        $provide: angular.auto.IProvideService,
+        $sceDelegateProvider: angular.ISCEDelegateProvider
       ) => {
         if (config.buildInfo.env !== 'development') {
           $compileProvider.debugInfoEnabled(false);
         }
 
         $httpProvider.useApplyAsync(true);
+
+        if (Boolean(config.pluginsCDNBaseURL)) {
+          $sceDelegateProvider.trustedResourceUrlList(['self', `${config.pluginsCDNBaseURL}/**`]);
+        }
 
         this.registerFunctions.controller = $controllerProvider.register;
         this.registerFunctions.directive = $compileProvider.directive;
@@ -71,17 +108,10 @@ export class AngularApp {
             return $delegate;
           },
         ]);
-      }
-    );
+      },
+    ]);
 
-    this.ngModuleDependencies = [
-      'grafana.core',
-      'ngSanitize',
-      '$strap.directives',
-      'grafana',
-      'pasvaz.bindonce',
-      'react',
-    ];
+    this.ngModuleDependencies = ['grafana.core', 'ngSanitize', 'grafana', 'pasvaz.bindonce', 'react'];
 
     // makes it possible to add dynamic stuff
     angularModules.forEach((m: angular.IModule) => {
@@ -98,17 +128,9 @@ export class AngularApp {
     registerComponents();
     initAngularRoutingBridge();
 
-    // Angular plugins import this
-    exposeToPlugin('angular', angular);
-    exposeToPlugin('app/core/utils/promiseToDigest', { promiseToDigest, __esModule: true });
-    exposeToPlugin('app/plugins/sdk', sdk);
-    exposeToPlugin('app/core/core_module', coreModule);
-    exposeToPlugin('app/core/core', {
-      coreModule: coreModule,
-      appEvents: appEvents,
-      contextSrv: contextSrv,
-      __esModule: true,
-    });
+    const imports = buildImportMap(importMap);
+    // pass the map of module names so systemjs can resolve them
+    SystemJS.addImportMap({ imports });
 
     // disable tool tip animation
     $.fn.tooltip.defaults.animation = false;

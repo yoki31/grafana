@@ -1,8 +1,7 @@
 import { isString } from 'lodash';
+
 import { ALIGNMENT_PERIODS, SELECTORS } from './constants';
 import CloudMonitoringDatasource from './datasource';
-import { CloudMonitoringVariableQuery, MetricDescriptor, MetricFindQueryTypes, MetricKind, ValueTypes } from './types';
-import { SelectableValue } from '@grafana/data';
 import {
   extractServicesFromMetricDescriptors,
   getAggregationOptionsByMetric,
@@ -10,6 +9,8 @@ import {
   getLabelKeys,
   getMetricTypesByService,
 } from './functions';
+import { ValueTypes, MetricFindQueryTypes } from './types/query';
+import { CloudMonitoringVariableQuery, MetricDescriptor } from './types/types';
 
 export default class CloudMonitoringMetricFindQuery {
   constructor(private datasource: CloudMonitoringDatasource) {}
@@ -56,7 +57,7 @@ export default class CloudMonitoringMetricFindQuery {
 
   async handleProjectsQuery() {
     const projects = await this.datasource.getProjects();
-    return (projects as SelectableValue<string>).map((s: { label: string; value: string }) => ({
+    return projects.map((s) => ({
       text: s.label,
       value: s.value,
       expandable: true,
@@ -149,7 +150,7 @@ export default class CloudMonitoringMetricFindQuery {
       return [];
     }
 
-    return getAggregationOptionsByMetric(descriptor.valueType as ValueTypes, descriptor.metricKind as MetricKind).map(
+    return getAggregationOptionsByMetric(descriptor.valueType as ValueTypes, descriptor.metricKind).map(
       this.toFindQueryResult
     );
   }

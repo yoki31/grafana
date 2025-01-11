@@ -1,11 +1,16 @@
-import React, { ChangeEvent } from 'react';
-import { VariableSuggestion, GrafanaTheme2, DataLink } from '@grafana/data';
-import { Switch } from '../Switch/Switch';
 import { css } from '@emotion/css';
+import { memo, ChangeEvent } from 'react';
+
+import { VariableSuggestion, GrafanaTheme2, DataLink } from '@grafana/data';
+
 import { useStyles2 } from '../../themes/index';
-import { DataLinkInput } from './DataLinkInput';
+import { isCompactUrl } from '../../utils/dataLinks';
+import { Trans } from '../../utils/i18n';
 import { Field } from '../Forms/Field';
 import { Input } from '../Input/Input';
+import { Switch } from '../Switch/Switch';
+
+import { DataLinkInput } from './DataLinkInput';
 
 interface DataLinkEditorProps {
   index: number;
@@ -16,54 +21,58 @@ interface DataLinkEditorProps {
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  listItem: css`
-    margin-bottom: ${theme.spacing()};
-  `,
-  infoText: css`
-    padding-bottom: ${theme.spacing(2)};
-    margin-left: 66px;
-    color: ${theme.colors.text.secondary};
-  `,
+  listItem: css({
+    marginBottom: theme.spacing(),
+  }),
+  infoText: css({
+    paddingBottom: theme.spacing(2),
+    marginLeft: '66px',
+    color: theme.colors.text.secondary,
+  }),
 });
 
-export const DataLinkEditor: React.FC<DataLinkEditorProps> = React.memo(
-  ({ index, value, onChange, suggestions, isLast }) => {
-    const styles = useStyles2(getStyles);
+export const DataLinkEditor = memo(({ index, value, onChange, suggestions, isLast }: DataLinkEditorProps) => {
+  const styles = useStyles2(getStyles);
 
-    const onUrlChange = (url: string, callback?: () => void) => {
-      onChange(index, { ...value, url }, callback);
-    };
-    const onTitleChange = (event: ChangeEvent<HTMLInputElement>) => {
-      onChange(index, { ...value, title: event.target.value });
-    };
+  const onUrlChange = (url: string, callback?: () => void) => {
+    onChange(index, { ...value, url }, callback);
+  };
+  const onTitleChange = (event: ChangeEvent<HTMLInputElement>) => {
+    onChange(index, { ...value, title: event.target.value });
+  };
 
-    const onOpenInNewTabChanged = () => {
-      onChange(index, { ...value, targetBlank: !value.targetBlank });
-    };
+  const onOpenInNewTabChanged = () => {
+    onChange(index, { ...value, targetBlank: !value.targetBlank });
+  };
 
-    return (
-      <div className={styles.listItem}>
-        <Field label="Title">
-          <Input value={value.title} onChange={onTitleChange} placeholder="Show details" />
-        </Field>
+  return (
+    <div className={styles.listItem}>
+      <Field label="Title">
+        <Input value={value.title} onChange={onTitleChange} placeholder="Show details" />
+      </Field>
 
-        <Field label="URL">
-          <DataLinkInput value={value.url} onChange={onUrlChange} suggestions={suggestions} />
-        </Field>
+      <Field
+        label="URL"
+        invalid={isCompactUrl(value.url)}
+        error="Data link is an Explore URL in a deprecated format. Please visit the URL to be redirected, and edit this data link to use that URL."
+      >
+        <DataLinkInput value={value.url} onChange={onUrlChange} suggestions={suggestions} />
+      </Field>
 
-        <Field label="Open in new tab">
-          <Switch value={value.targetBlank || false} onChange={onOpenInNewTabChanged} />
-        </Field>
+      <Field label="Open in new tab">
+        <Switch value={value.targetBlank || false} onChange={onOpenInNewTabChanged} />
+      </Field>
 
-        {isLast && (
-          <div className={styles.infoText}>
+      {isLast && (
+        <div className={styles.infoText}>
+          <Trans i18nKey="grafana-ui.data-link-editor.info">
             With data links you can reference data variables like series name, labels and values. Type CMD+Space,
             CTRL+Space, or $ to open variable suggestions.
-          </div>
-        )}
-      </div>
-    );
-  }
-);
+          </Trans>
+        </div>
+      )}
+    </div>
+  );
+});
 
 DataLinkEditor.displayName = 'DataLinkEditor';

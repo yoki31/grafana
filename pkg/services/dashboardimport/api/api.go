@@ -1,52 +1,63 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/grafana/grafana/pkg/api/apierrors"
 	"github.com/grafana/grafana/pkg/api/response"
 	"github.com/grafana/grafana/pkg/api/routing"
-	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/middleware"
-	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/plugins"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
-	acmiddleware "github.com/grafana/grafana/pkg/services/accesscontrol/middleware"
+	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
 	"github.com/grafana/grafana/pkg/services/dashboardimport"
+	"github.com/grafana/grafana/pkg/services/dashboardimport/utils"
+	"github.com/grafana/grafana/pkg/services/dashboards"
+	"github.com/grafana/grafana/pkg/services/pluginsintegration/pluginstore"
+	"github.com/grafana/grafana/pkg/services/quota"
 	"github.com/grafana/grafana/pkg/web"
 )
 
 type ImportDashboardAPI struct {
 	dashboardImportService dashboardimport.Service
 	quotaService           QuotaService
-	schemaLoaderService    SchemaLoaderService
-	pluginStore            plugins.Store
+	pluginStore            pluginstore.Store
 	ac                     accesscontrol.AccessControl
 }
 
 func New(dashboardImportService dashboardimport.Service, quotaService QuotaService,
-	schemaLoaderService SchemaLoaderService, pluginStore plugins.Store, ac accesscontrol.AccessControl) *ImportDashboardAPI {
+	pluginStore pluginstore.Store, ac accesscontrol.AccessControl) *ImportDashboardAPI {
 	return &ImportDashboardAPI{
 		dashboardImportService: dashboardImportService,
 		quotaService:           quotaService,
-		schemaLoaderService:    schemaLoaderService,
 		pluginStore:            pluginStore,
 		ac:                     ac,
 	}
 }
 
 func (api *ImportDashboardAPI) RegisterAPIEndpoints(routeRegister routing.RouteRegister) {
-	authorize := acmiddleware.Middleware(api.ac)
+	authorize := accesscontrol.Middleware(api.ac)
 	routeRegister.Group("/api/dashboards", func(route routing.RouteRegister) {
 		route.Post(
 			"/import",
-			authorize(middleware.ReqSignedIn, accesscontrol.EvalPermission(accesscontrol.ActionDashboardsCreate)),
+			authorize(accesscontrol.EvalPermission(dashboards.ActionDashboardsCreate)),
 			routing.Wrap(api.ImportDashboard),
 		)
 	}, middleware.ReqSignedIn)
 }
 
-func (api *ImportDashboardAPI) ImportDashboard(c *models.ReqContext) response.Response {
+// swagger:route POST /dashboards/import dashboards importDashboard
+//
+// Import dashboard.
+//
+// Responses:
+// 200: importDashboardResponse
+// 400: badRequestError
+// 401: unauthorisedError
+// 412: preconditionFailedError
+// 422: unprocessableEntityError
+// 500: internalServerError
+func (api *ImportDashboardAPI) ImportDashboard(c *contextmodel.ReqContext) response.Response {
 	req := dashboardimport.ImportDashboardRequest{}
 	if err := web.Bind(c.Req, &req); err != nil {
 		return response.Error(http.StatusBadRequest, "bad request data", err)
@@ -56,26 +67,21 @@ func (api *ImportDashboardAPI) ImportDashboard(c *models.ReqContext) response.Re
 		return response.Error(http.StatusUnprocessableEntity, "Dashboard must be set", nil)
 	}
 
-	limitReached, err := api.quotaService.QuotaReached(c, "dashboard")
+	limitReached, err := api.quotaService.QuotaReached(c, dashboards.QuotaTargetSrv)
 	if err != nil {
-		return response.Error(500, "failed to get quota", err)
+		return response.Err(err)
 	}
 
 	if limitReached {
-		return response.Error(403, "Quota reached", nil)
-	}
-
-	trimDefaults := c.QueryBoolWithDefault("trimdefaults", true)
-	if trimDefaults && !api.schemaLoaderService.IsDisabled() {
-		req.Dashboard, err = api.schemaLoaderService.DashboardApplyDefaults(req.Dashboard)
-		if err != nil {
-			return response.Error(http.StatusInternalServerError, "Error while applying default value to the dashboard json", err)
-		}
+		return response.Error(http.StatusForbidden, "Quota reached", nil)
 	}
 
 	req.User = c.SignedInUser
 	resp, err := api.dashboardImportService.ImportDashboard(c.Req.Context(), &req)
 	if err != nil {
+		if errors.Is(err, utils.ErrDashboardInputMissing) {
+			return response.Error(http.StatusBadRequest, err.Error(), err)
+		}
 		return apierrors.ToDashboardErrorResponse(c.Req.Context(), api.pluginStore, err)
 	}
 
@@ -83,16 +89,24 @@ func (api *ImportDashboardAPI) ImportDashboard(c *models.ReqContext) response.Re
 }
 
 type QuotaService interface {
-	QuotaReached(c *models.ReqContext, target string) (bool, error)
+	QuotaReached(c *contextmodel.ReqContext, target quota.TargetSrv) (bool, error)
 }
 
-type quotaServiceFunc func(c *models.ReqContext, target string) (bool, error)
+type quotaServiceFunc func(c *contextmodel.ReqContext, target quota.TargetSrv) (bool, error)
 
-func (fn quotaServiceFunc) QuotaReached(c *models.ReqContext, target string) (bool, error) {
+func (fn quotaServiceFunc) QuotaReached(c *contextmodel.ReqContext, target quota.TargetSrv) (bool, error) {
 	return fn(c, target)
 }
 
-type SchemaLoaderService interface {
-	IsDisabled() bool
-	DashboardApplyDefaults(input *simplejson.Json) (*simplejson.Json, error)
+// swagger:parameters importDashboard
+type ImportDashboardParams struct {
+	// in:body
+	// required:true
+	Body dashboardimport.ImportDashboardRequest
+}
+
+// swagger:response importDashboardResponse
+type ImportDashboardResponse struct {
+	// in: body
+	Body dashboardimport.ImportDashboardResponse `json:"body"`
 }

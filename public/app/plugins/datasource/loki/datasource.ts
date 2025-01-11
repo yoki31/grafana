@@ -1,326 +1,428 @@
-// Libraries
-import { cloneDeep, isEmpty, map as lodashMap } from 'lodash';
+import { cloneDeep, map as lodashMap } from 'lodash';
 import { lastValueFrom, merge, Observable, of, throwError } from 'rxjs';
-import { catchError, map, switchMap } from 'rxjs/operators';
-import Prism from 'prismjs';
+import { catchError, map, switchMap, tap } from 'rxjs/operators';
 
-// Types
 import {
+  AbstractQuery,
   AnnotationEvent,
   AnnotationQueryRequest,
   CoreApp,
   DataFrame,
   DataFrameView,
-  DataQueryError,
   DataQueryRequest,
   DataQueryResponse,
   DataSourceInstanceSettings,
   DataSourceWithLogsContextSupport,
-  DataSourceWithLogsVolumeSupport,
+  DataSourceWithSupplementaryQueriesSupport,
+  SupplementaryQueryType,
   DataSourceWithQueryExportSupport,
   DataSourceWithQueryImportSupport,
-  dateMath,
-  DateTime,
-  FieldCache,
-  AbstractQuery,
-  FieldType,
-  getLogLevelFromKey,
   Labels,
   LoadingState,
-  LogLevel,
   LogRowModel,
-  QueryResultMeta,
+  QueryFixAction,
+  QueryHint,
+  rangeUtil,
   ScopedVars,
+  SupplementaryQueryOptions,
   TimeRange,
+  LogRowContextOptions,
+  DataSourceWithToggleableQueryFiltersSupport,
+  ToggleFilterAction,
+  QueryFilterOptions,
+  renderLegendFormat,
+  LegacyMetricFindQueryOptions,
+  AdHocVariableFilter,
+  urlUtil,
+  MetricFindValue,
+  DataSourceGetTagValuesOptions,
+  DataSourceGetTagKeysOptions,
+  DataSourceWithQueryModificationSupport,
+  LogsVolumeOption,
+  LogsSampleOptions,
+  QueryVariableModel,
+  CustomVariableModel,
 } from '@grafana/data';
-import { BackendSrvRequest, FetchError, getBackendSrv, config, DataSourceWithBackend } from '@grafana/runtime';
-import { getTemplateSrv, TemplateSrv } from 'app/features/templating/template_srv';
-import { addLabelToQuery } from './add_label_to_query';
-import { getTimeSrv, TimeSrv } from 'app/features/dashboard/services/TimeSrv';
-import { convertToWebSocketUrl } from 'app/core/utils/explore';
-import {
-  lokiResultsToTableModel,
-  lokiStreamResultToDataFrame,
-  lokiStreamsToDataFrames,
-  processRangeQueryResponse,
-} from './result_transformer';
-import { transformBackendResult } from './backendResultTransformer';
-import { addParsedLabelToQuery, getNormalizedLokiQuery, queryHasPipeParser } from './query_utils';
+import { Duration } from '@grafana/lezer-logql';
+import { BackendSrvRequest, config, DataSourceWithBackend, getTemplateSrv, TemplateSrv } from '@grafana/runtime';
+import { DataQuery } from '@grafana/schema';
+import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
 
+import LanguageProvider from './LanguageProvider';
+import { LiveStreams, LokiLiveTarget } from './LiveStreams';
+import { LogContextProvider } from './LogContextProvider';
+import { LokiVariableSupport } from './LokiVariableSupport';
+import { transformBackendResult } from './backendResultTransformer';
+import { LokiAnnotationsQueryEditor } from './components/AnnotationsQueryEditor';
+import { placeHolderScopedVars } from './components/monaco-query-field/monaco-completion-provider/validation';
+import { escapeLabelValueInSelector, isRegexSelector, getLabelTypeFromFrame } from './languageUtils';
+import { labelNamesRegex, labelValuesRegex } from './migrations/variableQueryMigrations';
+import {
+  addLabelFormatToQuery,
+  addLabelToQuery,
+  addNoPipelineErrorToQuery,
+  addParserToQuery,
+  removeCommentsFromQuery,
+  addFilterAsLabelFilter,
+  getParserPositions,
+  toLabelFilter,
+  addLineFilter,
+  findLastPosition,
+  getLabelFilterPositions,
+  queryHasFilter,
+  removeLabelFromQuery,
+} from './modifyQuery';
+import { getQueryHints } from './queryHints';
+import { runSplitQuery } from './querySplitting';
+import {
+  getLogQueryFromMetricsQuery,
+  getLokiQueryFromDataQuery,
+  getNodesFromQuery,
+  getNormalizedLokiQuery,
+  getStreamSelectorsFromQuery,
+  isLogsQuery,
+  isQueryWithError,
+  requestSupportsSharding,
+  requestSupportsSplitting,
+} from './queryUtils';
+import { replaceVariables, returnVariables } from './querybuilder/parsingUtils';
+import { runShardSplitQuery } from './shardQuerySplitting';
+import { convertToWebSocketUrl, doLokiChannelStream } from './streaming';
+import { trackQuery } from './tracking';
 import {
   LokiOptions,
   LokiQuery,
   LokiQueryType,
-  LokiRangeQueryRequest,
-  LokiResultType,
-  LokiStreamResponse,
-  LokiStreamResult,
+  LokiVariableQuery,
+  LokiVariableQueryType,
+  QueryStats,
+  SupportingQueryType,
 } from './types';
-import { LiveStreams, LokiLiveTarget } from './live_streams';
-import LanguageProvider from './language_provider';
-import { serializeParams } from '../../../core/utils/fetch';
-import { RowContextOptions } from '@grafana/ui/src/components/Logs/LogRowContextProvider';
-import syntax from './syntax';
-import { DEFAULT_RESOLUTION } from './components/LokiOptionFields';
-import { queryLogsVolume } from 'app/core/logs_model';
-import { doLokiChannelStream } from './streaming';
-import { renderLegendFormat } from '../prometheus/legend';
 
 export type RangeQueryOptions = DataQueryRequest<LokiQuery> | AnnotationQueryRequest<LokiQuery>;
 export const DEFAULT_MAX_LINES = 1000;
+export const DEFAULT_MAX_LINES_SAMPLE = 10;
 export const LOKI_ENDPOINT = '/loki/api/v1';
+export const REF_ID_DATA_SAMPLES = 'loki-data-samples';
+export const REF_ID_STARTER_ANNOTATION = 'annotation-';
+export const REF_ID_STARTER_LOG_ROW_CONTEXT = 'log-row-context-query-';
+export const REF_ID_STARTER_LOG_VOLUME = 'log-volume-';
+export const REF_ID_STARTER_LOG_SAMPLE = 'log-sample-';
+export const REF_ID_STARTER_STATS = 'log-stats-';
+
 const NS_IN_MS = 1000000;
 
-const RANGE_QUERY_ENDPOINT = `${LOKI_ENDPOINT}/query_range`;
-const INSTANT_QUERY_ENDPOINT = `${LOKI_ENDPOINT}/query`;
-
-const DEFAULT_QUERY_PARAMS: Partial<LokiRangeQueryRequest> = {
-  direction: 'BACKWARD',
-  limit: DEFAULT_MAX_LINES,
-  query: '',
-};
+export function makeRequest(
+  query: LokiQuery,
+  range: TimeRange,
+  app: CoreApp,
+  requestId: string,
+  hideFromInspector?: boolean
+): DataQueryRequest<LokiQuery> {
+  const intervalInfo = rangeUtil.calculateInterval(range, 1);
+  return {
+    targets: [query],
+    requestId,
+    interval: intervalInfo.interval,
+    intervalMs: intervalInfo.intervalMs,
+    range: range,
+    scopedVars: {},
+    timezone: 'UTC',
+    app,
+    startTime: Date.now(),
+    hideFromInspector,
+  };
+}
 
 export class LokiDatasource
   extends DataSourceWithBackend<LokiQuery, LokiOptions>
   implements
     DataSourceWithLogsContextSupport,
-    DataSourceWithLogsVolumeSupport<LokiQuery>,
+    DataSourceWithSupplementaryQueriesSupport<LokiQuery>,
     DataSourceWithQueryImportSupport<LokiQuery>,
-    DataSourceWithQueryExportSupport<LokiQuery>
+    DataSourceWithQueryExportSupport<LokiQuery>,
+    DataSourceWithToggleableQueryFiltersSupport<LokiQuery>,
+    DataSourceWithQueryModificationSupport<LokiQuery>
 {
   private streams = new LiveStreams();
+  private logContextProvider: LogContextProvider;
   languageProvider: LanguageProvider;
   maxLines: number;
+  predefinedOperations: string;
 
   constructor(
     private instanceSettings: DataSourceInstanceSettings<LokiOptions>,
-    private readonly templateSrv: TemplateSrv = getTemplateSrv(),
-    private readonly timeSrv: TimeSrv = getTimeSrv()
+    private readonly templateSrv: TemplateSrv = getTemplateSrv()
   ) {
     super(instanceSettings);
 
     this.languageProvider = new LanguageProvider(this);
     const settingsData = instanceSettings.jsonData || {};
     this.maxLines = parseInt(settingsData.maxLines ?? '0', 10) || DEFAULT_MAX_LINES;
-  }
-
-  _request(apiUrl: string, data?: any, options?: Partial<BackendSrvRequest>): Observable<Record<string, any>> {
-    const baseUrl = this.instanceSettings.url;
-    const params = data ? serializeParams(data) : '';
-    const url = `${baseUrl}${apiUrl}${params.length ? `?${params}` : ''}`;
-    if (this.instanceSettings.withCredentials || this.instanceSettings.basicAuth) {
-      options = { ...options, withCredentials: true };
-      if (this.instanceSettings.basicAuth) {
-        options.headers = { ...options.headers, Authorization: this.instanceSettings.basicAuth };
-      }
-    }
-    const req = {
-      ...options,
-      url,
+    this.predefinedOperations = settingsData.predefinedOperations ?? '';
+    this.annotations = {
+      QueryEditor: LokiAnnotationsQueryEditor,
     };
-
-    return getBackendSrv().fetch<Record<string, any>>(req);
+    this.variables = new LokiVariableSupport(this);
+    this.logContextProvider = new LogContextProvider(this);
   }
 
-  getLogsVolumeDataProvider(request: DataQueryRequest<LokiQuery>): Observable<DataQueryResponse> | undefined {
-    const isLogsVolumeAvailable = request.targets.some((target) => target.expr && !isMetricsQuery(target.expr));
-    if (!isLogsVolumeAvailable) {
+  /**
+   * Implemented for DataSourceWithSupplementaryQueriesSupport.
+   * It generates a DataQueryRequest for a specific supplementary query type.
+   * @returns A DataQueryRequest for the supplementary queries or undefined if not supported.
+   */
+  getSupplementaryRequest(
+    type: SupplementaryQueryType,
+    request: DataQueryRequest<LokiQuery>,
+    options?: SupplementaryQueryOptions
+  ): DataQueryRequest<LokiQuery> | undefined {
+    switch (type) {
+      case SupplementaryQueryType.LogsVolume:
+        const logsVolumeOption: LogsVolumeOption =
+          options?.type === SupplementaryQueryType.LogsVolume ? options : { type };
+        return this.getLogsVolumeDataProvider(request, logsVolumeOption);
+      case SupplementaryQueryType.LogsSample:
+        const logsSampleOption: LogsSampleOptions =
+          options?.type === SupplementaryQueryType.LogsSample ? options : { type };
+        return this.getLogsSampleDataProvider(request, logsSampleOption);
+      default:
+        return undefined;
+    }
+  }
+
+  /**
+   * Implemented for DataSourceWithSupplementaryQueriesSupport.
+   * It returns the supplementary types that the data source supports.
+   * @returns An array of supported supplementary query types.
+   */
+  getSupportedSupplementaryQueryTypes(): SupplementaryQueryType[] {
+    return [SupplementaryQueryType.LogsVolume, SupplementaryQueryType.LogsSample];
+  }
+
+  /**
+   * Implemented for DataSourceWithSupplementaryQueriesSupport.
+   * It retrieves supplementary queries based on the provided options and Loki query.
+   * @returns A supplemented Loki query or undefined if unsupported.
+   */
+  getSupplementaryQuery(options: SupplementaryQueryOptions, query: LokiQuery): LokiQuery | undefined {
+    const normalizedQuery = getNormalizedLokiQuery(query);
+    let expr = removeCommentsFromQuery(normalizedQuery.expr);
+    let isQuerySuitable = false;
+
+    switch (options.type) {
+      case SupplementaryQueryType.LogsVolume:
+        // it has to be a logs-producing range-query
+        isQuerySuitable = !!(expr && isLogsQuery(expr) && normalizedQuery.queryType === LokiQueryType.Range);
+        if (!isQuerySuitable) {
+          return undefined;
+        }
+
+        const dropErrorExpression = `${expr} | drop __error__`;
+        const field = options.field || 'level, detected_level';
+        if (isQueryWithError(this.interpolateString(dropErrorExpression, placeHolderScopedVars)) === false) {
+          expr = dropErrorExpression;
+        }
+
+        return {
+          ...normalizedQuery,
+          refId: `${REF_ID_STARTER_LOG_VOLUME}${normalizedQuery.refId}`,
+          queryType: LokiQueryType.Range,
+          supportingQueryType: SupportingQueryType.LogsVolume,
+          expr: `sum by (${field}) (count_over_time(${expr}[$__auto]))`,
+        };
+
+      case SupplementaryQueryType.LogsSample:
+        // it has to be a metric query
+        isQuerySuitable = !!(expr && !isLogsQuery(expr));
+        if (!isQuerySuitable) {
+          return undefined;
+        }
+        return {
+          ...normalizedQuery,
+          queryType: LokiQueryType.Range,
+          refId: `${REF_ID_STARTER_LOG_SAMPLE}${normalizedQuery.refId}`,
+          expr: getLogQueryFromMetricsQuery(expr),
+          maxLines: Number.isNaN(Number(options.limit)) ? this.maxLines : Number(options.limit),
+          supportingQueryType: SupportingQueryType.LogsSample,
+        };
+
+      default:
+        return undefined;
+    }
+  }
+
+  /**
+   * Private method used in the `getDataProvider` for DataSourceWithSupplementaryQueriesSupport, specifically for Logs volume queries.
+   * @returns A DataQueryRequest or undefined if no suitable queries are found.
+   */
+  private getLogsVolumeDataProvider(
+    request: DataQueryRequest<LokiQuery>,
+    options: LogsVolumeOption
+  ): DataQueryRequest<LokiQuery> | undefined {
+    const logsVolumeRequest = cloneDeep(request);
+    const targets = logsVolumeRequest.targets
+      .map((query) => this.getSupplementaryQuery(options, query))
+      .filter((query): query is LokiQuery => !!query);
+
+    if (!targets.length) {
       return undefined;
     }
 
-    const logsVolumeRequest = cloneDeep(request);
-    logsVolumeRequest.targets = logsVolumeRequest.targets
-      .filter((target) => target.expr && !isMetricsQuery(target.expr))
-      .map((target) => {
-        return {
-          ...target,
-          instant: false,
-          volumeQuery: true,
-          expr: `sum by (level) (count_over_time(${target.expr}[$__interval]))`,
-        };
-      });
-
-    return queryLogsVolume(this, logsVolumeRequest, {
-      extractLevel,
-      range: request.range,
-      targets: request.targets,
-    });
+    return { ...logsVolumeRequest, targets };
   }
 
+  /**
+   * Private method used in the `getDataProvider` for DataSourceWithSupplementaryQueriesSupport, specifically for Logs sample queries.
+   * @returns A DataQueryRequest or undefined if no suitable queries are found.
+   */
+  private getLogsSampleDataProvider(
+    request: DataQueryRequest<LokiQuery>,
+    options?: LogsSampleOptions
+  ): DataQueryRequest<LokiQuery> | undefined {
+    const logsSampleRequest = cloneDeep(request);
+    const targets = logsSampleRequest.targets
+      .map((query) => this.getSupplementaryQuery({ type: SupplementaryQueryType.LogsSample, limit: 100 }, query))
+      .filter((query): query is LokiQuery => !!query);
+
+    if (!targets.length) {
+      return undefined;
+    }
+    return { ...logsSampleRequest, targets };
+  }
+
+  private getQueryHeaders(request: DataQueryRequest<LokiQuery>): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (!config.featureToggles.lokiSendDashboardPanelNames) {
+      return headers;
+    }
+    // only add headers if we are in the context of a dashboard
+    if (
+      [CoreApp.Dashboard.toString(), CoreApp.PanelEditor.toString(), CoreApp.PanelViewer.toString()].includes(
+        request.app
+      ) === false
+    ) {
+      return headers;
+    }
+
+    const dashboard = getDashboardSrv().getCurrent();
+    const dashboardTitle = dashboard?.title;
+    const panelTitle = dashboard?.panels.find((p) => p.id === request?.panelId)?.title;
+    if (dashboardTitle) {
+      headers['X-Dashboard-Title'] = dashboardTitle;
+    }
+    if (panelTitle) {
+      headers['X-Panel-Title'] = panelTitle;
+    }
+
+    return headers;
+  }
+
+  /**
+   * Required by DataSourceApi. It executes queries based on the provided DataQueryRequest.
+   * @returns An Observable of DataQueryResponse containing the query results.
+   */
   query(request: DataQueryRequest<LokiQuery>): Observable<DataQueryResponse> {
-    const subQueries: Array<Observable<DataQueryResponse>> = [];
-    const scopedVars = {
-      ...request.scopedVars,
-      ...this.getRangeScopedVars(request.range),
+    const queries = request.targets
+      .map(getNormalizedLokiQuery) // used to "fix" the deprecated `.queryType` prop
+      .map((q) => ({ ...q, maxLines: q.maxLines ?? this.maxLines }));
+
+    const fixedRequest: DataQueryRequest<LokiQuery> = {
+      ...request,
+      targets: queries,
     };
 
-    const shouldRunBackendQuery = config.featureToggles.lokiBackendMode && request.app === CoreApp.Explore;
+    fixedRequest.headers = this.getQueryHeaders(request);
 
-    if (shouldRunBackendQuery) {
-      // we "fix" the loki queries to have `.queryType` and not have `.instant` and `.range`
-      const fixedRequest = {
-        ...request,
-        targets: request.targets.map(getNormalizedLokiQuery),
+    const streamQueries = fixedRequest.targets.filter((q) => q.queryType === LokiQueryType.Stream);
+    if (
+      config.featureToggles.lokiExperimentalStreaming &&
+      streamQueries.length > 0 &&
+      fixedRequest.rangeRaw?.to === 'now'
+    ) {
+      // this is still an in-development feature,
+      // we do not support mixing stream-queries with normal-queries for now.
+      const streamRequest = {
+        ...fixedRequest,
+        targets: streamQueries,
       };
-      return super.query(fixedRequest).pipe(map((response) => transformBackendResult(response, fixedRequest)));
+      return merge(
+        ...streamQueries.map((q) =>
+          doLokiChannelStream(
+            this.applyTemplateVariables(q, request.scopedVars, request.filters),
+            this, // the datasource
+            streamRequest
+          )
+        )
+      );
     }
 
-    const filteredTargets = request.targets
-      .filter((target) => target.expr && !target.hide)
-      .map((target) => {
-        const expr = this.addAdHocFilters(target.expr);
-        return {
-          ...target,
-          expr: this.templateSrv.replace(expr, scopedVars, this.interpolateQueryExpr),
-        };
-      });
-
-    for (const target of filteredTargets) {
-      if (target.instant || target.queryType === LokiQueryType.Instant) {
-        subQueries.push(this.runInstantQuery(target, request, filteredTargets.length));
-      } else if (
-        config.featureToggles.lokiLive &&
-        target.queryType === LokiQueryType.Stream &&
-        request.rangeRaw?.to === 'now'
-      ) {
-        subQueries.push(doLokiChannelStream(target, this, request));
-      } else {
-        subQueries.push(this.runRangeQuery(target, request, filteredTargets.length));
-      }
+    if (fixedRequest.liveStreaming) {
+      return this.runLiveQueryThroughBackend(fixedRequest);
     }
 
-    // No valid targets, return the empty result to save a round trip.
-    if (isEmpty(subQueries)) {
+    if (config.featureToggles.lokiShardSplitting && requestSupportsSharding(fixedRequest.targets)) {
+      return runShardSplitQuery(this, fixedRequest);
+    } else if (config.featureToggles.lokiQuerySplitting && requestSupportsSplitting(fixedRequest.targets)) {
+      return runSplitQuery(this, fixedRequest);
+    }
+
+    const startTime = new Date();
+    return this.runQuery(fixedRequest).pipe(
+      tap((response) =>
+        trackQuery(response, fixedRequest, startTime, { predefinedOperations: this.predefinedOperations })
+      )
+    );
+  }
+
+  /**
+   * Executes requests through the backend using the `super.query()`, as part of the `query` method in DataSourceWithBackend.
+   * @returns An Observable of transformed DataQueryResponse results from the backend.
+   */
+  runQuery(fixedRequest: DataQueryRequest<LokiQuery>) {
+    return super
+      .query(fixedRequest)
+      .pipe(
+        map((response) =>
+          transformBackendResult(response, fixedRequest.targets, this.instanceSettings.jsonData.derivedFields ?? [])
+        )
+      );
+  }
+
+  /**
+   * Used within the `query` to execute live queries.
+   * It is intended for logs-queries, not metric queries.
+   * @returns An Observable of DataQueryResponse with live query results or an empty response if no suitable queries are found.
+   * @todo: The name says "backend" but it's actually running the query through the frontend. We should fix this.
+   */
+  private runLiveQueryThroughBackend(request: DataQueryRequest<LokiQuery>): Observable<DataQueryResponse> {
+    // and only for logs-queries, not metric queries
+    const logsQueries = request.targets.filter((query) => query.expr !== '' && isLogsQuery(query.expr));
+    if (logsQueries.length === 0) {
       return of({
         data: [],
         state: LoadingState.Done,
       });
     }
 
+    const subQueries = logsQueries.map((query) => {
+      const interpolatedQuery = this.applyTemplateVariables(query, request.scopedVars, request.filters);
+      const maxDataPoints = interpolatedQuery.maxLines || this.maxLines;
+      // FIXME: currently we are running it through the frontend still.
+      return this.runLiveQuery(interpolatedQuery, maxDataPoints);
+    });
+
     return merge(...subQueries);
   }
 
-  runInstantQuery = (
-    target: LokiQuery,
-    options: DataQueryRequest<LokiQuery>,
-    responseListLength = 1
-  ): Observable<DataQueryResponse> => {
-    const timeNs = this.getTime(options.range.to, true);
-    const queryLimit = isMetricsQuery(target.expr) ? options.maxDataPoints : target.maxLines;
-    const query = {
-      query: target.expr,
-      time: `${timeNs + (1e9 - (timeNs % 1e9))}`,
-      limit: Math.min(queryLimit || Infinity, this.maxLines),
-    };
-
-    /** Used only for results of metrics instant queries */
-    const meta: QueryResultMeta = {
-      preferredVisualisationType: 'table',
-    };
-
-    return this._request(INSTANT_QUERY_ENDPOINT, query).pipe(
-      map((response) => {
-        if (response.data.data.resultType === LokiResultType.Stream) {
-          return {
-            data: response.data
-              ? lokiStreamsToDataFrames(
-                  response.data as LokiStreamResponse,
-                  target,
-                  query.limit,
-                  this.instanceSettings.jsonData
-                )
-              : [],
-            key: `${target.refId}_instant`,
-          };
-        }
-
-        return {
-          data: [lokiResultsToTableModel(response.data.data.result, responseListLength, target.refId, meta, true)],
-          key: `${target.refId}_instant`,
-        };
-      }),
-      catchError((err) => throwError(() => this.processError(err, target)))
-    );
-  };
-
-  createRangeQuery(target: LokiQuery, options: RangeQueryOptions, limit: number): LokiRangeQueryRequest {
-    const query = target.expr;
-    let range: { start?: number; end?: number; step?: number } = {};
-    if (options.range) {
-      const startNs = this.getTime(options.range.from, false);
-      const endNs = this.getTime(options.range.to, true);
-      const rangeMs = Math.ceil((endNs - startNs) / 1e6);
-
-      const resolution = target.resolution || (DEFAULT_RESOLUTION.value as number);
-
-      const adjustedInterval =
-        this.adjustInterval((options as DataQueryRequest<LokiQuery>).intervalMs || 1000, resolution, rangeMs) / 1000;
-      // We want to ceil to 3 decimal places
-      const step = Math.ceil(adjustedInterval * 1000) / 1000;
-
-      range = {
-        start: startNs,
-        end: endNs,
-        step,
-      };
-    }
-
-    return {
-      ...DEFAULT_QUERY_PARAMS,
-      ...range,
-      query,
-      limit,
-    };
-  }
-
   /**
-   * Attempts to send a query to /loki/api/v1/query_range
+   * Used within the `runLiveQuery` to create a live target for a Loki query.
+   * @returns A LokiLiveTarget object containing the necessary information for a live query.
    */
-  runRangeQuery = (
-    target: LokiQuery,
-    options: RangeQueryOptions,
-    responseListLength = 1
-  ): Observable<DataQueryResponse> => {
-    // For metric query we use maxDataPoints from the request options which should be something like width of the
-    // visualisation in pixels. In case of logs request we either use lines limit defined in the query target or
-    // global limit defined for the data source which ever is lower.
-    let maxDataPoints = isMetricsQuery(target.expr)
-      ? // We fallback to maxLines here because maxDataPoints is defined as possibly undefined. Not sure that can
-        // actually happen both Dashboards and Explore should send some value here. If not maxLines does not make that
-        // much sense but nor any other arbitrary value.
-        (options as DataQueryRequest<LokiQuery>).maxDataPoints || this.maxLines
-      : // If user wants maxLines 0 we still fallback to data source limit. I think that makes sense as why would anyone
-        // want to do a query and not see any results?
-        target.maxLines || this.maxLines;
-
-    if ((options as DataQueryRequest<LokiQuery>).liveStreaming) {
-      return this.runLiveQuery(target, maxDataPoints);
-    }
-    const query = this.createRangeQuery(target, options, maxDataPoints);
-
-    const headers = target.volumeQuery ? { 'X-Query-Tags': 'Source=logvolhist' } : undefined;
-
-    return this._request(RANGE_QUERY_ENDPOINT, query, { headers }).pipe(
-      catchError((err) => throwError(() => this.processError(err, target))),
-      switchMap((response) =>
-        processRangeQueryResponse(
-          response.data,
-          target,
-          query,
-          responseListLength,
-          maxDataPoints,
-          this.instanceSettings.jsonData,
-          (options as DataQueryRequest<LokiQuery>).scopedVars,
-          (options as DataQueryRequest<LokiQuery>).reverse
-        )
-      )
-    );
-  };
-
-  createLiveTarget(target: LokiQuery, maxDataPoints: number): LokiLiveTarget {
+  private createLiveTarget(target: LokiQuery, maxDataPoints: number): LokiLiveTarget {
     const query = target.expr;
     const baseUrl = this.instanceSettings.url;
-    const params = serializeParams({ query });
+    const params = urlUtil.serializeParams({ query });
 
     return {
       query,
@@ -331,12 +433,13 @@ export class LokiDatasource
   }
 
   /**
-   * Runs live queries which in this case means creating a websocket and listening on it for new logs.
-   * This returns a bit different dataFrame than runQueries as it returns single dataframe even if there are multiple
-   * Loki streams, sets only common labels on dataframe.labels and has additional dataframe.fields.labels for unique
-   * labels per row.
+   * Runs live queries, which involves creating a WebSocket connection to listen for new logs.
+   * It returns a slightly different DataQueryResponse compared to runQueries. It provides a single DataFrame
+   * even if there are multiple Loki streams. Common labels are set on dataFrame.labels, and unique labels per row are
+   * available in dataFrame.fields.labels.
+   * @returns An Observable of DataQueryResponse with streaming data or an error message if live tailing encounters an issue.
    */
-  runLiveQuery = (target: LokiQuery, maxDataPoints: number): Observable<DataQueryResponse> => {
+  private runLiveQuery = (target: LokiQuery, maxDataPoints: number): Observable<DataQueryResponse> => {
     const liveTarget = this.createLiveTarget(target, maxDataPoints);
 
     return this.streams.getStream(liveTarget).pipe(
@@ -345,44 +448,58 @@ export class LokiDatasource
         key: `loki-${liveTarget.refId}`,
         state: LoadingState.Streaming,
       })),
-      catchError((err: any) => {
+      catchError((err) => {
         return throwError(() => `Live tailing was stopped due to following error: ${err.reason}`);
       })
     );
   };
 
-  getRangeScopedVars(range: TimeRange = this.timeSrv.timeRange()) {
-    const msRange = range.to.diff(range.from);
-    const sRange = Math.round(msRange / 1000);
-    return {
-      __range_ms: { text: msRange, value: msRange },
-      __range_s: { text: sRange, value: sRange },
-      __range: { text: sRange + 's', value: sRange + 's' },
-    };
-  }
-
-  interpolateVariablesInQueries(queries: LokiQuery[], scopedVars: ScopedVars): LokiQuery[] {
+  /**
+   * Implemented as a part of DataSourceApi. Interpolates variables and adds ad hoc filters to a list of Loki queries.
+   * @returns An array of expanded Loki queries with interpolated variables and ad hoc filters.
+   */
+  interpolateVariablesInQueries(
+    queries: LokiQuery[],
+    scopedVars: ScopedVars,
+    adhocFilters?: AdHocVariableFilter[]
+  ): LokiQuery[] {
     let expandedQueries = queries;
     if (queries && queries.length) {
       expandedQueries = queries.map((query) => ({
         ...query,
         datasource: this.getRef(),
-        expr: this.templateSrv.replace(query.expr, scopedVars, this.interpolateQueryExpr),
+        expr: this.addAdHocFilters(
+          this.templateSrv.replace(query.expr, scopedVars, this.interpolateQueryExpr),
+          adhocFilters
+        ),
       }));
     }
 
     return expandedQueries;
   }
 
+  /**
+   * Implemented as part of DataSourceApi. Converts a Loki query to a simple text string.
+   * Used, for example, in Query history.
+   * @returns A text representation of the query.
+   */
   getQueryDisplayText(query: LokiQuery) {
     return query.expr;
   }
 
-  getTimeRangeParams() {
-    const timeRange = this.timeSrv.timeRange();
+  /**
+   * Given a time range, returns it as Loki parameters.
+   * @returns An object containing the start and end times in nanoseconds since the Unix epoch.
+   */
+  getTimeRangeParams(timeRange: TimeRange) {
     return { start: timeRange.from.valueOf() * NS_IN_MS, end: timeRange.to.valueOf() * NS_IN_MS };
   }
 
+  /**
+   * Implemented as part of DataSourceWithQueryImportSupport.
+   * Imports queries from AbstractQuery objects when switching between different data source types.
+   * @returns A Promise that resolves to an array of Loki queries.
+   */
   async importFromAbstractQueries(abstractQueries: AbstractQuery[]): Promise<LokiQuery[]> {
     await this.languageProvider.start();
     const existingKeys = this.languageProvider.labelKeys;
@@ -399,90 +516,305 @@ export class LokiDatasource
     return abstractQueries.map((abstractQuery) => this.languageProvider.importFromAbstractQuery(abstractQuery));
   }
 
+  /**
+   * Implemented as part of DataSourceWithQueryImportSupport.
+   * Exports Loki queries to AbstractQuery objects when switching between different data source types.
+   * @returns A Promise that resolves to an array of AbstractQuery objects.
+   */
   async exportToAbstractQueries(queries: LokiQuery[]): Promise<AbstractQuery[]> {
     return queries.map((query) => this.languageProvider.exportToAbstractQuery(query));
   }
 
-  async metadataRequest(url: string, params?: Record<string, string | number>) {
-    const res = await lastValueFrom(this._request(url, params, { hideFromInspector: true }));
-    return res.data.data || res.data.values || [];
+  /**
+   * A method that wraps `getResource` from DataSourceWithBackend to perform metadata requests, with an additional check for valid URL values.
+   * @returns A Promise that resolves to the data retrieved from the metadata request, or an empty array if no data is available.
+   */
+  async metadataRequest(url: string, params?: Record<string, string | number>, options?: Partial<BackendSrvRequest>) {
+    // url must not start with a `/`, otherwise the AJAX-request
+    // going from the browser will contain `//`, which can cause problems.
+    if (url.startsWith('/')) {
+      throw new Error(`invalid metadata request url: ${url}`);
+    }
+
+    const res = await this.getResource(url, params, options);
+
+    // detected_field/${label}/values has different structure then other metadata responses
+    if (!res.data && res.values) {
+      return res.values ?? [];
+    }
+    return res.data ?? [];
   }
 
-  async metricFindQuery(query: string) {
+  /**
+   * Used in `getQueryStats`. It wraps `getResource` from DataSourceWithBackend to perform a stats request
+   * Specifically designed for the stats endpoint, which does not return data but includes stats directly in the response object.
+   * @returns A Promise that resolves to a QueryStats object containing the statistics retrieved from the stats request.
+   */
+  async statsMetadataRequest(
+    url: string,
+    params?: Record<string, string | number>,
+    options?: Partial<BackendSrvRequest>
+  ): Promise<QueryStats> {
+    if (url.startsWith('/')) {
+      throw new Error(`invalid metadata request url: ${url}`);
+    }
+
+    return await this.getResource(url, params, options);
+  }
+
+  /**
+   * Used in `getStats`. Retrieves statistics for a Loki query and processes them into a QueryStats object.
+   * @returns A Promise that resolves to a QueryStats object containing the query statistics or undefined if the query is invalid.
+   */
+  async getQueryStats(query: LokiQuery, timeRange: TimeRange): Promise<QueryStats | undefined> {
+    // if query is invalid, clear stats, and don't request
+    if (isQueryWithError(this.interpolateString(query.expr, placeHolderScopedVars))) {
+      return undefined;
+    }
+
+    const labelMatchers = getStreamSelectorsFromQuery(query.expr);
+    let statsForAll: QueryStats = { streams: 0, chunks: 0, bytes: 0, entries: 0 };
+
+    for (const idx in labelMatchers) {
+      const { start, end } = this.getStatsTimeRange(query, Number(idx), timeRange);
+
+      if (start === undefined || end === undefined) {
+        return { streams: 0, chunks: 0, bytes: 0, entries: 0, message: 'Query size estimate not available.' };
+      }
+
+      try {
+        const data = await this.statsMetadataRequest(
+          'index/stats',
+          {
+            query: labelMatchers[idx],
+            start: start,
+            end: end,
+          },
+          { showErrorAlert: false, requestId: `${REF_ID_STARTER_STATS}${query.refId}` }
+        );
+
+        statsForAll = {
+          streams: statsForAll.streams + data.streams,
+          chunks: statsForAll.chunks + data.chunks,
+          bytes: statsForAll.bytes + data.bytes,
+          entries: statsForAll.entries + data.entries,
+        };
+      } catch (e) {
+        break;
+      }
+    }
+
+    return statsForAll;
+  }
+
+  /**
+   * Used within the `getQueryStats`. Retrieves the time range for a Loki stats query, adjusting it to cover the requested period.
+   * In metric queries, this means extending it over the range interval.
+   * @returns An object containing the start and end time in nanoseconds (NS_IN_MS) or undefined if the time range cannot be estimated.
+   */
+
+  getStatsTimeRange(
+    query: LokiQuery,
+    idx: number,
+    timeRange: TimeRange
+  ): { start: number | undefined; end: number | undefined } {
+    let start: number, end: number;
+    const NS_IN_MS = 1000000;
+    const durationNodes = getNodesFromQuery(query.expr, [Duration]);
+    const durations = durationNodes.map((d) => query.expr.substring(d.from, d.to));
+
+    if (isLogsQuery(query.expr)) {
+      // logs query with instant type can not be estimated
+      if (query.queryType === LokiQueryType.Instant) {
+        return { start: undefined, end: undefined };
+      }
+      // logs query with range type
+      return this.getTimeRangeParams(timeRange);
+    }
+
+    if (query.queryType === LokiQueryType.Instant) {
+      // metric query with instant type
+
+      if (!!durations[idx]) {
+        // if query has a duration e.g. [1m]
+        end = this.getTimeRangeParams(timeRange).end;
+        start = end - rangeUtil.intervalToMs(durations[idx]) * NS_IN_MS;
+        return { start, end };
+      } else {
+        // if query has no duration e.g. [$__interval]
+
+        if (/(\$__auto|\$__range)/.test(query.expr)) {
+          // if $__auto or $__range is used, we can estimate the time range using the selected range
+          return this.getTimeRangeParams(timeRange);
+        }
+
+        // otherwise we cant estimate the time range
+        return { start: undefined, end: undefined };
+      }
+    }
+
+    // metric query with range type
+    return this.getTimeRangeParams(timeRange);
+  }
+
+  /**
+   * Retrieves statistics for a Loki query and returns the QueryStats object.
+   * @returns A Promise that resolves to a QueryStats object or null if the query is invalid or has no statistics.
+   */
+  async getStats(query: LokiQuery, timeRange: TimeRange): Promise<QueryStats | null> {
+    if (!query.expr) {
+      return null;
+    }
+
+    const response = await this.getQueryStats(query, timeRange);
+
+    if (!response) {
+      return null;
+    }
+
+    return Object.values(response).every((v) => v === 0) ? null : response;
+  }
+
+  /**
+   * Implemented as part of DataSourceAPI and used for template variable queries.
+   * @returns A Promise that resolves to an array of results from the metric find query.
+   */
+  async metricFindQuery(
+    query: LokiVariableQuery | string,
+    options?: LegacyMetricFindQueryOptions
+  ): Promise<MetricFindValue[]> {
     if (!query) {
       return Promise.resolve([]);
     }
 
-    const interpolated = this.templateSrv.replace(query, {}, this.interpolateQueryExpr);
-    return await this.processMetricFindQuery(interpolated);
-  }
+    let interpolatedVariableQuery: LokiVariableQuery | undefined;
 
-  async processMetricFindQuery(query: string) {
-    const labelNamesRegex = /^label_names\(\)\s*$/;
-    const labelValuesRegex = /^label_values\((?:(.+),\s*)?([a-zA-Z_][a-zA-Z0-9_]*)\)\s*$/;
-
-    const labelNames = query.match(labelNamesRegex);
-    if (labelNames) {
-      return await this.labelNamesQuery();
+    if (typeof query === 'string') {
+      interpolatedVariableQuery = this.parseStringToVariableQuery(this.interpolateString(query, options?.scopedVars));
+    } else {
+      interpolatedVariableQuery = {
+        ...query,
+        label: this.interpolateString(query.label || '', options?.scopedVars),
+        stream: this.interpolateString(query.stream || '', options?.scopedVars),
+      };
     }
 
-    const labelValues = query.match(labelValuesRegex);
-    if (labelValues) {
-      // If we have query expr, use /series endpoint
-      if (labelValues[1]) {
-        return await this.labelValuesSeriesQuery(labelValues[1], labelValues[2]);
-      }
-      return await this.labelValuesQuery(labelValues[2]);
+    if (interpolatedVariableQuery) {
+      return await this.processMetricFindQuery(interpolatedVariableQuery, options?.range);
     }
 
     return Promise.resolve([]);
   }
 
-  async labelNamesQuery() {
-    const url = `${LOKI_ENDPOINT}/label`;
-    const params = this.getTimeRangeParams();
-    const result = await this.metadataRequest(url, params);
-    return result.map((value: string) => ({ text: value }));
-  }
+  /**
+   * Used within the `metricFindQuery`. Retrieves the correct variable results based on the provided LokiVariableQuery.
+   * @returns A Promise that resolves to an array of variable results based on the query type and parameters.
+   */
 
-  async labelValuesQuery(label: string) {
-    const params = this.getTimeRangeParams();
-    const url = `${LOKI_ENDPOINT}/label/${label}/values`;
-    const result = await this.metadataRequest(url, params);
-    return result.map((value: string) => ({ text: value }));
-  }
+  private async processMetricFindQuery(query: LokiVariableQuery, timeRange?: TimeRange): Promise<MetricFindValue[]> {
+    if (query.type === LokiVariableQueryType.LabelNames) {
+      const result = await this.languageProvider.fetchLabels({ timeRange });
+      return result.map((value: string) => ({ text: value }));
+    }
 
-  async labelValuesSeriesQuery(expr: string, label: string) {
-    const timeParams = this.getTimeRangeParams();
-    const params = {
-      ...timeParams,
-      'match[]': expr,
-    };
-    const url = `${LOKI_ENDPOINT}/series`;
-    const streams = new Set();
-    const result = await this.metadataRequest(url, params);
-    result.forEach((stream: { [key: string]: string }) => {
-      if (stream[label]) {
-        streams.add({ text: stream[label] });
-      }
+    if (!query.label) {
+      return [];
+    }
+
+    const result = await this.languageProvider.fetchLabelValues(query.label, {
+      streamSelector: query.stream,
+      timeRange,
     });
-
-    return Array.from(streams);
+    return result.map((value: string) => ({ text: value }));
   }
 
-  // By implementing getTagKeys and getTagValues we add ad-hoc filtters functionality
-  async getTagKeys() {
-    return await this.labelNamesQuery();
+  /**
+   * Used in `metricFindQuery` to process legacy query strings (label_name() and label_values()) to variable query objects.
+   * @returns LokiVariableQuery object based on the provided query string, or undefined if string can't be parsed.
+   */
+  private parseStringToVariableQuery(query: string): LokiVariableQuery | undefined {
+    const refId = 'LokiVariableQueryEditor-VariableQuery';
+    const labelNames = query.match(labelNamesRegex);
+    if (labelNames) {
+      return {
+        type: LokiVariableQueryType.LabelNames,
+        refId,
+      };
+    }
+
+    const labelValues = query.match(labelValuesRegex);
+    if (labelValues) {
+      return {
+        type: LokiVariableQueryType.LabelValues,
+        label: labelValues[2],
+        stream: labelValues[1],
+        refId,
+      };
+    }
+    return undefined;
   }
 
-  async getTagValues(options: any = {}) {
-    return await this.labelValuesQuery(options.key);
+  /**
+   * Used to fetch data samples, typically for autocompletion and query building to recommend parsers, labels, and values based on sampled data.
+   * Currently, it works for logs data only.
+   * @returns A Promise that resolves to an array of DataFrames containing data samples.
+   */
+  async getDataSamples(query: LokiQuery, timeRange: TimeRange): Promise<DataFrame[]> {
+    // Currently works only for logs sample
+    if (!isLogsQuery(query.expr) || isQueryWithError(this.interpolateString(query.expr, placeHolderScopedVars))) {
+      return [];
+    }
+
+    const lokiLogsQuery: LokiQuery = {
+      expr: query.expr,
+      queryType: LokiQueryType.Range,
+      refId: REF_ID_DATA_SAMPLES,
+      maxLines: query.maxLines || DEFAULT_MAX_LINES_SAMPLE,
+      supportingQueryType: SupportingQueryType.DataSample,
+    };
+
+    const request = makeRequest(lokiLogsQuery, timeRange, CoreApp.Unknown, REF_ID_DATA_SAMPLES, true);
+    return await lastValueFrom(this.query(request).pipe(switchMap((res) => of(res.data))));
   }
 
-  interpolateQueryExpr(value: any, variable: any) {
+  /**
+   * Implemented as part of the DataSourceAPI. Retrieves tag keys that can be used for ad-hoc filtering.
+   * @returns A Promise that resolves to an array of label names represented as MetricFindValue objects.
+   */
+  async getTagKeys(options?: DataSourceGetTagKeysOptions<LokiQuery>): Promise<MetricFindValue[]> {
+    let streamSelector = '{}';
+    for (const filter of options?.filters ?? []) {
+      streamSelector = addLabelToQuery(streamSelector, filter.key, filter.operator, filter.value);
+    }
+    const result = await this.languageProvider.fetchLabels({ timeRange: options?.timeRange, streamSelector });
+    return result.map((value: string) => ({ text: value }));
+  }
+
+  /**
+   * Implemented as part of the DataSourceAPI. Retrieves tag values that can be used for ad-hoc filtering.
+   * @returns A Promise that resolves to an array of label values represented as MetricFindValue objects
+   */
+  async getTagValues(options: DataSourceGetTagValuesOptions<LokiQuery>): Promise<MetricFindValue[]> {
+    let streamSelector = '{}';
+    for (const filter of options?.filters ?? []) {
+      streamSelector = addLabelToQuery(streamSelector, filter.key, filter.operator, filter.value);
+    }
+    const result = await this.languageProvider.fetchLabelValues(options.key, {
+      timeRange: options.timeRange,
+      streamSelector,
+    });
+    return result.map((value: string) => ({ text: value }));
+  }
+
+  /**
+   * Used for interpolation logic in `interpolateVariablesInQueries` and `applyTemplateVariables`.
+   * Handles escaping of special characters based on variable type and value.
+   * @returns The interpolated value with appropriate character escaping.
+   */
+  interpolateQueryExpr(value: any, variable: QueryVariableModel | CustomVariableModel) {
     // if no multi or include all do not regexEscape
     if (!variable.multi && !variable.includeAll) {
-      return lokiRegularEscape(value);
+      return value;
     }
 
     if (typeof value === 'string') {
@@ -493,15 +825,41 @@ export class LokiDatasource
     return escapedValues.join('|');
   }
 
-  modifyQuery(query: LokiQuery, action: any): LokiQuery {
+  /**
+   * Implemented for `DataSourceWithToggleableQueryFiltersSupport`. Toggles a filter on or off based on the provided filter action.
+   * It is used for example in Explore to toggle fields on and off trough log details.
+   * @returns A new LokiQuery with the filter toggled as specified.
+   */
+  toggleQueryFilter(query: LokiQuery, filter: ToggleFilterAction): LokiQuery {
     let expression = query.expr ?? '';
-    switch (action.type) {
-      case 'ADD_FILTER': {
-        expression = this.addLabelToQuery(expression, action.key, action.value, '=');
+    const labelType = getLabelTypeFromFrame(filter.options.key, filter.frame, 0);
+    switch (filter.type) {
+      case 'FILTER_FOR': {
+        if (filter.options?.key && filter.options?.value) {
+          const value = escapeLabelValueInSelector(filter.options.value);
+
+          // This gives the user the ability to toggle a filter on and off.
+          expression = queryHasFilter(expression, filter.options.key, '=', value)
+            ? removeLabelFromQuery(expression, filter.options.key, '=', value)
+            : addLabelToQuery(expression, filter.options.key, '=', value, labelType);
+        }
         break;
       }
-      case 'ADD_FILTER_OUT': {
-        expression = this.addLabelToQuery(expression, action.key, action.value, '!=');
+      case 'FILTER_OUT': {
+        if (filter.options?.key && filter.options?.value) {
+          const value = escapeLabelValueInSelector(filter.options.value);
+
+          /**
+           * If there is a filter with the same key and value, remove it.
+           * This prevents the user from seeing no changes in the query when they apply
+           * this filter.
+           */
+          if (queryHasFilter(expression, filter.options.key, '=', value)) {
+            expression = removeLabelFromQuery(expression, filter.options.key, '=', value);
+          }
+
+          expression = addLabelToQuery(expression, filter.options.key, '!=', value, labelType);
+        }
         break;
       }
       default:
@@ -510,194 +868,212 @@ export class LokiDatasource
     return { ...query, expr: expression };
   }
 
-  getTime(date: string | DateTime, roundUp: boolean) {
-    if (typeof date === 'string') {
-      date = dateMath.parse(date, roundUp)!;
-    }
-
-    return Math.ceil(date.valueOf() * 1e6);
+  /**
+   * Implemented for `DataSourceWithToggleableQueryFiltersSupport`. Checks if a query expression contains a filter based on the provided filter options.
+   * @returns A boolean value indicating whether the filter exists in the query expression.
+   */
+  queryHasFilter(query: LokiQuery, filter: QueryFilterOptions): boolean {
+    let expression = query.expr ?? '';
+    return queryHasFilter(expression, filter.key, '=', filter.value);
   }
 
-  getLogRowContext = (row: LogRowModel, options?: RowContextOptions): Promise<{ data: DataFrame[] }> => {
-    const target = this.prepareLogRowContextQueryTarget(
-      row,
-      (options && options.limit) || 10,
-      (options && options.direction) || 'BACKWARD'
-    );
-
-    const reverse = options && options.direction === 'FORWARD';
-    return lastValueFrom(
-      this._request(RANGE_QUERY_ENDPOINT, target).pipe(
-        catchError((err) => {
-          const error: DataQueryError = {
-            message: 'Error during context query. Please check JS console logs.',
-            status: err.status,
-            statusText: err.statusText,
-          };
-          throw error;
-        }),
-        switchMap((res) =>
-          of({
-            data: res.data
-              ? res.data.data.result.map((stream: LokiStreamResult) => lokiStreamResultToDataFrame(stream, reverse))
-              : [],
-          })
-        )
-      )
-    );
-  };
-
-  prepareLogRowContextQueryTarget = (row: LogRowModel, limit: number, direction: 'BACKWARD' | 'FORWARD') => {
-    const labels = this.languageProvider.getLabelKeys();
-    const query = Object.keys(row.labels)
-      .map((label: string) => {
-        if (labels.includes(label)) {
-          // escape backslashes in label as users can't escape them by themselves
-          return `${label}="${row.labels[label].replace(/\\/g, '\\\\')}"`;
+  /**
+   * Implemented as part of `DataSourceWithQueryModificationSupport`. Used to modify a query based on the provided action.
+   * It is used, for example, in the Query Builder to apply hints such as parsers, operations, etc.
+   * @returns A new LokiQuery with the specified modification applied.
+   */
+  modifyQuery(query: LokiQuery, action: QueryFixAction): LokiQuery {
+    let expression = query.expr ?? '';
+    // NB: Usually the labelKeys should be fetched and cached in the datasource,
+    // but there might be some edge cases where this wouldn't be the case.
+    // However the changed would make this method `async`.
+    switch (action.type) {
+      case 'ADD_FILTER': {
+        if (action.options?.key && action.options?.value) {
+          const labelType = getLabelTypeFromFrame(action.options.key, action.frame, 0);
+          const value = escapeLabelValueInSelector(action.options.value);
+          expression = addLabelToQuery(expression, action.options.key, '=', value, labelType);
         }
-        return '';
-      })
-      // Filter empty strings
-      .filter((label) => !!label)
-      .join(',');
-
-    const contextTimeBuffer = 2 * 60 * 60 * 1000; // 2h buffer
-    const commonTargetOptions = {
-      limit,
-      query: `{${query}}`,
-      expr: `{${query}}`,
-      direction,
-    };
-
-    const fieldCache = new FieldCache(row.dataFrame);
-    const nsField = fieldCache.getFieldByName('tsNs')!;
-    const nsTimestamp = nsField.values.get(row.rowIndex);
-
-    if (direction === 'BACKWARD') {
-      return {
-        ...commonTargetOptions,
-        // convert to ns, we loose some precision here but it is not that important at the far points of the context
-        start: row.timeEpochMs - contextTimeBuffer + '000000',
-        end: nsTimestamp,
-        direction,
-      };
-    } else {
-      return {
-        ...commonTargetOptions,
-        // start param in Loki API is inclusive so we'll have to filter out the row that this request is based from
-        // and any other that were logged in the same ns but before the row. Right now these rows will be lost
-        // because the are before but came it he response that should return only rows after.
-        start: nsTimestamp,
-        // convert to ns, we loose some precision here but it is not that important at the far points of the context
-        end: row.timeEpochMs + contextTimeBuffer + '000000',
-      };
+        break;
+      }
+      case 'ADD_FILTER_OUT': {
+        if (action.options?.key && action.options?.value) {
+          const labelType = getLabelTypeFromFrame(action.options.key, action.frame, 0);
+          const value = escapeLabelValueInSelector(action.options.value);
+          expression = addLabelToQuery(expression, action.options.key, '!=', value, labelType);
+        }
+        break;
+      }
+      case 'ADD_LOGFMT_PARSER': {
+        expression = addParserToQuery(expression, 'logfmt');
+        break;
+      }
+      case 'ADD_JSON_PARSER': {
+        expression = addParserToQuery(expression, 'json');
+        break;
+      }
+      case 'ADD_UNPACK_PARSER': {
+        expression = addParserToQuery(expression, 'unpack');
+        break;
+      }
+      case 'ADD_NO_PIPELINE_ERROR': {
+        expression = addNoPipelineErrorToQuery(expression);
+        break;
+      }
+      case 'ADD_LEVEL_LABEL_FORMAT': {
+        if (action.options?.originalLabel && action.options?.renameTo) {
+          expression = addLabelFormatToQuery(expression, {
+            renameTo: action.options.renameTo,
+            originalLabel: action.options.originalLabel,
+          });
+        }
+        break;
+      }
+      case 'ADD_LABEL_FILTER': {
+        const parserPositions = getParserPositions(query.expr);
+        const labelFilterPositions = getLabelFilterPositions(query.expr);
+        const lastPosition = findLastPosition([...parserPositions, ...labelFilterPositions]);
+        const filter = toLabelFilter('', '', '=');
+        expression = addFilterAsLabelFilter(expression, [lastPosition], filter);
+        break;
+      }
+      case 'ADD_STRING_FILTER':
+      case 'ADD_LINE_FILTER': {
+        expression = addLineFilter(expression, action.options?.value);
+        break;
+      }
+      case 'ADD_STRING_FILTER_OUT':
+      case 'ADD_LINE_FILTER_OUT': {
+        expression = addLineFilter(expression, action.options?.value, '!=');
+        break;
+      }
+      default:
+        break;
     }
-  };
-
-  testDatasource() {
-    // Consider only last 10 minutes otherwise request takes too long
-    const startMs = Date.now() - 10 * 60 * 1000;
-    const start = `${startMs}000000`; // API expects nanoseconds
-    return lastValueFrom(
-      this._request(`${LOKI_ENDPOINT}/label`, { start }).pipe(
-        map((res) => {
-          const values: any[] = res?.data?.data || res?.data?.values || [];
-          const testResult =
-            values.length > 0
-              ? { status: 'success', message: 'Data source connected and labels found.' }
-              : {
-                  status: 'error',
-                  message:
-                    'Data source connected, but no labels received. Verify that Loki and Promtail is configured properly.',
-                };
-          return testResult;
-        }),
-        catchError((err: any) => {
-          let message = 'Loki: ';
-          if (err.statusText) {
-            message += err.statusText;
-          } else {
-            message += 'Cannot connect to Loki';
-          }
-
-          if (err.status) {
-            message += `. ${err.status}`;
-          }
-
-          if (err.data && err.data.message) {
-            message += `. ${err.data.message}`;
-          } else if (err.data) {
-            message += `. ${err.data}`;
-          }
-          return of({ status: 'error', message: message });
-        })
-      )
-    );
+    return { ...query, expr: expression };
   }
 
+  /**
+   * Implemented as part of `DataSourceWithQueryModificationSupport`. Returns a list of operation
+   * types that are supported by `modifyQuery()`.
+   */
+  getSupportedQueryModifications() {
+    return [
+      'ADD_FILTER',
+      'ADD_FILTER_OUT',
+      'ADD_LOGFMT_PARSER',
+      'ADD_JSON_PARSER',
+      'ADD_UNPACK_PARSER',
+      'ADD_NO_PIPELINE_ERROR',
+      'ADD_LEVEL_LABEL_FORMAT',
+      'ADD_LABEL_FILTER',
+      'ADD_STRING_FILTER',
+      'ADD_STRING_FILTER_OUT',
+    ];
+  }
+
+  /**
+   * Part of `DataSourceWithLogsContextSupport`, used to retrieve log context for a log row.
+   * @returns A promise that resolves to an object containing the log context data as DataFrames.
+   */
+  getLogRowContext = async (
+    row: LogRowModel,
+    options?: LogRowContextOptions,
+    origQuery?: DataQuery
+  ): Promise<{ data: DataFrame[] }> => {
+    return await this.logContextProvider.getLogRowContext(row, options, getLokiQueryFromDataQuery(origQuery));
+  };
+  /**
+   * Part of `DataSourceWithLogsContextSupport`, used to retrieve the log context query for the provided log row and original query.
+   * @returns A promise that resolves to a DataQuery representing the log context query.
+   */
+  getLogRowContextQuery = async (
+    row: LogRowModel,
+    options?: LogRowContextOptions,
+    origQuery?: DataQuery,
+    cacheFilters?: boolean
+  ): Promise<DataQuery> => {
+    return await this.logContextProvider.getLogRowContextQuery(
+      row,
+      options,
+      getLokiQueryFromDataQuery(origQuery),
+      cacheFilters
+    );
+  };
+
+  /**
+   * Part of `DataSourceWithLogsContextSupport`, used to retrieve the log context UI for the provided log row and original query.
+   * @returns A React component or element representing the log context UI for the log row.
+   */
+  getLogRowContextUi(row: LogRowModel, runContextQuery: () => void, origQuery: DataQuery): React.ReactNode {
+    return this.logContextProvider.getLogRowContextUi(row, runContextQuery, getLokiQueryFromDataQuery(origQuery));
+  }
+
+  /**
+   * Implemented as part of the DataSourceAPI. It allows the datasource to serve as a source of annotations for a dashboard.
+   * @returns A promise that resolves to an array of AnnotationEvent objects representing the annotations for the dashboard.
+   * @todo This is deprecated and it is recommended to use the `AnnotationSupport` feature for annotations.
+   */
   async annotationQuery(options: any): Promise<AnnotationEvent[]> {
-    const {
-      expr,
-      maxLines,
-      instant,
-      stepInterval,
-      tagKeys = '',
-      titleFormat = '',
-      textFormat = '',
-    } = options.annotation;
+    const { expr, maxLines, instant, tagKeys = '', titleFormat = '', textFormat = '' } = options.annotation;
 
     if (!expr) {
       return [];
     }
 
-    const interpolatedExpr = this.templateSrv.replace(expr, {}, this.interpolateQueryExpr);
-    const query = {
-      refId: `annotation-${options.annotation.name}`,
-      expr: interpolatedExpr,
+    const id = `${REF_ID_STARTER_ANNOTATION}${options.annotation.name}`;
+
+    const query: LokiQuery = {
+      refId: id,
+      expr,
       maxLines,
       instant,
-      stepInterval,
       queryType: instant ? LokiQueryType.Instant : LokiQueryType.Range,
     };
-    const { data } = instant
-      ? await lastValueFrom(this.runInstantQuery(query, options as any))
-      : await lastValueFrom(this.runRangeQuery(query, options as any));
+
+    const request = makeRequest(query, options.range, CoreApp.Dashboard, id);
+
+    const { data } = await lastValueFrom(this.query(request));
 
     const annotations: AnnotationEvent[] = [];
     const splitKeys: string[] = tagKeys.split(',').filter((v: string) => v !== '');
 
+    const isDataplaneLog = config.featureToggles.lokiLogsDataplane;
+
     for (const frame of data) {
-      const labels: { [key: string]: string } = {};
-      for (const field of frame.fields) {
-        if (field.labels) {
-          for (const [key, value] of Object.entries(field.labels)) {
-            labels[key] = String(value).trim();
-          }
-        }
-      }
-
-      const tags: string[] = [
-        ...new Set(
-          Object.entries(labels).reduce((acc: string[], [key, val]) => {
-            if (val === '') {
-              return acc;
-            }
-            if (splitKeys.length && !splitKeys.includes(key)) {
-              return acc;
-            }
-            acc.push.apply(acc, [val]);
-            return acc;
-          }, [])
-        ),
-      ];
-
-      const view = new DataFrameView<{ ts: string; line: string }>(frame);
+      const view = new DataFrameView<{ timestamp: string; Time: string; body: string; Line: string; labels: Labels }>(
+        frame
+      );
 
       view.forEach((row) => {
+        const { labels } = row;
+
+        const maybeDuplicatedTags = Object.entries(labels)
+          .map(([key, val]) => [key, val.trim()]) // trim all label-values
+          .filter(([key, val]) => {
+            if (val === '') {
+              // remove empty
+              return false;
+            }
+
+            // if tags are specified, remove label if does not match tags
+            if (splitKeys.length && !splitKeys.includes(key)) {
+              return false;
+            }
+
+            return true;
+          })
+          .map(([_, val]) => val); // keep only the label-value
+
+        // remove duplicates
+        const tags = Array.from(new Set(maybeDuplicatedTags));
+
+        const logLine = isDataplaneLog ? row.body : row.Line;
+
         annotations.push({
-          time: new Date(row.ts).valueOf(),
+          time: isDataplaneLog ? new Date(row.timestamp).valueOf() : new Date(row.Time).valueOf(),
           title: renderLegendFormat(titleFormat, labels),
-          text: renderLegendFormat(textFormat, labels) || row.line,
+          text: renderLegendFormat(textFormat, labels) || logLine,
           tags,
         });
       });
@@ -706,64 +1082,36 @@ export class LokiDatasource
     return annotations;
   }
 
-  showContextToggle(row?: LogRowModel): boolean {
-    return (row && row.searchWords && row.searchWords.length > 0) === true;
-  }
-
-  processError(err: FetchError, target: LokiQuery) {
-    let error = cloneDeep(err);
-    if (err.data.message.includes('escape') && target.expr.includes('\\')) {
-      error.data.message = `Error: ${err.data.message}. Make sure that all special characters are escaped with \\. For more information on escaping of special characters visit LogQL documentation at https://grafana.com/docs/loki/latest/logql/.`;
-    }
-    return error;
-  }
-
-  adjustInterval(dynamicInterval: number, resolution: number, range: number) {
-    // Loki will drop queries that might return more than 11000 data points.
-    // Calibrate interval if it is too small.
-    let safeInterval = range / 11000;
-    if (safeInterval > 1) {
-      safeInterval = Math.ceil(safeInterval);
+  /**
+   * Adds ad hoc filters to a query expression, handling proper escaping of filter values.
+   * @returns The query expression with ad hoc filters and correctly escaped values.
+   * @todo this.templateSrv.getAdhocFilters() is deprecated
+   */
+  addAdHocFilters(queryExpr: string, adhocFilters?: AdHocVariableFilter[]) {
+    if (!adhocFilters?.length) {
+      return queryExpr;
     }
 
-    let adjustedInterval = Math.max(resolution * dynamicInterval, safeInterval);
-    return adjustedInterval;
-  }
+    let expr = replaceVariables(queryExpr);
 
-  addAdHocFilters(queryExpr: string) {
-    const adhocFilters = this.templateSrv.getAdhocFilters(this.name);
-    let expr = queryExpr;
-
-    expr = adhocFilters.reduce((acc: string, filter: { key?: any; operator?: any; value?: any }) => {
+    expr = adhocFilters.reduce((acc: string, filter: { key: string; operator: string; value: string }) => {
       const { key, operator } = filter;
       let { value } = filter;
-      if (operator === '=~' || operator === '!~') {
-        value = lokiRegularEscape(value);
+      if (!isRegexSelector(operator)) {
+        // We want to escape special characters in value for non-regex selectors to match the same char in the log line as the user types in the input
+        value = escapeLabelValueInSelector(value, operator);
       }
-
-      return this.addLabelToQuery(acc, key, value, operator, true);
+      return addLabelToQuery(acc, key, operator, value);
     }, expr);
 
-    return expr;
+    return returnVariables(expr);
   }
 
-  addLabelToQuery(
-    queryExpr: string,
-    key: string,
-    value: string | number,
-    operator: string,
-    // Override to make sure that we use label as actual label and not parsed label
-    notParsedLabelOverride?: boolean
-  ) {
-    if (queryHasPipeParser(queryExpr) && !isMetricsQuery(queryExpr) && !notParsedLabelOverride) {
-      // If query has parser, we treat all labels as parsed and use | key="value" syntax
-      return addParsedLabelToQuery(queryExpr, key, value, operator);
-    } else {
-      return addLabelToQuery(queryExpr, key, value, operator, true);
-    }
-  }
-
-  // Used when running queries through backend
+  /**
+   * Filters out queries that are empty or hidden. Used when running queries through backend.
+   * It is called from DatasourceWithBackend.
+   * @returns `true` if the query is not hidden and its expression is not empty; `false` otherwise.
+   */
   filterQuery(query: LokiQuery): boolean {
     if (query.hide || query.expr === '') {
       return false;
@@ -771,71 +1119,92 @@ export class LokiDatasource
     return true;
   }
 
-  // Used when running queries through backend
-  applyTemplateVariables(target: LokiQuery, scopedVars: ScopedVars): Record<string, any> {
-    // We want to interpolate these variables on backend
-    const { __interval, __interval_ms, ...rest } = scopedVars;
+  /**
+   * Applies template variables and add hoc filters to a query. Used when running queries through backend.
+   * It is called from DatasourceWithBackend.
+   * @returns A modified Loki query with template variables and ad hoc filters applied.
+   */
+  applyTemplateVariables(target: LokiQuery, scopedVars: ScopedVars, adhocFilters?: AdHocVariableFilter[]): LokiQuery {
+    // We want to interpolate these variables on backend because we support using them in
+    // alerting/ML queries and we want to have consistent interpolation for all queries
+    const { __auto, __interval, __interval_ms, __range, __range_s, __range_ms, ...rest } = scopedVars || {};
+
+    const variables = {
+      ...rest,
+
+      // pass through for backend interpolation. Need to be in scopedVars for Scenes though
+      __interval: {
+        value: '$__interval',
+      },
+      __interval_ms: {
+        value: '$__interval_ms',
+      },
+    };
+
+    const exprWithAdHoc = this.addAdHocFilters(
+      this.templateSrv.replace(target.expr, variables, this.interpolateQueryExpr),
+      adhocFilters
+    );
+
+    const step = this.templateSrv.replace(target.step, variables);
+    const legendFormat = this.templateSrv.replace(target.legendFormat, variables);
 
     return {
       ...target,
-      legendFormat: this.templateSrv.replace(target.legendFormat, rest),
-      expr: this.templateSrv.replace(target.expr, rest, this.interpolateQueryExpr),
+      expr: exprWithAdHoc,
+      step,
+      legendFormat,
     };
   }
 
-  interpolateString(string: string) {
-    return this.templateSrv.replace(string, undefined, this.interpolateQueryExpr);
+  /**
+   * Interpolates template variables in a given string. Template variables are passed trough scopedVars.
+   * @returns The string with template variables replaced by their values.
+   */
+  interpolateString(string: string, scopedVars?: ScopedVars) {
+    return this.templateSrv.replace(string, scopedVars, this.interpolateQueryExpr);
   }
 
+  /**
+   * Retrieves and returns a list of variable names used in the template service.
+   * Used for example in the Query Builder to populate the variable dropdown with template variables.
+   * @returns An array of variable names, each prefixed with '$'.
+   */
   getVariables(): string[] {
     return this.templateSrv.getVariables().map((v) => `$${v.name}`);
   }
-}
-
-export function lokiRegularEscape(value: any) {
-  if (typeof value === 'string') {
-    return value.replace(/'/g, "\\\\'");
+  /**
+   * Retrieves query hints for query improvements based on a Loki query and its result data.
+   * Used in Query builder to provide hints for query improvements, such as adding a parser, etc.
+   * @returns An array of query hints for potential query improvements.
+   */
+  getQueryHints(query: LokiQuery, result: DataFrame[]): QueryHint[] {
+    return getQueryHints(query.expr, result);
   }
-  return value;
-}
 
-export function lokiSpecialRegexEscape(value: any) {
-  if (typeof value === 'string') {
-    return lokiRegularEscape(value.replace(/\\/g, '\\\\\\\\').replace(/[$^*{}\[\]+?.()|]/g, '\\\\$&'));
-  }
-  return value;
-}
+  /**
+   * Get a default LokiQuery based on the specified app. Currently used in UnifiedAlerting.
+   * @returns A default LokiQuery object with appropriate settings for the given application.
+   */
+  getDefaultQuery(app: CoreApp): LokiQuery {
+    const defaults = { refId: 'A', expr: '' };
 
-/**
- * Checks if the query expression uses function and so should return a time series instead of logs.
- * Sometimes important to know that before we actually do the query.
- */
-export function isMetricsQuery(query: string): boolean {
-  const tokens = Prism.tokenize(query, syntax);
-  return tokens.some((t) => {
-    // Not sure in which cases it can be string maybe if nothing matched which means it should not be a function
-    return typeof t !== 'string' && t.type === 'function';
-  });
-}
-
-function extractLevel(dataFrame: DataFrame): LogLevel {
-  let valueField;
-  try {
-    valueField = new FieldCache(dataFrame).getFirstFieldOfType(FieldType.number);
-  } catch {}
-  return valueField?.labels ? getLogLevelFromLabels(valueField.labels) : LogLevel.unknown;
-}
-
-function getLogLevelFromLabels(labels: Labels): LogLevel {
-  const labelNames = ['level', 'lvl', 'loglevel'];
-  let levelLabel;
-  for (let labelName of labelNames) {
-    if (labelName in labels) {
-      levelLabel = labelName;
-      break;
+    if (app === CoreApp.UnifiedAlerting) {
+      return {
+        ...defaults,
+        queryType: LokiQueryType.Instant,
+      };
     }
-  }
-  return levelLabel ? getLogLevelFromKey(labels[levelLabel]) : LogLevel.unknown;
-}
 
-export default LokiDatasource;
+    return {
+      ...defaults,
+      queryType: LokiQueryType.Range,
+    };
+  }
+}
+export function lokiSpecialRegexEscape<T>(value: T) {
+  if (typeof value === 'string') {
+    return value.replace(/\\/g, '\\\\\\\\').replace(/[$^*{}\[\]+?.()|]/g, '\\\\$&');
+  }
+  return value;
+}

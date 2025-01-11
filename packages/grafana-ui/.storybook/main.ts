@@ -1,17 +1,20 @@
-const path = require('path');
-const { ProvidePlugin } = require('webpack');
-const TerserPlugin = require('terser-webpack-plugin');
-const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
-const FilterWarningsPlugin = require('webpack-filter-warnings-plugin');
+import path, { dirname, join } from 'node:path';
+import type { StorybookConfig } from '@storybook/react-webpack5';
+import { copyAssetsSync } from './copyAssets';
 
-const stories = ['../src/**/*.story.{js,jsx,ts,tsx,mdx}'];
+// Internal stories should only be visible during development
+const storyGlob =
+  process.env.NODE_ENV === 'production'
+    ? '../src/components/**/!(*.internal).story.tsx'
+    : '../src/components/**/*.story.tsx';
 
-if (process.env.NODE_ENV !== 'production') {
-  stories.push('../src/**/*.story.internal.{js,jsx,ts,tsx,mdx}');
-}
+const stories = ['../src/Intro.mdx', storyGlob];
 
-module.exports = {
-  stories: stories,
+// Copy the assets required by storybook before starting the storybook server.
+copyAssetsSync();
+
+const mainConfig: StorybookConfig = {
+  stories,
   addons: [
     {
       name: '@storybook/addon-essentials',
@@ -19,22 +22,41 @@ module.exports = {
         backgrounds: false,
       },
     },
-    '@storybook/addon-a11y',
-    '@storybook/addon-knobs',
-    '@storybook/addon-storysource',
-    'storybook-dark-mode',
+    getAbsolutePath('@storybook/addon-a11y'),
+    {
+      name: '@storybook/preset-scss',
+      options: {
+        styleLoaderOptions: {
+          // this is required for theme switching .use() and .unuse()
+          injectType: 'lazyStyleTag',
+        },
+        cssLoaderOptions: {
+          url: false,
+          importLoaders: 2,
+        },
+        sassLoaderOptions: {
+          sassOptions: {
+            // silencing these warnings since we're planning to remove sass when angular is gone
+            silenceDeprecations: ['import', 'global-builtin'],
+          },
+        },
+      },
+    },
+    getAbsolutePath('@storybook/addon-storysource'),
+    getAbsolutePath('storybook-dark-mode'),
+    getAbsolutePath('@storybook/addon-webpack5-compiler-swc'),
   ],
-  staticDirs: [
-    { from: '../../../public/fonts', to: '/fonts' },
-    { from: '../../../public/img', to: '/public/img' },
-    { from: '../../../public/lib', to: '/public/lib' },
-  ],
-  reactOptions: {
-    fastRefresh: true,
+  framework: {
+    name: getAbsolutePath('@storybook/react-webpack5'),
+    options: {
+      fastRefresh: true,
+      builder: {
+        fsCache: true,
+      },
+    },
   },
-  core: {
-    builder: 'webpack5',
-  },
+  logLevel: 'debug',
+  staticDirs: ['static'],
   typescript: {
     check: true,
     reactDocgen: 'react-docgen-typescript',
@@ -42,130 +64,34 @@ module.exports = {
       tsconfigPath: path.resolve(__dirname, 'tsconfig.json'),
       shouldExtractLiteralValuesFromEnum: true,
       shouldRemoveUndefinedFromOptional: true,
-      propFilter: (prop: any) => (prop.parent ? !/node_modules/.test(prop.parent.fileName) : true),
+      propFilter: (prop) => (prop.parent ? !/node_modules/.test(prop.parent.fileName) : true),
       savePropValueAsString: true,
     },
   },
-  webpackFinal: async (config: any, { configType }: any) => {
-    const isProductionBuild = configType === 'PRODUCTION';
-
-    // remove svg from default storybook webpack 5 config so we can use `raw-loader`
-    config.module.rules = config.module.rules.map((rule: any) => {
-      if (
-        String(rule.test) ===
-        String(/\.(svg|ico|jpg|jpeg|png|apng|gif|eot|otf|webp|ttf|woff|woff2|cur|ani|pdf)(\?.*)?$/)
-      ) {
-        return {
-          ...rule,
-          test: /\.(ico|jpg|jpeg|png|apng|gif|eot|otf|webp|ttf|woff|woff2|cur|ani|pdf)(\?.*)?$/,
-        };
-      }
-
-      return rule;
+  swc: () => ({
+    jsc: {
+      transform: {
+        react: {
+          runtime: 'automatic',
+        },
+      },
+    },
+  }),
+  webpackFinal: async (config) => {
+    // expose jquery as a global so jquery plugins don't break at runtime.
+    config.module?.rules?.push({
+      test: require.resolve('jquery'),
+      loader: 'expose-loader',
+      options: {
+        exposes: ['$', 'jQuery'],
+      },
     });
-
-    config.module.rules = [
-      ...(config.module.rules || []),
-      {
-        test: /\.tsx?$/,
-        use: [
-          {
-            loader: require.resolve('ts-loader'),
-            options: {
-              transpileOnly: true,
-              configFile: path.resolve(__dirname, 'tsconfig.json'),
-            },
-          },
-        ],
-        exclude: /node_modules/,
-        include: [path.resolve(__dirname, '../../../public/'), path.resolve(__dirname, '../../../packages/')],
-      },
-      {
-        test: /\.scss$/,
-        use: [
-          {
-            loader: 'style-loader',
-            options: { injectType: 'lazyStyleTag' },
-          },
-          {
-            loader: 'css-loader',
-            options: {
-              url: false,
-              importLoaders: 2,
-            },
-          },
-          {
-            loader: 'postcss-loader',
-            options: {
-              sourceMap: false,
-              postcssOptions: {
-                config: path.resolve(__dirname + '../../../../scripts/webpack/postcss.config.js'),
-              },
-            },
-          },
-          {
-            loader: 'sass-loader',
-            options: {
-              sourceMap: false,
-            },
-          },
-        ],
-      },
-      // for pre-caching SVGs as part of the JS bundles
-      {
-        test: /\.svg$/,
-        use: 'raw-loader',
-      },
-      {
-        test: require.resolve('jquery'),
-        loader: 'expose-loader',
-        options: {
-          exposes: ['$', 'jQuery'],
-        },
-      },
-    ];
-
-    if (isProductionBuild) {
-      config.optimization = {
-        nodeEnv: 'production',
-        moduleIds: 'deterministic',
-        runtimeChunk: 'single',
-        splitChunks: {
-          chunks: 'all',
-          minChunks: 1,
-          cacheGroups: {
-            vendors: {
-              test: /[\\/]node_modules[\\/].*[jt]sx?$/,
-              chunks: 'initial',
-              priority: -10,
-              reuseExistingChunk: true,
-              enforce: true,
-            },
-            default: {
-              priority: -20,
-              chunks: 'all',
-              test: /.*[jt]sx?$/,
-              reuseExistingChunk: true,
-            },
-          },
-        },
-        minimize: isProductionBuild,
-        minimizer: isProductionBuild
-          ? [new TerserPlugin({ parallel: false, exclude: /monaco/ }), new CssMinimizerPlugin()]
-          : [],
-      };
-    }
-
-    config.resolve.alias['@grafana/ui'] = path.resolve(__dirname, '..');
-
-    // Silence "export not found" webpack warnings with transpileOnly
-    // https://github.com/TypeStrong/ts-loader#transpileonly
-    config.plugins.push(
-      new FilterWarningsPlugin({
-        exclude: /export .* was not found in/,
-      })
-    );
 
     return config;
   },
 };
+module.exports = mainConfig;
+
+function getAbsolutePath(value: string): any {
+  return dirname(require.resolve(join(value, 'package.json')));
+}

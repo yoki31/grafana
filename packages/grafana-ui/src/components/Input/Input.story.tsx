@@ -1,26 +1,27 @@
-import React, { useState } from 'react';
-import { Story, Meta } from '@storybook/react';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
-import mdx from './Input.mdx';
-import { getAvailableIcons, IconName } from '../../types';
+import { StoryFn, Meta } from '@storybook/react';
+import { useState } from 'react';
+
 import { KeyValue } from '@grafana/data';
-import { Field, Icon, Button, Input } from '@grafana/ui';
+import { Field, Button, Input } from '@grafana/ui';
+
+import { getAvailableIcons } from '../../types';
+
+import mdx from './Input.mdx';
+import { parseAccessory } from './storyUtils';
 
 const prefixSuffixOpts = {
-  None: null,
-  Text: '$',
+  $: 'Text',
   ...getAvailableIcons().reduce<KeyValue<string>>((prev, c) => {
     return {
       ...prev,
-      [`Icon: ${c}`]: `icon-${c}`,
+      [`icon-${c}`]: `Icon: ${c}`,
     };
   }, {}),
 };
 
-export default {
+const meta: Meta = {
   title: 'Forms/Input',
   component: Input,
-  decorators: [withCenteredStory],
   parameters: {
     docs: {
       page: mdx,
@@ -41,47 +42,41 @@ export default {
     prefixVisible: {
       control: {
         type: 'select',
-        options: prefixSuffixOpts,
+        labels: prefixSuffixOpts,
       },
+      options: [null, ...Object.keys(prefixSuffixOpts)],
     },
     suffixVisible: {
       control: {
         type: 'select',
-        options: prefixSuffixOpts,
+        labels: prefixSuffixOpts,
       },
+      options: [null, ...Object.keys(prefixSuffixOpts)],
     },
     type: {
       control: {
         type: 'select',
-        options: ['text', 'number', 'password'],
       },
+      options: ['text', 'number', 'password'],
     },
     // validation: { name: 'Validation regex (will do a partial match if you do not anchor it)' },
     width: { control: { type: 'range', min: 10, max: 200, step: 10 } },
   },
-} as Meta;
+};
 
-export const Simple: Story = (args) => {
+export const Simple: StoryFn = (args) => {
   const addonAfter = <Button variant="secondary">Load</Button>;
   const addonBefore = <div style={{ display: 'flex', alignItems: 'center', padding: '5px' }}>Input</div>;
-  const prefix = args.prefixVisible;
-  const suffix = args.suffixVisible;
-  let prefixEl: any = prefix;
-  if (prefix && prefix.match(/icon-/g)) {
-    prefixEl = <Icon name={prefix.replace(/icon-/g, '') as IconName} />;
-  }
-  let suffixEl: any = suffix;
-  if (suffix && suffix.match(/icon-/g)) {
-    suffixEl = <Icon name={suffix.replace(/icon-/g, '') as IconName} />;
-  }
+  const prefix = parseAccessory(args.prefixVisible);
+  const suffix = parseAccessory(args.suffixVisible);
 
   return (
     <Input
       disabled={args.disabled}
       width={args.width}
-      prefix={prefixEl}
+      prefix={prefix}
       invalid={args.invalid}
-      suffix={suffixEl}
+      suffix={suffix}
       loading={args.loading}
       addonBefore={args.before && addonBefore}
       addonAfter={args.after && addonAfter}
@@ -97,7 +92,7 @@ Simple.args = {
   placeholder: 'Enter your name here...',
 };
 
-export const WithFieldValidation: Story = (args) => {
+export const WithFieldValidation: StoryFn = (args) => {
   const [value, setValue] = useState('');
 
   return (
@@ -108,3 +103,5 @@ export const WithFieldValidation: Story = (args) => {
     </div>
   );
 };
+
+export default meta;

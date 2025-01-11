@@ -1,33 +1,57 @@
-import React, { useMemo } from 'react';
-import { PanelProps } from '@grafana/data';
-import { TooltipPlugin, useTheme2, ZoomPlugin } from '@grafana/ui';
-import { StatusPanelOptions } from './types';
-import { TimelineChart } from '../state-timeline/TimelineChart';
-import { TimelineMode } from '../state-timeline/types';
-import { prepareTimelineFields, prepareTimelineLegendItems } from '../state-timeline/utils';
+import { useMemo, useState } from 'react';
 
-interface TimelinePanelProps extends PanelProps<StatusPanelOptions> {}
+import { DashboardCursorSync, PanelProps } from '@grafana/data';
+import { EventBusPlugin, TooltipDisplayMode, TooltipPlugin2, usePanelContext, useTheme2 } from '@grafana/ui';
+import { TimeRange2, TooltipHoverMode } from '@grafana/ui/src/components/uPlot/plugins/TooltipPlugin2';
+import { TimelineChart } from 'app/core/components/TimelineChart/TimelineChart';
+import {
+  prepareTimelineFields,
+  prepareTimelineLegendItems,
+  TimelineMode,
+} from 'app/core/components/TimelineChart/utils';
+
+import { StateTimelineTooltip2 } from '../state-timeline/StateTimelineTooltip2';
+import { AnnotationsPlugin2 } from '../timeseries/plugins/AnnotationsPlugin2';
+import { OutsideRangePlugin } from '../timeseries/plugins/OutsideRangePlugin';
+import { getTimezones } from '../timeseries/utils';
+
+import { Options } from './panelcfg.gen';
+
+interface TimelinePanelProps extends PanelProps<Options> {}
 
 /**
  * @alpha
  */
-export const StatusHistoryPanel: React.FC<TimelinePanelProps> = ({
+export const StatusHistoryPanel = ({
   data,
   timeRange,
   timeZone,
   options,
   width,
   height,
+  replaceVariables,
   onChangeTimeRange,
-}) => {
+}: TimelinePanelProps) => {
   const theme = useTheme2();
 
-  const { frames, warn } = useMemo(() => prepareTimelineFields(data?.series, false, theme), [data, theme]);
+  // temp range set for adding new annotation set by TooltipPlugin2, consumed by AnnotationPlugin2
+  const [newAnnotationRange, setNewAnnotationRange] = useState<TimeRange2 | null>(null);
+  const { sync, eventsScope, canAddAnnotations, dataLinkPostProcessor, eventBus } = usePanelContext();
+  const cursorSync = sync?.() ?? DashboardCursorSync.Off;
+
+  const enableAnnotationCreation = Boolean(canAddAnnotations && canAddAnnotations());
+
+  const { frames, warn } = useMemo(
+    () => prepareTimelineFields(data.series, false, timeRange, theme),
+    [data.series, timeRange, theme]
+  );
 
   const legendItems = useMemo(
     () => prepareTimelineLegendItems(frames, options.legend, theme),
     [frames, options.legend, theme]
   );
+
+  const timezones = useMemo(() => getTimezones(options.timezone, timeZone), [options.timezone, timeZone]);
 
   if (!frames || warn) {
     return (
@@ -43,7 +67,7 @@ export const StatusHistoryPanel: React.FC<TimelinePanelProps> = ({
       <div className="panel-empty">
         <p>
           Too many points to visualize properly. <br />
-          Update the query to return fewer points. <br />({frames[0].length} points recieved)
+          Update the query to return fewer points. <br />({frames[0].length} points received)
         </p>
       </div>
     );
@@ -55,19 +79,77 @@ export const StatusHistoryPanel: React.FC<TimelinePanelProps> = ({
       frames={frames}
       structureRev={data.structureRev}
       timeRange={timeRange}
-      timeZone={timeZone}
+      timeZone={timezones}
       width={width}
       height={height}
       legendItems={legendItems}
       {...options}
-      // hardcoded
       mode={TimelineMode.Samples}
+      replaceVariables={replaceVariables}
+      dataLinkPostProcessor={dataLinkPostProcessor}
+      cursorSync={cursorSync}
     >
-      {(config, alignedFrame) => {
+      {(builder, alignedFrame) => {
         return (
           <>
-            <ZoomPlugin config={config} onZoom={onChangeTimeRange} />
-            <TooltipPlugin data={alignedFrame} config={config} mode={options.tooltip.mode} timeZone={timeZone} />
+            {cursorSync !== DashboardCursorSync.Off && (
+              <EventBusPlugin config={builder} eventBus={eventBus} frame={alignedFrame} />
+            )}
+            {options.tooltip.mode !== TooltipDisplayMode.None && (
+              <TooltipPlugin2
+                config={builder}
+                hoverMode={
+                  options.tooltip.mode === TooltipDisplayMode.Multi ? TooltipHoverMode.xAll : TooltipHoverMode.xOne
+                }
+                queryZoom={onChangeTimeRange}
+                syncMode={cursorSync}
+                syncScope={eventsScope}
+                getDataLinks={(seriesIdx: number, dataIdx: number) =>
+                  alignedFrame.fields[seriesIdx]!.getLinks?.({ valueRowIndex: dataIdx }) ?? []
+                }
+                render={(u, dataIdxs, seriesIdx, isPinned, dismiss, timeRange2, viaSync, dataLinks) => {
+                  if (enableAnnotationCreation && timeRange2 != null) {
+                    setNewAnnotationRange(timeRange2);
+                    dismiss();
+                    return;
+                  }
+
+                  const annotate = () => {
+                    let xVal = u.posToVal(u.cursor.left!, 'x');
+
+                    setNewAnnotationRange({ from: xVal, to: xVal });
+                    dismiss();
+                  };
+
+                  return (
+                    <StateTimelineTooltip2
+                      series={alignedFrame}
+                      dataIdxs={dataIdxs}
+                      seriesIdx={seriesIdx}
+                      mode={viaSync ? TooltipDisplayMode.Multi : options.tooltip.mode}
+                      sortOrder={options.tooltip.sort}
+                      isPinned={isPinned}
+                      timeRange={timeRange}
+                      annotate={enableAnnotationCreation ? annotate : undefined}
+                      withDuration={false}
+                      maxHeight={options.tooltip.maxHeight}
+                      replaceVariables={replaceVariables}
+                      dataLinks={dataLinks}
+                    />
+                  );
+                }}
+                maxWidth={options.tooltip.maxWidth}
+              />
+            )}
+            <AnnotationsPlugin2
+              annotations={data.annotations ?? []}
+              config={builder}
+              timeZone={timeZone}
+              newRange={newAnnotationRange}
+              setNewRange={setNewAnnotationRange}
+              canvasRegionRendering={false}
+            />
+            <OutsideRangePlugin config={builder} onChangeTimeRange={onChangeTimeRange} />
           </>
         );
       }}

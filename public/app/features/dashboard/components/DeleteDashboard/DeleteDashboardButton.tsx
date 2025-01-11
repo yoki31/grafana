@@ -1,27 +1,29 @@
-import React from 'react';
-import { DeleteDashboardModal } from './DeleteDashboardModal';
+import { selectors } from '@grafana/e2e-selectors';
 import { Button, ModalsController } from '@grafana/ui';
-import { DashboardModel } from '../../state';
+import { Trans } from 'app/core/internationalization';
 
-type Props = {
-  dashboard: DashboardModel;
+import { getDashboardSrv } from '../../services/DashboardSrv';
+
+import { DeleteDashboardModal } from './DeleteDashboardModal';
+
+export const DeleteDashboardButton = () => {
+  const dashboard = getDashboardSrv().getCurrent()!;
+  return (
+    <ModalsController>
+      {({ showModal, hideModal }) => (
+        <Button
+          variant="destructive"
+          onClick={() => {
+            showModal(DeleteDashboardModal, {
+              dashboard,
+              hideModal,
+            });
+          }}
+          data-testid={selectors.pages.Dashboard.Settings.General.deleteDashBoard}
+        >
+          <Trans i18nKey="dashboard-settings.dashboard-delete-button">Delete dashboard</Trans>
+        </Button>
+      )}
+    </ModalsController>
+  );
 };
-
-export const DeleteDashboardButton = ({ dashboard }: Props) => (
-  <ModalsController>
-    {({ showModal, hideModal }) => (
-      <Button
-        variant="destructive"
-        onClick={() => {
-          showModal(DeleteDashboardModal, {
-            dashboard,
-            hideModal,
-          });
-        }}
-        aria-label="Dashboard settings page delete dashboard button"
-      >
-        Delete Dashboard
-      </Button>
-    )}
-  </ModalsController>
-);

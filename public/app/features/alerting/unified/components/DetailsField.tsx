@@ -1,5 +1,6 @@
-import React, { FC } from 'react';
 import { css, cx } from '@emotion/css';
+import * as React from 'react';
+
 import { GrafanaTheme2 } from '@grafana/data';
 import { useStyles2 } from '@grafana/ui';
 
@@ -7,43 +8,50 @@ interface Props {
   label: React.ReactNode;
   className?: string;
   horizontal?: boolean;
+  childrenWrapperClassName?: string;
 }
 
-export const DetailsField: FC<Props> = ({ className, label, horizontal, children }) => {
+export const DetailsField = ({
+  className,
+  label,
+  horizontal,
+  children,
+  childrenWrapperClassName,
+}: React.PropsWithChildren<Props>) => {
   const styles = useStyles2(getStyles);
 
   return (
-    <div className={cx(className, styles.field, horizontal ? styles.fieldHorizontal : styles.fieldVertical)}>
+    <div className={cx(styles.field, horizontal ? styles.fieldHorizontal : styles.fieldVertical, className)}>
       <div>{label}</div>
-      <div>{children}</div>
+      <div className={childrenWrapperClassName}>{children}</div>
     </div>
   );
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  fieldHorizontal: css`
-    flex-direction: row;
-    ${theme.breakpoints.down('md')} {
-      flex-direction: column;
-    }
-  `,
-  fieldVertical: css`
-    flex-direction: column;
-  `,
-  field: css`
-    display: flex;
-    margin: ${theme.spacing(2)} 0;
+  fieldHorizontal: css({
+    flexDirection: 'row',
+    [theme.breakpoints.down('md')]: {
+      flexDirection: 'column',
+    },
+  }),
+  fieldVertical: css({
+    flexDirection: 'column',
+  }),
+  field: css({
+    display: 'flex',
+    margin: `${theme.spacing(2)} 0`,
 
-    & > div:first-child {
-      width: 110px;
-      padding-right: ${theme.spacing(1)};
-      font-size: ${theme.typography.size.sm};
-      font-weight: ${theme.typography.fontWeightBold};
-      line-height: 1.8;
-    }
-    & > div:nth-child(2) {
-      flex: 1;
-      color: ${theme.colors.text.secondary};
-    }
-  `,
+    '& > div:first-child': {
+      width: '110px',
+      paddingRight: theme.spacing(1),
+      fontSize: theme.typography.size.sm,
+      fontWeight: theme.typography.fontWeightBold,
+      lineHeight: 1.8,
+    },
+    '& > div:nth-child(2)': {
+      flex: 1,
+      color: theme.colors.text.secondary,
+    },
+  }),
 });

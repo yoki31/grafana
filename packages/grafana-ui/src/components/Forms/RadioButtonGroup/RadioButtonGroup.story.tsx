@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import mdx from './RadioButtonGroup.mdx';
-import { RadioButtonGroup } from './RadioButtonGroup';
-import { Story } from '@storybook/react';
+import { Meta, StoryFn } from '@storybook/react';
+import { useState } from 'react';
 
-export default {
+import { RadioButtonGroup } from './RadioButtonGroup';
+import mdx from './RadioButtonGroup.mdx';
+
+const meta: Meta = {
   title: 'Forms/RadioButtonGroup',
   component: RadioButtonGroup,
   parameters: {
@@ -11,7 +12,7 @@ export default {
       page: mdx,
     },
     controls: {
-      exclude: ['className', 'options', 'value', 'onChange'],
+      exclude: ['className', 'options', 'value', 'onChange', 'onClick', 'id'],
     },
   },
   argTypes: {
@@ -20,11 +21,11 @@ export default {
       control: { type: 'select' },
       options: ['', 'graphite', 'prometheus', 'elastic'],
     },
-    size: { control: { type: 'select' }, options: ['xs', 'sm', 'md', 'lg'] },
+    size: { control: { type: 'select' }, options: ['sm', 'md'] },
   },
 };
 
-export const RadioButtons: Story = (args) => {
+export const RadioButtons: StoryFn = (args) => {
   const [selected, setSelected] = useState('elastic');
 
   const options = [
@@ -51,6 +52,7 @@ export const RadioButtons: Story = (args) => {
           onChange={(v) => setSelected(v!)}
           size={args.size}
           fullWidth={args.fullWidth}
+          invalid={args.invalid}
         />
       </div>
       <div style={{ marginBottom: '32px' }}>
@@ -62,6 +64,7 @@ export const RadioButtons: Story = (args) => {
           value={selected}
           onChange={(v) => setSelected(v!)}
           size={args.size}
+          invalid={args.invalid}
         />
       </div>
       <div style={{ marginBottom: '32px' }}>
@@ -69,8 +72,11 @@ export const RadioButtons: Story = (args) => {
         <RadioButtonGroup
           options={optionsWithOnlyIcons}
           value={selected}
+          disabled={args.disabled}
+          disabledOptions={args.disabledOptions}
           onChange={(v) => setSelected(v!)}
           size={args.size}
+          invalid={args.invalid}
         />
       </div>
     </div>
@@ -81,4 +87,7 @@ RadioButtons.args = {
   disabledOptions: '',
   size: 'md',
   fullWidth: true,
+  invalid: false,
 };
+
+export default meta;

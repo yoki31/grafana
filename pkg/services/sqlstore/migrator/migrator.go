@@ -1,18 +1,27 @@
 package migrator
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/golang-migrate/migrate/v4/database"
 	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/mattn/go-sqlite3"
+	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/atomic"
 	"xorm.io/xorm"
 
 	"github.com/grafana/grafana/pkg/infra/log"
+	"github.com/grafana/grafana/pkg/infra/metrics/metricutil"
+	"github.com/grafana/grafana/pkg/infra/tracing"
 	"github.com/grafana/grafana/pkg/setting"
-	"github.com/grafana/grafana/pkg/util/errutil"
 )
 
 var (
@@ -20,13 +29,20 @@ var (
 	ErrMigratorIsUnlocked = fmt.Errorf("migrator is unlocked")
 )
 
+var tracer = otel.Tracer("github.com/grafana/grafana/pkg/services/sqlstore/migrator")
+
 type Migrator struct {
-	DBEngine   *xorm.Engine
-	Dialect    Dialect
-	migrations []Migration
-	Logger     log.Logger
-	Cfg        *setting.Cfg
-	isLocked   atomic.Bool
+	DBEngine     *xorm.Engine
+	Dialect      Dialect
+	migrations   []Migration
+	migrationIds map[string]struct{}
+	Logger       log.Logger
+	Cfg          *setting.Cfg
+	isLocked     atomic.Bool
+	logMap       map[string]MigrationLog
+	tableName    string
+
+	metrics migratorMetrics
 }
 
 type MigrationLog struct {
@@ -38,14 +54,83 @@ type MigrationLog struct {
 	Timestamp   time.Time
 }
 
+type migratorMetrics struct {
+	migCount         *prometheus.CounterVec
+	migDuration      *prometheus.HistogramVec
+	totalMigDuration *prometheus.HistogramVec
+}
+
 func NewMigrator(engine *xorm.Engine, cfg *setting.Cfg) *Migrator {
-	mg := &Migrator{}
-	mg.DBEngine = engine
-	mg.Logger = log.New("migrator")
-	mg.migrations = make([]Migration, 0)
-	mg.Dialect = NewDialect(mg.DBEngine)
-	mg.Cfg = cfg
+	return NewScopedMigrator(engine, cfg, "")
+}
+
+// NewScopedMigrator should only be used for the transition to a new storage engine
+func NewScopedMigrator(engine *xorm.Engine, cfg *setting.Cfg, scope string) *Migrator {
+	mg := &Migrator{
+		Cfg:          cfg,
+		DBEngine:     engine,
+		migrations:   make([]Migration, 0),
+		migrationIds: make(map[string]struct{}),
+		Dialect:      NewDialect(engine.DriverName()),
+		metrics: migratorMetrics{
+			migCount: prometheus.NewCounterVec(prometheus.CounterOpts{
+				Namespace: "grafana_database",
+				Subsystem: scope,
+				Name:      "migrations_total",
+				Help:      "Total number of SQL migrations",
+			}, []string{"success"}),
+			migDuration: metricutil.NewHistogramVec(prometheus.HistogramOpts{
+				Namespace: "grafana_database",
+				Subsystem: scope,
+				Name:      "migration_duration_seconds",
+				Help:      "Individual SQL migration duration in seconds",
+			}, []string{"success"}),
+			totalMigDuration: metricutil.NewHistogramVec(prometheus.HistogramOpts{
+				Namespace: "grafana_database",
+				Subsystem: scope,
+				Name:      "all_migrations_duration_seconds",
+				Help:      "Duration of the entire SQL migration process in seconds",
+			}, []string{"success"}),
+		},
+	}
+	if scope == "" {
+		mg.tableName = "migration_log"
+		mg.Logger = log.New("migrator")
+	} else {
+		mg.tableName = scope + "_migration_log"
+		mg.Logger = log.New(scope + "-migrator")
+	}
 	return mg
+}
+
+// Collect implements Prometheus.Collector.
+func (mg *Migrator) Collect(ch chan<- prometheus.Metric) {
+	mg.metrics.migCount.Collect(ch)
+	mg.metrics.migDuration.Collect(ch)
+	mg.metrics.totalMigDuration.Collect(ch)
+}
+
+// Describe implements Prometheus.Collector.
+func (mg *Migrator) Describe(ch chan<- *prometheus.Desc) {
+	mg.metrics.migCount.Describe(ch)
+	mg.metrics.migDuration.Describe(ch)
+	mg.metrics.totalMigDuration.Describe(ch)
+}
+
+// AddCreateMigration adds the initial migration log table -- this should likely be
+// automatic and first, but enough tests exists that do not expect that we can keep it explicit
+func (mg *Migrator) AddCreateMigration() {
+	mg.AddMigration("create "+mg.tableName+" table", NewAddTableMigration(Table{
+		Name: mg.tableName,
+		Columns: []*Column{
+			{Name: "id", Type: DB_BigInt, IsPrimaryKey: true, IsAutoIncrement: true},
+			{Name: "migration_id", Type: DB_NVarchar, Length: 255},
+			{Name: "sql", Type: DB_Text},
+			{Name: "success", Type: DB_Bool},
+			{Name: "error", Type: DB_Text},
+			{Name: "timestamp", Type: DB_DateTime},
+		},
+	}))
 }
 
 func (mg *Migrator) MigrationsCount() int {
@@ -53,8 +138,13 @@ func (mg *Migrator) MigrationsCount() int {
 }
 
 func (mg *Migrator) AddMigration(id string, m Migration) {
+	if _, ok := mg.migrationIds[id]; ok {
+		panic(fmt.Sprintf("migration id conflict: %s", id))
+	}
+
 	m.SetId(id)
 	mg.migrations = append(mg.migrations, m)
+	mg.migrationIds[id] = struct{}{}
 }
 
 func (mg *Migrator) GetMigrationIDs(excludeNotLogged bool) []string {
@@ -72,15 +162,15 @@ func (mg *Migrator) GetMigrationLog() (map[string]MigrationLog, error) {
 	logMap := make(map[string]MigrationLog)
 	logItems := make([]MigrationLog, 0)
 
-	exists, err := mg.DBEngine.IsTableExist(new(MigrationLog))
+	exists, err := mg.DBEngine.IsTableExist(mg.tableName)
 	if err != nil {
-		return nil, errutil.Wrap("failed to check table existence", err)
+		return nil, fmt.Errorf("%v: %w", "failed to check table existence", err)
 	}
 	if !exists {
 		return logMap, nil
 	}
 
-	if err = mg.DBEngine.Find(&logItems); err != nil {
+	if err = mg.DBEngine.Table(mg.tableName).Find(&logItems); err != nil {
 		return nil, err
 	}
 
@@ -91,111 +181,194 @@ func (mg *Migrator) GetMigrationLog() (map[string]MigrationLog, error) {
 		logMap[logItem.MigrationID] = logItem
 	}
 
+	mg.logMap = logMap
 	return logMap, nil
 }
 
+func (mg *Migrator) RemoveMigrationLogs(migrationsIDs ...string) {
+	for _, id := range migrationsIDs {
+		delete(mg.logMap, id)
+	}
+}
+
+// soft-deprecated: use RunMigrations instead (will be fully deprecated later)
 func (mg *Migrator) Start(isDatabaseLockingEnabled bool, lockAttemptTimeout int) (err error) {
+	return mg.RunMigrations(context.Background(), isDatabaseLockingEnabled, lockAttemptTimeout)
+}
+
+func (mg *Migrator) RunMigrations(ctx context.Context, isDatabaseLockingEnabled bool, lockAttemptTimeout int) (err error) {
 	if !isDatabaseLockingEnabled {
-		return mg.run()
+		return mg.run(ctx)
 	}
 
+	dbName, err := mg.Dialect.GetDBName(mg.DBEngine.DataSourceName())
+	if err != nil {
+		return err
+	}
+	key, err := database.GenerateAdvisoryLockId(dbName)
+	if err != nil {
+		return err
+	}
+
+	logger := mg.Logger.FromContext(ctx)
+
 	return mg.InTransaction(func(sess *xorm.Session) error {
-		mg.Logger.Info("Locking database")
-		if err := casRestoreOnErr(&mg.isLocked, false, true, ErrMigratorIsLocked, mg.Dialect.Lock, LockCfg{Session: sess, Timeout: lockAttemptTimeout}); err != nil {
-			mg.Logger.Error("Failed to lock database", "error", err)
+		logger.Info("Locking database")
+		lockCfg := LockCfg{
+			Session: sess,
+			Key:     key,
+			Timeout: lockAttemptTimeout,
+		}
+
+		if err := casRestoreOnErr(&mg.isLocked, false, true, ErrMigratorIsLocked, mg.Dialect.Lock, lockCfg); err != nil {
+			logger.Error("Failed to lock database", "error", err)
 			return err
 		}
 
 		defer func() {
-			mg.Logger.Info("Unlocking database")
-			unlockErr := casRestoreOnErr(&mg.isLocked, true, false, ErrMigratorIsUnlocked, mg.Dialect.Unlock, LockCfg{Session: sess})
+			logger.Info("Unlocking database")
+			unlockErr := casRestoreOnErr(&mg.isLocked, true, false, ErrMigratorIsUnlocked, mg.Dialect.Unlock, lockCfg)
 			if unlockErr != nil {
-				mg.Logger.Error("Failed to unlock database", "error", unlockErr)
+				logger.Error("Failed to unlock database", "error", unlockErr)
 			}
 		}()
 
 		// migration will run inside a nested transaction
-		return mg.run()
+		return mg.run(ctx)
 	})
 }
 
-func (mg *Migrator) run() (err error) {
-	mg.Logger.Info("Starting DB migrations")
+func (mg *Migrator) run(ctx context.Context) (err error) {
+	ctx, span := tracer.Start(ctx, "Migrator.run")
+	defer span.End()
 
-	logMap, err := mg.GetMigrationLog()
+	logger := mg.Logger.FromContext(ctx)
+
+	logger.Info("Starting DB migrations")
+
+	_, err = mg.GetMigrationLog()
 	if err != nil {
 		return err
 	}
+
+	successLabel := prometheus.Labels{"success": "true"}
 
 	migrationsPerformed := 0
 	migrationsSkipped := 0
 	start := time.Now()
 	for _, m := range mg.migrations {
-		m := m
-		_, exists := logMap[m.Id()]
+		_, exists := mg.logMap[m.Id()]
 		if exists {
-			mg.Logger.Debug("Skipping migration: Already executed", "id", m.Id())
+			logger.Debug("Skipping migration: Already executed", "id", m.Id())
+			span.AddEvent("Skipping migration: Already executed",
+				trace.WithAttributes(attribute.String("migration_id", m.Id())),
+			)
 			migrationsSkipped++
 			continue
 		}
 
-		sql := m.SQL(mg.Dialect)
+		migStart := time.Now()
 
-		record := MigrationLog{
-			MigrationID: m.Id(),
-			SQL:         sql,
-			Timestamp:   time.Now(),
-		}
-
-		err := mg.InTransaction(func(sess *xorm.Session) error {
-			err := mg.exec(m, sess)
-			if err != nil {
-				mg.Logger.Error("Exec failed", "error", err, "sql", sql)
-				record.Error = err.Error()
-				if !m.SkipMigrationLog() {
-					if _, err := sess.Insert(&record); err != nil {
-						return err
-					}
-				}
-				return err
-			}
-			record.Success = true
-			if !m.SkipMigrationLog() {
-				_, err = sess.Insert(&record)
-			}
-			if err == nil {
-				migrationsPerformed++
-			}
+		if err := mg.doMigration(ctx, m); err != nil {
+			failLabel := prometheus.Labels{"success": "false"}
+			metricutil.ObserveWithExemplar(ctx, mg.metrics.migDuration.With(failLabel), time.Since(migStart).Seconds())
+			mg.metrics.migCount.With(failLabel).Inc()
 			return err
-		})
-		if err != nil {
-			return errutil.Wrap(fmt.Sprintf("migration failed (id = %s)", m.Id()), err)
 		}
+
+		metricutil.ObserveWithExemplar(ctx, mg.metrics.migDuration.With(successLabel), time.Since(migStart).Seconds())
+		mg.metrics.migCount.With(successLabel).Inc()
+
+		migrationsPerformed++
 	}
 
-	mg.Logger.Info("migrations completed", "performed", migrationsPerformed, "skipped", migrationsSkipped, "duration", time.Since(start))
+	metricutil.ObserveWithExemplar(ctx, mg.metrics.totalMigDuration.With(successLabel), time.Since(start).Seconds())
+
+	logger.Info("migrations completed", "performed", migrationsPerformed, "skipped", migrationsSkipped, "duration", time.Since(start))
 
 	// Make sure migrations are synced
 	return mg.DBEngine.Sync2()
 }
 
-func (mg *Migrator) exec(m Migration, sess *xorm.Session) error {
-	mg.Logger.Info("Executing migration", "id", m.Id())
+func (mg *Migrator) doMigration(ctx context.Context, m Migration) error {
+	ctx, span := tracer.Start(ctx, "Migrator.doMigration", trace.WithAttributes(
+		attribute.String("migration_id", m.Id()),
+	))
+	defer span.End()
+
+	logger := mg.Logger.FromContext(ctx)
+
+	sql := m.SQL(mg.Dialect)
+
+	record := MigrationLog{
+		MigrationID: m.Id(),
+		SQL:         sql,
+		Timestamp:   time.Now(),
+	}
+
+	err := mg.InTransaction(func(sess *xorm.Session) error {
+		// propagate context
+		sess = sess.Context(ctx)
+
+		err := mg.exec(ctx, m, sess)
+		// if we get an sqlite busy/locked error, sleep 100ms and try again
+		cnt := 0
+		for cnt < 3 && (errors.Is(err, sqlite3.ErrLocked) || errors.Is(err, sqlite3.ErrBusy)) {
+			cnt++
+			logger.Debug("Database locked, sleeping then retrying", "error", err, "sql", sql)
+			span.AddEvent("Database locked, sleeping then retrying",
+				trace.WithAttributes(attribute.String("error", err.Error())),
+				trace.WithAttributes(attribute.String("sql", sql)),
+			)
+			time.Sleep(100 * time.Millisecond)
+			err = mg.exec(ctx, m, sess)
+		}
+
+		if err != nil {
+			logger.Error("Exec failed", "error", err, "sql", sql)
+			record.Error = err.Error()
+			if !m.SkipMigrationLog() {
+				if _, err := sess.Table(mg.tableName).Insert(&record); err != nil {
+					return err
+				}
+			}
+			return err
+		}
+		record.Success = true
+		if !m.SkipMigrationLog() {
+			_, err = sess.Table(mg.tableName).Insert(&record)
+		}
+		return err
+	})
+	if err != nil {
+		return tracing.Errorf(span, "migration failed (id = %s): %w", m.Id(), err)
+	}
+
+	span.SetStatus(codes.Ok, "")
+
+	return nil
+}
+
+func (mg *Migrator) exec(ctx context.Context, m Migration, sess *xorm.Session) error {
+	logger := mg.Logger.FromContext(ctx)
+
+	start := time.Now()
+	logger.Info("Executing migration", "id", m.Id())
 
 	condition := m.GetCondition()
 	if condition != nil {
 		sql, args := condition.SQL(mg.Dialect)
 
 		if sql != "" {
-			mg.Logger.Debug("Executing migration condition SQL", "id", m.Id(), "sql", sql, "args", args)
+			logger.Debug("Executing migration condition SQL", "id", m.Id(), "sql", sql, "args", args)
 			results, err := sess.SQL(sql, args...).Query()
 			if err != nil {
-				mg.Logger.Error("Executing migration condition failed", "id", m.Id(), "error", err)
+				logger.Error("Executing migration condition failed", "id", m.Id(), "error", err)
 				return err
 			}
 
 			if !condition.IsFulfilled(results) {
-				mg.Logger.Warn("Skipping migration: Already executed, but not recorded in migration log", "id", m.Id())
+				logger.Warn("Skipping migration: Already executed, but not recorded in migration log", "id", m.Id())
 				return nil
 			}
 		}
@@ -203,18 +376,20 @@ func (mg *Migrator) exec(m Migration, sess *xorm.Session) error {
 
 	var err error
 	if codeMigration, ok := m.(CodeMigration); ok {
-		mg.Logger.Debug("Executing code migration", "id", m.Id())
+		logger.Debug("Executing code migration", "id", m.Id())
 		err = codeMigration.Exec(sess, mg)
 	} else {
 		sql := m.SQL(mg.Dialect)
-		mg.Logger.Debug("Executing sql migration", "id", m.Id(), "sql", sql)
+		logger.Debug("Executing sql migration", "id", m.Id(), "sql", sql)
 		_, err = sess.Exec(sql)
 	}
 
 	if err != nil {
-		mg.Logger.Error("Executing migration failed", "id", m.Id(), "error", err)
+		logger.Error("Executing migration failed", "id", m.Id(), "error", err, "duration", time.Since(start))
 		return err
 	}
+
+	logger.Info("Migration successfully executed", "id", m.Id(), "duration", time.Since(start))
 
 	return nil
 }
@@ -231,7 +406,7 @@ func (mg *Migrator) InTransaction(callback dbTransactionFunc) error {
 
 	if err := callback(sess); err != nil {
 		if rollErr := sess.Rollback(); rollErr != nil {
-			return errutil.Wrapf(err, "failed to roll back transaction due to error: %s", rollErr)
+			return fmt.Errorf("failed to roll back transaction due to error: %s: %w", rollErr, err)
 		}
 
 		return err
@@ -245,7 +420,7 @@ func (mg *Migrator) InTransaction(callback dbTransactionFunc) error {
 }
 
 func casRestoreOnErr(lock *atomic.Bool, o, n bool, casErr error, f func(LockCfg) error, lockCfg LockCfg) error {
-	if !lock.CAS(o, n) {
+	if !lock.CompareAndSwap(o, n) {
 		return casErr
 	}
 	if err := f(lockCfg); err != nil {

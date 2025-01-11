@@ -1,29 +1,14 @@
-import React, { ReactNode } from 'react';
 import { css } from '@emotion/css';
+import { useRef, ReactNode } from 'react';
+
 import { TimeOption } from '@grafana/data';
+
+import { useStyles2 } from '../../../themes';
+import { t } from '../../../utils/i18n';
+
 import { TimePickerTitle } from './TimePickerTitle';
 import { TimeRangeOption } from './TimeRangeOption';
-import { stylesFactory } from '../../../themes';
-
-const getStyles = stylesFactory(() => {
-  return {
-    title: css`
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 16px 5px 9px;
-    `,
-  };
-});
-
-const getOptionsStyles = stylesFactory(() => {
-  return {
-    grow: css`
-      flex-grow: 1;
-      align-items: flex-start;
-    `,
-  };
-});
+import { useListFocus } from './hooks';
 
 interface Props {
   title?: string;
@@ -33,8 +18,8 @@ interface Props {
   placeholderEmpty?: ReactNode;
 }
 
-export const TimeRangeList: React.FC<Props> = (props) => {
-  const styles = getStyles();
+export const TimeRangeList = (props: Props) => {
+  const styles = useStyles2(getStyles);
   const { title, options, placeholderEmpty } = props;
 
   if (typeof placeholderEmpty !== 'undefined' && options.length <= 0) {
@@ -57,19 +42,27 @@ export const TimeRangeList: React.FC<Props> = (props) => {
   );
 };
 
-const Options: React.FC<Props> = ({ options, value, onChange, title }) => {
-  const styles = getOptionsStyles();
+const Options = ({ options, value, onChange, title }: Props) => {
+  const styles = useStyles2(getOptionsStyles);
+
+  const localRef = useRef<HTMLUListElement>(null);
+  const [handleKeys] = useListFocus({ localRef, options });
 
   return (
     <>
-      <ul aria-roledescription="Time range selection">
+      <ul
+        role="presentation"
+        onKeyDown={handleKeys}
+        ref={localRef}
+        aria-roledescription={t('time-picker.time-range.aria-role', 'Time range selection')}
+      >
         {options.map((option, index) => (
           <TimeRangeOption
             key={keyForOption(option, index)}
             value={option}
             selected={isEqual(option, value)}
             onSelect={onChange}
-            name={title ?? 'Time ranges'}
+            name={title ?? t('time-picker.time-range.default-title', 'Time ranges')}
           />
         ))}
       </ul>
@@ -88,3 +81,19 @@ function isEqual(x: TimeOption, y?: TimeOption): boolean {
   }
   return y.from === x.from && y.to === x.to;
 }
+
+const getStyles = () => ({
+  title: css({
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '8px 16px 5px 9px',
+  }),
+});
+
+const getOptionsStyles = () => ({
+  grow: css({
+    flexGrow: 1,
+    alignItems: 'flex-start',
+  }),
+});

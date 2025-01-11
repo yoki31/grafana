@@ -3,9 +3,9 @@ package flux
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,19 +14,19 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/experimental"
-	"github.com/grafana/grafana/pkg/components/simplejson"
-	"github.com/grafana/grafana/pkg/tsdb/influxdb/models"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/xorcare/pointer"
-
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/grafana/grafana/pkg/components/simplejson"
+	"github.com/grafana/grafana/pkg/tsdb/influxdb/models"
+	"github.com/grafana/grafana/pkg/util"
 )
 
-//--------------------------------------------------------------
+// --------------------------------------------------------------
 // TestData -- reads result from saved files
-//--------------------------------------------------------------
+// --------------------------------------------------------------
 
 // MockRunner reads local file path for testdata.
 type MockRunner struct {
@@ -34,7 +34,7 @@ type MockRunner struct {
 }
 
 func (r *MockRunner) runQuery(ctx context.Context, q string) (*api.QueryTableResult, error) {
-	bytes, err := ioutil.ReadFile(filepath.Join("testdata", r.testDataPath))
+	bytes, err := os.ReadFile(filepath.Join("testdata", r.testDataPath))
 	if err != nil {
 		return nil, err
 	}
@@ -62,16 +62,14 @@ func executeMockedQuery(t *testing.T, name string, query queryModel) *backend.Da
 		testDataPath: name + ".csv",
 	}
 
-	dr := executeQuery(context.Background(), query, runner, 50)
+	dr := executeQuery(context.Background(), glog, query, runner, 50)
 	return &dr
 }
 
 func verifyGoldenResponse(t *testing.T, name string) *backend.DataResponse {
 	dr := executeMockedQuery(t, name, queryModel{MaxDataPoints: 100})
 
-	err := experimental.CheckGoldenDataResponse(filepath.Join("testdata", fmt.Sprintf("%s.golden.txt", name)),
-		dr, true)
-	require.NoError(t, err)
+	experimental.CheckGoldenJSONResponse(t, "testdata", name+".golden", dr, true)
 	require.NoError(t, dr.Error)
 
 	return dr
@@ -154,9 +152,9 @@ func TestAggregateGrouping(t *testing.T) {
 	expectedFrame := data.NewFrame("",
 		data.NewField("Time", nil, []*time.Time{&t1, &t2, &t3}),
 		data.NewField("Value", map[string]string{"host": "hostname.ru"}, []*float64{
-			pointer.Float64(8.291),
-			pointer.Float64(0.534),
-			pointer.Float64(0.667),
+			util.Pointer(8.291),
+			util.Pointer(0.534),
+			util.Pointer(0.667),
 		}),
 	)
 	expectedFrame.Meta = &data.FrameMeta{}
@@ -189,7 +187,7 @@ func TestNonStandardTimeColumn(t *testing.T) {
 		data.NewField("_start_water", map[string]string{"st": "1"}, []*time.Time{&t1}),
 		data.NewField("_stop_water", map[string]string{"st": "1"}, []*time.Time{&t2}),
 		data.NewField("_value", map[string]string{"st": "1"}, []*float64{
-			pointer.Float64(156.304),
+			util.Pointer(156.304),
 		}),
 	)
 	expectedFrame.Meta = &data.FrameMeta{}
@@ -222,18 +220,18 @@ func TestRealQuery(t *testing.T) {
 		json.Set("organization", "test-org")
 
 		dsInfo := &models.DatasourceInfo{
-			URL: "http://localhost:9999", // NOTE! no api/v2
+			URL:     "http://localhost:9999", // NOTE! no api/v2
+			Timeout: 30 * time.Second,
 		}
 
 		runner, err := runnerFromDataSource(dsInfo)
 		require.NoError(t, err)
 
-		dr := executeQuery(context.Background(), queryModel{
+		dr := executeQuery(context.Background(), glog, queryModel{
 			MaxDataPoints: 100,
 			RawQuery:      "buckets()",
 		}, runner, 50)
-		err = experimental.CheckGoldenDataResponse(filepath.Join("testdata", "buckets-real.golden.txt"), &dr, true)
-		require.NoError(t, err)
+		experimental.CheckGoldenJSONResponse(t, "testdata", "buckets-real.golden", &dr, true)
 	})
 }
 
@@ -307,4 +305,14 @@ func TestTimestampFirst(t *testing.T) {
 	// in the csv.
 	require.Equal(t, "Time", dr.Frames[0].Fields[0].Name)
 	require.Equal(t, "Value", dr.Frames[0].Fields[1].Name)
+}
+
+func TestWithoutTimeColumn(t *testing.T) {
+	dr := verifyGoldenResponse(t, "without-time-column")
+	require.Len(t, dr.Frames, 5)
+	// we make sure the timestamp-column is the first column
+	// in the dataframe, even if it was not the first column
+	// in the csv.
+	require.Equal(t, "cpu", dr.Frames[0].Fields[0].Name)
+	require.Equal(t, "host", dr.Frames[0].Fields[1].Name)
 }

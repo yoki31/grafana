@@ -3,8 +3,8 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"io/ioutil"
 	"log"
+	"os"
 	"strings"
 )
 
@@ -22,22 +22,22 @@ func main() {
 	}
 
 	//nolint
-	b, err := ioutil.ReadFile(input)
+	b, err := os.ReadFile(input)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	data := make(map[string]interface{})
+	data := make(map[string]any)
 	if err := json.Unmarshal(b, &data); err != nil {
 		log.Fatal(err)
 	}
 
-	info, ok := data["info"].(map[string]interface{})
+	info, ok := data["info"].(map[string]any)
 	if info == nil {
 		log.Fatal("expecting 'info' field")
 	}
 	if !ok {
-		log.Fatal("unable to turn info field into map[string]interface{}")
+		log.Fatal("unable to turn info field into map[string]any")
 	}
 
 	if info["title"] == nil {
@@ -49,9 +49,9 @@ func main() {
 		log.Fatal("no definitions")
 	}
 
-	defs := definitions.(map[string]interface{})
+	defs := definitions.(map[string]any)
 	for k, v := range defs {
-		vMap := v.(map[string]interface{})
+		vMap := v.(map[string]any)
 		refKey, ok := vMap[RefKey]
 		if !ok {
 			continue
@@ -63,12 +63,45 @@ func main() {
 		}
 	}
 
+	paths, ok := data["paths"].(map[string]any)
+	if !ok {
+		log.Fatal("no paths")
+	}
+
+	for _, path := range paths {
+		path, ok := path.(map[string]any)
+		if !ok {
+			log.Fatal("invalid path")
+		}
+
+		for _, op := range path {
+			op, ok := op.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			tags, ok := op["tags"].([]any)
+			if !ok {
+				log.Println("invalid op, skipping")
+				continue
+			}
+
+			// Remove "stable" tag. Multiple tags cause routes to render strangely in the final docs.
+			for i, tag := range tags {
+				if tag == "stable" {
+					log.Println("removing stable tag")
+					op["tags"] = append(tags[:i], tags[i+1:]...)
+				}
+			}
+		}
+	}
+
 	out, err := json.MarshalIndent(data, "", " ")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = ioutil.WriteFile(output, out, 0644)
+	err = os.WriteFile(output, out, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}

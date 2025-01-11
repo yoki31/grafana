@@ -1,105 +1,94 @@
-+++
-title = "Query management"
-keywords = ["explore", "loki", "logs"]
-weight = 10
-+++
+---
+keywords:
+  - explore
+  - loki
+  - logs
+labels:
+  products:
+    - cloud
+    - enterprise
+    - oss
+title: Query management in Explore
+weight: 10
+---
 
 # Query management in Explore
 
-To help with debugging queries, Explore allows you to investigate query requests and responses, as well as query statistics, via the Query inspector.
-This functionality is similar to the panel inspector tasks [Inspect query performance]({{< relref "../panels/query-a-data-source/inspect-query-performance.md" >}}) and
-[Inspect query request and response data]({{< relref "../panels/query-a-data-source/inspect-request-and-response-data.md" >}}).
+Grafana Explore provides a variety of tools to help manage your queries.
 
-{{< figure src="/static/img/docs/v71/query_inspector_explore.png" class="docs-image--no-shadow" max-width= "550px" caption="Screenshot of the query inspector button in Explore" >}}
+{{% admonition type="note" %}}
+For help with debugging queries, Explore allows you to investigate query requests and responses, as well as query statistics, via the Query inspector. Refer to [Query inspector in Explore](/docs/grafana/<GRAFANA_VERSION>/explore/explore-inspector/) for more information.
+{{% /admonition %}}
 
 ## Query history
 
-Query history is a list of queries that you have used in Explore. The history is local to your browser and is not shared. To open and interact with your history, click the **Query history** button in Explore.
+Query history contains the list of queries that you created in Explore. This history is stored in the Grafana database and isn't shared with other users. The retention period for a query history is **two weeks**. Queries older than two weeks are automatically deleted.
 
-### View query history
+{{% admonition type="note" %}}
+Starred queries aren't subject to the two-week retention period and aren't deleted.
+{{% /admonition %}}
 
-Query history lets you view the history of your querying. For each individual query, you can:
+To view your query history:
 
-- Run a query.
+1. Go to the Explore page.
+1. Click **Query history**.
+
+The Query history pane opens at the bottom of the page, and contains the following tabs:
+
+- **Query history tab-** Contains a history of all your queries, with options for searching and managing them.
+- **Starred tab -** Contains all of your starred queries.
+- **Settings tab-** Provides customizable options for your query history.
+
+### Query history tab
+
+The Query history depicts a history of your queries for the past two weeks, unless the query is starred, which means it doesn't get deleted. For each individual query, you can:
+
+- Run and re-run the query.
 - Create and/or edit a comment.
 - Copy a query to the clipboard.
 - Copy a shortened link with the query to the clipboard.
+- Delete a query.
 - Star a query.
 
-### Manage favorite queries
+By default, query history shows you newest queries first. Click the sort box in the upper right to change to **Oldest first** to older queries first. You can search your queries using keywords.
 
-All queries that have been starred in the Query history tab are displayed in the Starred. This allows you to access your favorite queries faster and to reuse these queries without typing them from scratch.
+### Query history Starred tab
 
-### Sort query history
+All starred queries are displayed in the **Starred** tab. This gives quick access to key or favorite queries without having to rewrite them.
 
-By default, query history shows you the most recent queries. You can sort your history by date or by data source name in ascending or descending order.
+You also have the option to switch the data source and run a starred query.
 
-1. Click the **Sort queries by** field.
-1. Select one of the following options:
-   - Newest first
-   - Oldest first
-   - Data source A-Z
-   - Data source Z-A
+#### Filter query history
 
-> **Note:** If you are in split mode, then the chosen sorting mode applies only to the active panel.
-
-### Filter query history
-
-Filter query history in Query history and Starred tab by data source name:
+Filter query history in both the **Query history** and **Starred** tabs by data source name:
 
 1. Click the **Filter queries for specific data source(s)** field.
-1. Select the data source for which you would like to filter your history. You can select multiple data sources.
+1. Select the data source in the dropdown by which you want to filter your history. You can select multiple data sources.
 
-In **Query history** tab it is also possible to filter queries by date using the slider:
+{{% admonition type="note" %}}
+Queries with the **Mixed** data source appear only when filtering for "Mixed" and not when filtering by individual data source.
+{{% /admonition %}}
 
-- Use vertical slider to filter queries by date.
-- By dragging top handle, adjust start date.
-- By dragging top handle, adjust end date.
+You can also filter queries by date using the vertical slider:
 
-> **Note:** If you are in split mode, filters are applied only to your currently active panel.
+- Drag the bottom circle to adjust the start date.
+- Drag the top circle to adjust the end date.
 
-### Search in query history
+#### Search in query history
 
-You can search in your history across queries and your comments. Search is possible for queries in the Query history tab and Starred tab.
+Use **Search queries** in both the **Query history** and **Starred** tabs to search your query history and comments using keywords.
 
-1. Click the **Search queries** field.
-1. Type the term you are searching for into search field.
+1. Click in the **Search queries** field.
+1. Type the keyword(s) or term you are want to search for in search field.
 
-### Query history settings
+### Query history Settings tab
 
-You can customize the query history in the Settings tab. Options are described in the table below.
+You can customize your query history in the **Settings** tab.
 
-| Setting                                                       | Default value                           |
-| ------------------------------------------------------------- | --------------------------------------- |
-| Period of time for which Grafana will save your query history | 1 week                                  |
-| Change the default active tab                                 | Query history tab                       |
-| Only show queries for data source currently active in Explore | True                                    |
-| Clear query history                                           | Permanently deletes all stored queries. |
+Toggle **Change the default active tab from "Query history" to "Starred"** to make the **Starred tab** the default active tab.
 
-> **Note:** Query history settings are global, and applied to both panels in split mode.
+{{% admonition type="note" %}}
+Query history settings are global, and applied to both panels in split mode.
+{{% /admonition %}}
 
-## Prometheus-specific Features
-
-The first version of Explore features a custom querying experience for Prometheus. When a query is executed, it actually executes two queries, a normal Prometheus query for the graph and an Instant Query for the table. An Instant Query returns the last value for each time series which shows a good summary of the data shown in the graph.
-
-### Metrics explorer
-
-On the left side of the query field, click **Metrics** to open the Metric Explorer. This shows a hierarchical menu with metrics grouped by their prefix. For example, all Alertmanager metrics are grouped under the `alertmanager` prefix. This is a good starting point if you just want to explore which metrics are available.
-
-{{< figure src="/static/img/docs/v65/explore_metric_explorer.png" class="docs-image--no-shadow" max-width= "800px" caption="Screenshot of the new Explore option in the panel menu" >}}
-
-### Query field
-
-The Query field supports autocomplete for metric names, function and works mostly the same way as the standard Prometheus query editor. Press the enter key to execute a query.
-
-The autocomplete menu can be triggered by pressing Ctrl+Space. The Autocomplete menu contains a new History section with a list of recently executed queries.
-
-Suggestions can appear under the query field - click on them to update your query with the suggested change.
-
-- For counters (monotonically increasing metrics), a rate function will be suggested.
-- For buckets, a histogram function will be suggested.
-- For recording rules, possible to expand the rules.
-
-### Table filters
-
-Click on the filter button in the "label" column of a Table panel to add filters to the query expression. You can add filters for multiple queries as well - the filter is added for all the queries.
+<!-- All queries that have been starred in the Query history tab are displayed in the Starred tab. This allows you to access your favorite queries faster and to reuse these queries without typing them from scratch. -->

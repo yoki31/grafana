@@ -1,10 +1,12 @@
 import { map } from 'rxjs/operators';
 
+import { sortDataFrame } from '../../dataframe/processDataFrame';
+import { getFieldDisplayName } from '../../field/fieldState';
+import { DataFrame } from '../../types/dataFrame';
+import { DataTransformContext, DataTransformerInfo } from '../../types/transformations';
+
 import { DataTransformerID } from './ids';
-import { DataTransformerInfo } from '../../types/transformations';
-import { DataFrame } from '../../types';
-import { getFieldDisplayName } from '../../field';
-import { sortDataFrame } from '../../dataframe';
+import { transformationsVariableSupport } from './utils';
 
 export interface SortByField {
   field: string;
@@ -21,29 +23,29 @@ export interface SortByTransformerOptions {
 export const sortByTransformer: DataTransformerInfo<SortByTransformerOptions> = {
   id: DataTransformerID.sortBy,
   name: 'Sort by',
-  description: 'Sort fields in a frame',
+  description: 'Sort fields in a frame.',
   defaultOptions: {
     fields: {},
   },
 
   /**
-   * Return a modified copy of the series.  If the transform is not or should not
+   * Return a modified copy of the series. If the transform is not or should not
    * be applied, just return the input series
    */
-  operator: (options) => (source) =>
+  operator: (options, ctx) => (source) =>
     source.pipe(
       map((data) => {
         if (!Array.isArray(data) || data.length === 0 || !options?.sort?.length) {
           return data;
         }
-        return sortDataFrames(data, options.sort);
+        return sortDataFrames(data, options.sort, ctx);
       })
     ),
 };
 
-export function sortDataFrames(data: DataFrame[], sort: SortByField[]): DataFrame[] {
+function sortDataFrames(data: DataFrame[], sort: SortByField[], ctx: DataTransformContext): DataFrame[] {
   return data.map((frame) => {
-    const s = attachFieldIndex(frame, sort);
+    const s = attachFieldIndex(frame, sort, ctx);
     if (s.length && s[0].index != null) {
       return sortDataFrame(frame, s[0].index, s[0].desc);
     }
@@ -51,11 +53,17 @@ export function sortDataFrames(data: DataFrame[], sort: SortByField[]): DataFram
   });
 }
 
-function attachFieldIndex(frame: DataFrame, sort: SortByField[]): SortByField[] {
+function attachFieldIndex(frame: DataFrame, sort: SortByField[], ctx: DataTransformContext): SortByField[] {
   return sort.map((s) => {
     if (s.index != null) {
       // null or undefined
       return s;
+    }
+    if (transformationsVariableSupport()) {
+      return {
+        ...s,
+        index: frame.fields.findIndex((f) => ctx.interpolate(s.field) === getFieldDisplayName(f, frame)),
+      };
     }
     return {
       ...s,

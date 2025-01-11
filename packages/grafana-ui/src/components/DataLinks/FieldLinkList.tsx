@@ -1,8 +1,11 @@
-import { Field, GrafanaTheme, LinkModel } from '@grafana/data';
 import { css } from '@emotion/css';
-import React from 'react';
-import { useStyles } from '../../themes';
+
+import { Field, GrafanaTheme2, LinkModel } from '@grafana/data';
+
+import { useStyles2 } from '../../themes';
+import { Trans } from '../../utils/i18n';
 import { Icon } from '../Icon/Icon';
+
 import { DataLinkButton } from './DataLinkButton';
 
 type Props = {
@@ -13,7 +16,7 @@ type Props = {
  * @internal
  */
 export function FieldLinkList({ links }: Props) {
-  const styles = useStyles(getStyles);
+  const styles = useStyles2(getStyles);
 
   if (links.length === 1) {
     return <DataLinkButton link={links[0]} />;
@@ -28,7 +31,9 @@ export function FieldLinkList({ links }: Props) {
         return <DataLinkButton key={i} link={link} />;
       })}
       <div className={styles.wrapper}>
-        <p className={styles.externalLinksHeading}>External links</p>
+        <p className={styles.externalLinksHeading}>
+          <Trans i18nKey="grafana-ui.field-link-list.external-links-heading">External links</Trans>
+        </p>
         {externalLinks.map((link, i) => (
           <a key={i} href={link.href} target={link.target} className={styles.externalLink}>
             <Icon name="external-link-alt" />
@@ -40,32 +45,32 @@ export function FieldLinkList({ links }: Props) {
   );
 }
 
-const getStyles = (theme: GrafanaTheme) => ({
-  wrapper: css`
-    flex-basis: 150px;
-    width: 100px;
-    margin-top: ${theme.spacing.sm};
-  `,
-  externalLinksHeading: css`
-    color: ${theme.colors.textWeak};
-    font-weight: ${theme.typography.weight.regular};
-    font-size: ${theme.typography.size.sm};
-    margin: 0;
-  `,
-  externalLink: css`
-    color: ${theme.colors.linkExternal};
-    font-weight: ${theme.typography.weight.regular};
-    display: block;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+const getStyles = (theme: GrafanaTheme2) => ({
+  wrapper: css({
+    flexBasis: '150px',
+    width: '100px',
+    marginTop: theme.spacing(1),
+  }),
+  externalLinksHeading: css({
+    color: theme.colors.text.secondary,
+    fontWeight: theme.typography.fontWeightRegular,
+    fontSize: theme.typography.size.sm,
+    margin: 0,
+  }),
+  externalLink: css({
+    color: theme.colors.text.link,
+    fontWeight: theme.typography.fontWeightRegular,
+    display: 'block',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
 
-    &:hover {
-      text-decoration: underline;
-    }
+    '&:hover': {
+      textDecoration: 'underline',
+    },
 
-    div {
-      margin-right: ${theme.spacing.sm};
-    }
-  `,
+    div: {
+      marginRight: theme.spacing(1),
+    },
+  }),
 });

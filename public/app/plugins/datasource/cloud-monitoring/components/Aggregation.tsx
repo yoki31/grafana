@@ -1,10 +1,12 @@
-import { SelectableValue } from '@grafana/data';
-import { Select } from '@grafana/ui';
-import React, { FC, useMemo } from 'react';
+import { useMemo } from 'react';
 
-import { QueryEditorField } from '.';
+import { SelectableValue } from '@grafana/data';
+import { EditorField } from '@grafana/experimental';
+import { Select } from '@grafana/ui';
+
 import { getAggregationOptionsByMetric } from '../functions';
-import { MetricDescriptor, MetricKind, ValueTypes } from '../types';
+import { ValueTypes } from '../types/query';
+import { MetricDescriptor } from '../types/types';
 
 export interface Props {
   refId: string;
@@ -15,20 +17,20 @@ export interface Props {
   templateVariableOptions: Array<SelectableValue<string>>;
 }
 
-export const Aggregation: FC<Props> = (props) => {
+export const Aggregation = (props: Props) => {
   const aggOptions = useAggregationOptionsByMetric(props);
   const selected = useSelectedFromOptions(aggOptions, props);
 
   return (
-    <QueryEditorField
-      labelWidth={18}
+    <EditorField
       label="Group by function"
       data-testid="cloud-monitoring-aggregation"
-      htmlFor={`${props.refId}-group-by-function`}
+      tooltip={
+        'Aggregation function used on the metric data. Defaults to none for scalar data and mean for distribution data. Not applying an aggregation to distribution data may lead to performance issues.'
+      }
     >
       <Select
-        menuShouldPortal
-        width={16}
+        width="auto"
         onChange={({ value }) => props.onChange(value!)}
         value={selected}
         options={[
@@ -44,8 +46,9 @@ export const Aggregation: FC<Props> = (props) => {
         ]}
         placeholder="Select Reducer"
         inputId={`${props.refId}-group-by-function`}
+        menuPlacement="top"
       />
-    </QueryEditorField>
+    </EditorField>
   );
 };
 
@@ -58,7 +61,7 @@ const useAggregationOptionsByMetric = ({ metricDescriptor }: Props): Array<Selec
       return [];
     }
 
-    return getAggregationOptionsByMetric(valueType as ValueTypes, metricKind as MetricKind).map((a) => ({
+    return getAggregationOptionsByMetric(valueType as ValueTypes, metricKind).map((a) => ({
       ...a,
       label: a.text,
     }));

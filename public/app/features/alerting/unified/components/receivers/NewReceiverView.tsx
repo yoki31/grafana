@@ -1,18 +1,27 @@
-import { AlertManagerCortexConfig } from 'app/plugins/datasource/alertmanager/types';
-import React, { FC } from 'react';
+import { withErrorBoundary } from '@grafana/ui';
+import { useAlertmanager } from 'app/features/alerting/unified/state/AlertmanagerContext';
+
 import { GRAFANA_RULES_SOURCE_NAME } from '../../utils/datasource';
+import { AlertmanagerPageWrapper } from '../AlertingPageWrapper';
+
 import { CloudReceiverForm } from './form/CloudReceiverForm';
 import { GrafanaReceiverForm } from './form/GrafanaReceiverForm';
 
-interface Props {
-  config: AlertManagerCortexConfig;
-  alertManagerSourceName: string;
-}
-
-export const NewReceiverView: FC<Props> = ({ alertManagerSourceName, config }) => {
-  if (alertManagerSourceName === GRAFANA_RULES_SOURCE_NAME) {
-    return <GrafanaReceiverForm alertManagerSourceName={alertManagerSourceName} config={config} />;
+const NewReceiverView = () => {
+  const { selectedAlertmanager } = useAlertmanager();
+  if (selectedAlertmanager === GRAFANA_RULES_SOURCE_NAME) {
+    return <GrafanaReceiverForm />;
   } else {
-    return <CloudReceiverForm alertManagerSourceName={alertManagerSourceName} config={config} />;
+    return <CloudReceiverForm alertManagerSourceName={selectedAlertmanager!} />;
   }
 };
+
+function NewReceiverViewPage() {
+  return (
+    <AlertmanagerPageWrapper navId="receivers" accessType="notification">
+      <NewReceiverView />
+    </AlertmanagerPageWrapper>
+  );
+}
+
+export default withErrorBoundary(NewReceiverViewPage, { style: 'page' });

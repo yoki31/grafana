@@ -1,8 +1,13 @@
-+++
-title = "Release notes for Grafana 7.3.1"
-[_build]
-list = false
-+++
+---
+_build:
+  list: false
+labels:
+  products:
+    - cloud
+    - enterprise
+    - oss
+title: Release notes for Grafana 7.3.1
+---
 
 <!-- Auto generated do not edit -->
 

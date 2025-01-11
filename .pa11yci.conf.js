@@ -1,8 +1,46 @@
+var dashboardSettings = [
+  {
+    url: '${HOST}/d/O6f11TZWk/panel-tests-bar-gauge?orgId=1&editview=settings',
+    wait: 500,
+    rootElement: '.main-view',
+  },
+  {
+    url: '${HOST}/d/O6f11TZWk/panel-tests-bar-gauge?orgId=1&editview=annotations',
+    wait: 500,
+    rootElement: '.main-view',
+  },
+  {
+    url: '${HOST}/d/O6f11TZWk/panel-tests-bar-gauge?orgId=1&editview=templating',
+    wait: 500,
+    rootElement: '.main-view',
+  },
+  {
+    url: '${HOST}/d/O6f11TZWk/panel-tests-bar-gauge?orgId=1&editview=links',
+    wait: 500,
+    rootElement: '.main-view',
+  },
+  {
+    url: '${HOST}/d/O6f11TZWk/panel-tests-bar-gauge?orgId=1&editview=versions',
+    wait: 500,
+    rootElement: '.main-view',
+  },
+  {
+    url: '${HOST}/d/O6f11TZWk/panel-tests-bar-gauge?orgId=1&editview=permissions',
+    wait: 500,
+    rootElement: '.main-view',
+  },
+  {
+    url: '${HOST}/d/O6f11TZWk/panel-tests-bar-gauge?orgId=1&editview=dashboard_json',
+    wait: 500,
+    rootElement: '.main-view',
+  },
+];
 var config = {
   defaults: {
     concurrency: 1,
     runners: ['axe'],
     useIncognitoBrowserContext: false,
+    standard: 'WCAG2AA',
     chromeLaunchConfig: {
       args: ['--no-sandbox'],
     },
@@ -23,8 +61,8 @@ var config = {
         "wait for element input[name='user'] to be added",
         "set field input[name='user'] to admin",
         "set field input[name='password'] to admin",
-        "click element button[aria-label='Login button']",
-        "wait for element [aria-label='Skip change password button'] to be visible",
+        "click element button[data-testid='data-testid Login button']",
+        "wait for element button[data-testid='data-testid Skip change password button'] to be visible",
       ],
       wait: 500,
       rootElement: '.main-view',
@@ -38,11 +76,7 @@ var config = {
       wait: 500,
       rootElement: '.main-view',
     },
-    {
-      url: '${HOST}/d/O6f11TZWk/panel-tests-bar-gauge?orgId=1&editview=settings',
-      wait: 500,
-      rootElement: '.main-view',
-    },
+    ...dashboardSettings,
     {
       url: '${HOST}/?orgId=1&search=open',
       wait: 500,

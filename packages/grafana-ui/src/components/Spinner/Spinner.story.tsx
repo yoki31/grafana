@@ -1,14 +1,13 @@
-import React from 'react';
-import { Meta, Story } from '@storybook/react';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
+import { Meta, StoryFn } from '@storybook/react';
+
 import { Spinner } from '@grafana/ui';
+
 import { Props } from './Spinner';
 import mdx from './Spinner.mdx';
 
-export default {
+const meta: Meta = {
   title: 'Visualizations/Spinner',
   component: Spinner,
-  decorators: [withCenteredStory],
   parameters: {
     docs: {
       page: mdx,
@@ -21,7 +20,7 @@ export default {
     backgroundColor: { control: { type: 'color' } },
     color: { control: { type: 'color' } },
   },
-} as Meta;
+};
 
 interface StoryProps extends Partial<Props> {
   backgroundColor: string;
@@ -29,7 +28,7 @@ interface StoryProps extends Partial<Props> {
   withStyle: boolean;
 }
 
-export const Basic: Story<StoryProps> = (args) => {
+export const Basic: StoryFn<StoryProps> = (args) => {
   return (
     <div>
       <Spinner
@@ -49,6 +48,8 @@ export const Basic: Story<StoryProps> = (args) => {
 Basic.args = {
   backgroundColor: 'white',
   color: 'red',
-  size: 34,
+  size: 'xl',
   withStyle: false,
 };
+
+export default meta;

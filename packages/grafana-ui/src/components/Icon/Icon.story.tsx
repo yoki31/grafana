@@ -1,15 +1,18 @@
-import React, { ChangeEvent, useState } from 'react';
 import { css } from '@emotion/css';
+import { Meta } from '@storybook/react';
+import { ChangeEvent, useState } from 'react';
+
+import { toIconName, IconName } from '@grafana/data';
 import { Input, Field, Icon } from '@grafana/ui';
-import { getAvailableIcons, IconName } from '../../types';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
-import { useTheme } from '../../themes';
+
+import { useTheme2 } from '../../themes';
+import { getAvailableIcons } from '../../types';
+
 import mdx from './Icon.mdx';
 
-export default {
+const meta: Meta<typeof Icon> = {
   title: 'Docs overview/Icon',
   component: Icon,
-  decorators: [withCenteredStory],
   parameters: {
     options: {
       showPanel: false,
@@ -21,30 +24,30 @@ export default {
 };
 
 const IconWrapper = ({ name }: { name: IconName }) => {
-  const theme = useTheme();
-  const borderColor = theme.colors.border2;
+  const theme = useTheme2();
+  const borderColor = theme.colors.border.medium;
 
   return (
     <div
-      className={css`
-        width: 150px;
-        padding: 12px;
-        border: 1px solid ${borderColor};
-        text-align: center;
+      className={css({
+        width: '150px',
+        padding: '12px',
+        border: `1px solid ${borderColor}`,
+        textAlign: 'center',
 
-        &:hover {
-          background: ${borderColor};
-        }
-      `}
+        '&:hover': {
+          background: borderColor,
+        },
+      })}
     >
       <Icon name={name} />
       <div
-        className={css`
-          padding-top: 16px;
-          word-break: break-all;
-          font-family: ${theme.typography.fontFamily.monospace};
-          font-size: ${theme.typography.size.xs};
-        `}
+        className={css({
+          paddingTop: '16px',
+          wordBreak: 'break-all',
+          fontFamily: theme.typography.fontFamilyMonospace,
+          fontSize: theme.typography.size.xs,
+        })}
       >
         {name}
       </div>
@@ -64,31 +67,35 @@ export const IconsOverview = () => {
 
   return (
     <div
-      className={css`
-        display: flex;
-        flex-direction: column;
-        width: 100%;
-      `}
+      className={css({
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        overflow: 'auto',
+        width: '100%',
+      })}
     >
       <Field
-        className={css`
-          width: 300px;
-        `}
+        className={css({
+          width: '300px',
+        })}
       >
         <Input onChange={searchIcon} placeholder="Search icons by name" />
       </Field>
       <div
-        className={css`
-          display: flex;
-          flex-wrap: wrap;
-        `}
+        className={css({
+          display: 'flex',
+          flexWrap: 'wrap',
+        })}
       >
         {icons
           .filter((val) => val.includes(filter))
           .map((i) => {
-            return <IconWrapper name={i} key={i} />;
+            return <IconWrapper name={toIconName(i)!} key={i} />;
           })}
       </div>
     </div>
   );
 };
+
+export default meta;

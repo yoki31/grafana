@@ -1,22 +1,22 @@
-import { GrafanaLiveService } from './live';
-import { StreamingDataQueryResponse } from './centrifuge/service';
 import { Subject } from 'rxjs';
-import { DataQueryResponse, FieldType, LiveChannelScope } from '@grafana/data';
-import { StreamingDataFrame } from './data/StreamingDataFrame';
+
+import { DataQueryResponse, FieldType, LiveChannelScope, StreamingDataFrame } from '@grafana/data';
+import { BackendSrv } from '@grafana/runtime';
+
+import { CentrifugeSrv, StreamingDataQueryResponse } from './centrifuge/service';
 import { StreamingResponseDataType } from './data/utils';
-import mockConsole, { RestoreConsole } from 'jest-mock-console';
+import { GrafanaLiveService } from './live';
 
 describe('GrafanaLiveService', () => {
-  let restoreConsole: RestoreConsole | undefined;
-
+  const mockGetDataStream = jest.fn();
   const deps = {
-    backendSrv: {},
+    backendSrv: {} as BackendSrv,
     centrifugeSrv: {
-      getDataStream: jest.fn(),
-    },
+      getDataStream: mockGetDataStream,
+    } as unknown as CentrifugeSrv,
   };
 
-  const liveService = new GrafanaLiveService(deps as any);
+  const liveService = new GrafanaLiveService(deps);
 
   const liveDataStreamOptions = {
     addr: {
@@ -26,18 +26,13 @@ describe('GrafanaLiveService', () => {
     },
   };
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-    restoreConsole = mockConsole();
-  });
-
   afterEach(() => {
-    restoreConsole?.();
+    jest.clearAllMocks();
   });
 
   it('should map response from Centrifuge Service to a streaming data frame', async () => {
     const dummySubject = new Subject<StreamingDataQueryResponse>();
-    deps.centrifugeSrv.getDataStream.mockReturnValueOnce(dummySubject);
+    mockGetDataStream.mockReturnValueOnce(dummySubject);
 
     let response: DataQueryResponse | undefined;
     liveService.getDataStream(liveDataStreamOptions).subscribe((next) => {
@@ -59,7 +54,7 @@ describe('GrafanaLiveService', () => {
 
   it('should add partial streaming data to the buffer', async () => {
     const dummySubject = new Subject<StreamingDataQueryResponse>();
-    deps.centrifugeSrv.getDataStream.mockReturnValueOnce(dummySubject);
+    mockGetDataStream.mockReturnValueOnce(dummySubject);
 
     let response: DataQueryResponse | undefined;
     liveService.getDataStream(liveDataStreamOptions).subscribe((next) => {
@@ -103,32 +98,27 @@ describe('GrafanaLiveService', () => {
         config: {},
         name: 'time',
         type: FieldType.time,
-        values: {
-          buffer: [100, 101],
-        },
+        values: [100, 101],
       },
       {
         config: {},
         name: 'a',
         type: FieldType.string,
-        values: {
-          buffer: ['a', 'b'],
-        },
+        values: ['a', 'b'],
       },
       {
         config: {},
         name: 'b',
         type: FieldType.number,
-        values: {
-          buffer: [1, 2],
-        },
+        values: [1, 2],
       },
     ]);
   });
 
   it('should return an empty frame if first message was not a full frame', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(jest.fn);
     const dummySubject = new Subject<StreamingDataQueryResponse>();
-    deps.centrifugeSrv.getDataStream.mockReturnValueOnce(dummySubject);
+    mockGetDataStream.mockReturnValueOnce(dummySubject);
 
     let response: DataQueryResponse | undefined;
     liveService.getDataStream(liveDataStreamOptions).subscribe((next) => {
@@ -152,5 +142,6 @@ describe('GrafanaLiveService', () => {
     const frame: StreamingDataFrame = response?.data[0];
     expect(frame).toBeInstanceOf(StreamingDataFrame);
     expect(frame.fields).toEqual([]);
+    expect(console.warn).toHaveBeenCalled();
   });
 });

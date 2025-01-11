@@ -1,6 +1,7 @@
 import { identity, omit, pick, pickBy } from 'lodash';
 import { lastValueFrom, Observable, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
+
 import {
   DataQueryRequest,
   DataQueryResponse,
@@ -10,51 +11,80 @@ import {
   dateMath,
   DateTime,
   FieldType,
+  getDefaultTimeRange,
   MutableDataFrame,
+  ScopedVars,
+  urlUtil,
 } from '@grafana/data';
-import { BackendSrvRequest, getBackendSrv, getTemplateSrv } from '@grafana/runtime';
+import { NodeGraphOptions, SpanBarOptions } from '@grafana/o11y-ds-frontend';
+import { BackendSrvRequest, getBackendSrv, getTemplateSrv, TemplateSrv } from '@grafana/runtime';
 
-import { serializeParams } from 'app/core/utils/fetch';
-import { getTimeSrv, TimeSrv } from 'app/features/dashboard/services/TimeSrv';
-import { createTableFrame, createTraceFrame } from './responseTransform';
+import { ALL_OPERATIONS_KEY } from './components/SearchForm';
+import { TraceIdTimeParamsOptions } from './configuration/TraceIdTimeParams';
+import { mapJaegerDependenciesResponse } from './dependencyGraphTransform';
 import { createGraphFrames } from './graphTransform';
+import { createTableFrame, createTraceFrame } from './responseTransform';
 import { JaegerQuery } from './types';
 import { convertTagsLogfmt } from './util';
-import { ALL_OPERATIONS_KEY } from './components/SearchForm';
-import { NodeGraphOptions } from 'app/core/components/NodeGraphSettings';
 
 export interface JaegerJsonData extends DataSourceJsonData {
   nodeGraph?: NodeGraphOptions;
+  traceIdTimeParams?: TraceIdTimeParamsOptions;
 }
 
 export class JaegerDatasource extends DataSourceApi<JaegerQuery, JaegerJsonData> {
   uploadedJson: string | ArrayBuffer | null = null;
   nodeGraph?: NodeGraphOptions;
+  traceIdTimeParams?: TraceIdTimeParamsOptions;
+  spanBar?: SpanBarOptions;
   constructor(
     private instanceSettings: DataSourceInstanceSettings<JaegerJsonData>,
-    private readonly timeSrv: TimeSrv = getTimeSrv()
+    private readonly templateSrv: TemplateSrv = getTemplateSrv()
   ) {
     super(instanceSettings);
     this.nodeGraph = instanceSettings.jsonData.nodeGraph;
+    this.traceIdTimeParams = instanceSettings.jsonData.traceIdTimeParams;
   }
 
-  async metadataRequest(url: string, params?: Record<string, any>): Promise<any> {
+  async metadataRequest(url: string, params?: Record<string, unknown>) {
     const res = await lastValueFrom(this._request(url, params, { hideFromInspector: true }));
     return res.data.data;
+  }
+
+  isSearchFormValid(query: JaegerQuery): boolean {
+    return !!query.service;
   }
 
   query(options: DataQueryRequest<JaegerQuery>): Observable<DataQueryResponse> {
     // At this moment we expect only one target. In case we somehow change the UI to be able to show multiple
     // traces at one we need to change this.
     const target: JaegerQuery = options.targets[0];
+
     if (!target) {
       return of({ data: [emptyTraceDataFrame] });
     }
 
+    // Use the internal Jaeger /dependencies API for rendering the dependency graph.
+    if (target.queryType === 'dependencyGraph') {
+      const timeRange = options.range ?? getDefaultTimeRange();
+      const endTs = getTime(timeRange.to, true) / 1000;
+      const lookback = endTs - getTime(timeRange.from, false) / 1000;
+      return this._request('/api/dependencies', { endTs, lookback }).pipe(map(mapJaegerDependenciesResponse));
+    }
+
+    if (target.queryType === 'search' && !this.isSearchFormValid(target)) {
+      return of({ error: { message: 'You must select a service.' }, data: [] });
+    }
+
+    let { start, end } = this.getTimeRange(options.range);
+
     if (target.queryType !== 'search' && target.query) {
-      return this._request(
-        `/api/traces/${encodeURIComponent(getTemplateSrv().replace(target.query, options.scopedVars))}`
-      ).pipe(
+      let url = `/api/traces/${encodeURIComponent(this.templateSrv.replace(target.query.trim(), options.scopedVars))}`;
+      if (this.traceIdTimeParams) {
+        url += `?start=${start}&end=${end}`;
+      }
+
+      return this._request(url).pipe(
         map((response) => {
           const traceData = response?.data?.data?.[0];
           if (!traceData) {
@@ -84,28 +114,36 @@ export class JaegerDatasource extends DataSourceApi<JaegerQuery, JaegerJsonData>
         }
         return of({ data });
       } catch (error) {
-        return of({ error: { message: 'JSON is not valid Jaeger format' }, data: [] });
+        return of({ error: { message: 'The JSON file uploaded is not in a valid Jaeger format' }, data: [] });
       }
     }
 
-    let jaegerQuery = pick(target, ['operation', 'service', 'tags', 'minDuration', 'maxDuration', 'limit']);
+    let jaegerInterpolated = pick(this.applyVariables(target, options.scopedVars), [
+      'service',
+      'operation',
+      'tags',
+      'minDuration',
+      'maxDuration',
+      'limit',
+    ]);
     // remove empty properties
-    jaegerQuery = pickBy(jaegerQuery, identity);
-    if (jaegerQuery.tags) {
-      jaegerQuery = {
-        ...jaegerQuery,
-        tags: convertTagsLogfmt(getTemplateSrv().replace(jaegerQuery.tags, options.scopedVars)),
-      };
-    }
+    let jaegerQuery = pickBy(jaegerInterpolated, identity);
 
     if (jaegerQuery.operation === ALL_OPERATIONS_KEY) {
       jaegerQuery = omit(jaegerQuery, 'operation');
     }
 
+    if (jaegerQuery.tags) {
+      jaegerQuery = {
+        ...jaegerQuery,
+        tags: convertTagsLogfmt(jaegerQuery.tags.toString()),
+      };
+    }
+
     // TODO: this api is internal, used in jaeger ui. Officially they have gRPC api that should be used.
     return this._request(`/api/traces`, {
       ...jaegerQuery,
-      ...this.getTimeRange(),
+      ...this.getTimeRange(options.range),
       lookback: 'custom',
     }).pipe(
       map((response) => {
@@ -116,11 +154,44 @@ export class JaegerDatasource extends DataSourceApi<JaegerQuery, JaegerJsonData>
     );
   }
 
-  async testDatasource(): Promise<any> {
+  interpolateVariablesInQueries(queries: JaegerQuery[], scopedVars: ScopedVars): JaegerQuery[] {
+    if (!queries || queries.length === 0) {
+      return [];
+    }
+
+    return queries.map((query) => {
+      return {
+        ...query,
+        datasource: this.getRef(),
+        ...this.applyVariables(query, scopedVars),
+      };
+    });
+  }
+
+  applyVariables(query: JaegerQuery, scopedVars: ScopedVars) {
+    let expandedQuery = { ...query };
+
+    if (query.tags && this.templateSrv.containsTemplate(query.tags)) {
+      expandedQuery = {
+        ...query,
+        tags: this.templateSrv.replace(query.tags, scopedVars),
+      };
+    }
+
+    return {
+      ...expandedQuery,
+      service: this.templateSrv.replace(query.service ?? '', scopedVars),
+      operation: this.templateSrv.replace(query.operation ?? '', scopedVars),
+      minDuration: this.templateSrv.replace(query.minDuration ?? '', scopedVars),
+      maxDuration: this.templateSrv.replace(query.maxDuration ?? '', scopedVars),
+    };
+  }
+
+  async testDatasource() {
     return lastValueFrom(
       this._request('/api/services').pipe(
         map((res) => {
-          const values: any[] = res?.data?.data || [];
+          const values = res?.data?.data || [];
           const testResult =
             values.length > 0
               ? { status: 'success', message: 'Data source connected and services found.' }
@@ -131,7 +202,7 @@ export class JaegerDatasource extends DataSourceApi<JaegerQuery, JaegerJsonData>
                 };
           return testResult;
         }),
-        catchError((err: any) => {
+        catchError((err) => {
           let message = 'Jaeger: ';
           if (err.statusText) {
             message += err.statusText;
@@ -154,8 +225,7 @@ export class JaegerDatasource extends DataSourceApi<JaegerQuery, JaegerJsonData>
     );
   }
 
-  getTimeRange(): { start: number; end: number } {
-    const range = this.timeSrv.timeRange();
+  getTimeRange(range = getDefaultTimeRange()): { start: number; end: number } {
     return {
       start: getTime(range.from, false),
       end: getTime(range.to, true),
@@ -166,8 +236,12 @@ export class JaegerDatasource extends DataSourceApi<JaegerQuery, JaegerJsonData>
     return query.query || '';
   }
 
-  private _request(apiUrl: string, data?: any, options?: Partial<BackendSrvRequest>): Observable<Record<string, any>> {
-    const params = data ? serializeParams(data) : '';
+  private _request(
+    apiUrl: string,
+    data?: Record<string, unknown>,
+    options?: Partial<BackendSrvRequest>
+  ): Observable<Record<string, any>> {
+    const params = data ? urlUtil.serializeParams(data) : '';
     const url = `${this.instanceSettings.url}${apiUrl}${params.length ? `?${params}` : ''}`;
     const req = {
       ...options,

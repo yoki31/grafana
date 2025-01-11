@@ -1,6 +1,4 @@
-import React from 'react';
-import { LoadingPlaceholder } from '@grafana/ui';
-import { Page } from './Page';
+import { Box, LoadingPlaceholder } from '@grafana/ui';
 
 export interface Props {
   text?: string;
@@ -8,10 +6,8 @@ export interface Props {
 
 export const Loader = ({ text = 'Loading...' }: Props) => {
   return (
-    <Page>
-      <div className="page-loader-wrapper">
-        <LoadingPlaceholder text={text} />
-      </div>
-    </Page>
+    <Box display="flex" alignItems="center" direction="column" justifyContent="center" paddingTop={10}>
+      <LoadingPlaceholder text={text} />
+    </Box>
   );
 };

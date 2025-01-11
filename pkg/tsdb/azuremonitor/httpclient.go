@@ -1,42 +1,50 @@
 package azuremonitor
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
 	"net/http"
 
+	"github.com/grafana/grafana-azure-sdk-go/v2/azcredentials"
+	"github.com/grafana/grafana-azure-sdk-go/v2/azhttpclient"
+	"github.com/grafana/grafana-azure-sdk-go/v2/azsettings"
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
-	"github.com/grafana/grafana/pkg/setting"
-	"github.com/grafana/grafana/pkg/tsdb/azuremonitor/aztokenprovider"
-	"github.com/grafana/grafana/pkg/tsdb/azuremonitor/deprecated"
+
 	"github.com/grafana/grafana/pkg/tsdb/azuremonitor/types"
 )
 
-func getMiddlewares(route types.AzRoute, model types.DatasourceInfo, cfg *setting.Cfg) ([]httpclient.Middleware, error) {
-	middlewares := []httpclient.Middleware{}
-
-	if len(route.Scopes) > 0 {
-		tokenProvider, err := aztokenprovider.NewAzureAccessTokenProvider(cfg, model.Credentials)
-		if err != nil {
-			return nil, err
-		}
-		middlewares = append(middlewares, aztokenprovider.AuthMiddleware(tokenProvider, route.Scopes))
-	}
-
-	// Remove with Grafana 9
-	if apiKeyMiddleware := deprecated.GetAppInsightsMiddleware(route.URL, model.DecryptedSecureJSONData["appInsightsApiKey"]); apiKeyMiddleware != nil {
-		middlewares = append(middlewares, apiKeyMiddleware)
-	}
-
-	return middlewares, nil
+type Provider interface {
+	New(...httpclient.Options) (*http.Client, error)
+	GetTransport(...httpclient.Options) (http.RoundTripper, error)
+	GetTLSConfig(...httpclient.Options) (*tls.Config, error)
 }
 
-func newHTTPClient(route types.AzRoute, model types.DatasourceInfo, cfg *setting.Cfg, clientProvider httpclient.Provider) (*http.Client, error) {
-	m, err := getMiddlewares(route, model, cfg)
+func newHTTPClient(ctx context.Context, route types.AzRoute, model types.DatasourceInfo, settings *backend.DataSourceInstanceSettings, azureSettings *azsettings.AzureSettings, clientProvider Provider) (*http.Client, error) {
+	clientOpts, err := settings.HTTPClientOptions(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting HTTP options: %w", err)
 	}
 
-	return clientProvider.New(httpclient.Options{
-		Headers:     route.Headers,
-		Middlewares: m,
-	})
+	for header, value := range route.Headers {
+		clientOpts.Header.Add(header, value)
+	}
+
+	// Use Azure credentials if the route has OAuth scopes configured
+	if len(route.Scopes) > 0 {
+		if cred, ok := model.Credentials.(*azcredentials.AzureClientSecretCredentials); ok && cred.ClientSecret == "" {
+			return nil, backend.DownstreamError(errors.New("unable to initialize HTTP Client: clientSecret not found"))
+		}
+
+		authOpts := azhttpclient.NewAuthOptions(azureSettings)
+		authOpts.AllowUserIdentity()
+		// Allows requests from the same identity but different Grafana users to be identified as such by the server
+		authOpts.AddRateLimitSession(true)
+		authOpts.Scopes(route.Scopes)
+		azhttpclient.AddAzureAuthentication(&clientOpts, authOpts, model.Credentials)
+	}
+
+	return clientProvider.New(clientOpts)
 }

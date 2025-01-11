@@ -7,10 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/lib/pq"
-
-	"github.com/grafana/grafana/pkg/util/errutil"
 	"xorm.io/xorm"
 )
 
@@ -18,10 +15,9 @@ type PostgresDialect struct {
 	BaseDialect
 }
 
-func NewPostgresDialect(engine *xorm.Engine) Dialect {
+func NewPostgresDialect() Dialect {
 	d := PostgresDialect{}
 	d.BaseDialect.dialect = &d
-	d.BaseDialect.engine = engine
 	d.BaseDialect.driverName = Postgres
 	return &d
 }
@@ -46,14 +42,8 @@ func (db *PostgresDialect) BooleanStr(value bool) string {
 	return strconv.FormatBool(value)
 }
 
-func (db *PostgresDialect) Default(col *Column) string {
-	if col.Type == DB_Bool {
-		if col.Default == "0" {
-			return "FALSE"
-		}
-		return "TRUE"
-	}
-	return col.Default
+func (db *PostgresDialect) BatchSize() int {
+	return 1000
 }
 
 func (db *PostgresDialect) SQLType(c *Column) string {
@@ -84,7 +74,7 @@ func (db *PostgresDialect) SQLType(c *Column) string {
 	case DB_NVarchar:
 		res = DB_Varchar
 	case DB_Uuid:
-		res = DB_Uuid
+		return DB_Uuid // do not add the length options
 	case DB_Blob, DB_TinyBlob, DB_MediumBlob, DB_LongBlob:
 		return DB_Bytea
 	case DB_Double:
@@ -106,8 +96,8 @@ func (db *PostgresDialect) SQLType(c *Column) string {
 	return res
 }
 
-func (db *PostgresDialect) IndexCheckSQL(tableName, indexName string) (string, []interface{}) {
-	args := []interface{}{tableName, indexName}
+func (db *PostgresDialect) IndexCheckSQL(tableName, indexName string) (string, []any) {
+	args := []any{tableName, indexName}
 	sql := "SELECT 1 FROM " + db.Quote("pg_indexes") + " WHERE" + db.Quote("tablename") + "=? AND " + db.Quote("indexname") + "=?"
 	return sql, args
 }
@@ -128,16 +118,16 @@ func (db *PostgresDialect) UpdateTableSQL(tableName string, columns []*Column) s
 	return "ALTER TABLE " + db.Quote(tableName) + " " + strings.Join(statements, ", ") + ";"
 }
 
-func (db *PostgresDialect) CleanDB() error {
-	sess := db.engine.NewSession()
+func (db *PostgresDialect) CleanDB(engine *xorm.Engine) error {
+	sess := engine.NewSession()
 	defer sess.Close()
 
 	if _, err := sess.Exec("DROP SCHEMA public CASCADE;"); err != nil {
-		return errutil.Wrap("failed to drop schema public", err)
+		return fmt.Errorf("%v: %w", "failed to drop schema public", err)
 	}
 
 	if _, err := sess.Exec("CREATE SCHEMA public;"); err != nil {
-		return errutil.Wrap("failed to create schema public", err)
+		return fmt.Errorf("%v: %w", "failed to create schema public", err)
 	}
 
 	return nil
@@ -145,12 +135,12 @@ func (db *PostgresDialect) CleanDB() error {
 
 // TruncateDBTables truncates all the tables.
 // A special case is the dashboard_acl table where we keep the default permissions.
-func (db *PostgresDialect) TruncateDBTables() error {
-	tables, err := db.engine.DBMetas()
+func (db *PostgresDialect) TruncateDBTables(engine *xorm.Engine) error {
+	tables, err := engine.DBMetas()
 	if err != nil {
 		return err
 	}
-	sess := db.engine.NewSession()
+	sess := engine.NewSession()
 	defer sess.Close()
 
 	for _, table := range tables {
@@ -162,17 +152,17 @@ func (db *PostgresDialect) TruncateDBTables() error {
 		case "dashboard_acl":
 			// keep default dashboard permissions
 			if _, err := sess.Exec(fmt.Sprintf("DELETE FROM %v WHERE dashboard_id != -1 AND org_id != -1;", db.Quote(table.Name))); err != nil {
-				return errutil.Wrapf(err, "failed to truncate table %q", table.Name)
+				return fmt.Errorf("failed to truncate table %q: %w", table.Name, err)
 			}
 			if _, err := sess.Exec(fmt.Sprintf("ALTER SEQUENCE %v RESTART WITH 3;", db.Quote(fmt.Sprintf("%v_id_seq", table.Name)))); err != nil {
-				return errutil.Wrapf(err, "failed to reset table %q", table.Name)
+				return fmt.Errorf("failed to reset table %q: %w", table.Name, err)
 			}
 		default:
 			if _, err := sess.Exec(fmt.Sprintf("TRUNCATE TABLE %v RESTART IDENTITY CASCADE;", db.Quote(table.Name))); err != nil {
 				if db.isUndefinedTable(err) {
 					continue
 				}
-				return errutil.Wrapf(err, "failed to truncate table %q", table.Name)
+				return fmt.Errorf("failed to truncate table %q: %w", table.Name, err)
 			}
 		}
 	}
@@ -218,16 +208,24 @@ func (db *PostgresDialect) PostInsertId(table string, sess *xorm.Session) error 
 
 	// sync primary key sequence of org table
 	if _, err := sess.Exec("SELECT setval('org_id_seq', (SELECT max(id) FROM org));"); err != nil {
-		return errutil.Wrapf(err, "failed to sync primary key for org table")
+		return fmt.Errorf("failed to sync primary key for org table: %w", err)
 	}
 	return nil
 }
 
 // UpsertSQL returns the upsert sql statement for PostgreSQL dialect
 func (db *PostgresDialect) UpsertSQL(tableName string, keyCols, updateCols []string) string {
+	str, _ := db.UpsertMultipleSQL(tableName, keyCols, updateCols, 1)
+	return str
+}
+
+// UpsertMultipleSQL returns the upsert sql statement for PostgreSQL dialect
+func (db *PostgresDialect) UpsertMultipleSQL(tableName string, keyCols, updateCols []string, count int) (string, error) {
+	if count < 1 {
+		return "", fmt.Errorf("upsert statement must have count >= 1. Got %v", count)
+	}
 	columnsStr := strings.Builder{}
 	onConflictStr := strings.Builder{}
-	colPlaceHoldersStr := strings.Builder{}
 	setStr := strings.Builder{}
 
 	const separator = ", "
@@ -238,8 +236,7 @@ func (db *PostgresDialect) UpsertSQL(tableName string, keyCols, updateCols []str
 		}
 
 		columnsStr.WriteString(fmt.Sprintf("%s%s", db.Quote(c), separatorVar))
-		colPlaceHoldersStr.WriteString(fmt.Sprintf("?%s", separatorVar))
-		setStr.WriteString(fmt.Sprintf("%s=excluded.%s%s", db.Quote(c), db.Quote(c), separatorVar))
+		setStr.WriteString(fmt.Sprintf("%s=EXCLUDED.%s%s", db.Quote(c), db.Quote(c), separatorVar))
 	}
 
 	separatorVar = separator
@@ -250,14 +247,39 @@ func (db *PostgresDialect) UpsertSQL(tableName string, keyCols, updateCols []str
 		onConflictStr.WriteString(fmt.Sprintf("%s%s", db.Quote(c), separatorVar))
 	}
 
-	s := fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) ON CONFLICT(%s) DO UPDATE SET %s`,
+	valuesStr := strings.Builder{}
+	separatorVar = separator
+	nextPlaceHolder := 1
+
+	for i := 0; i < count; i++ {
+		if i == count-1 {
+			separatorVar = ""
+		}
+
+		colPlaceHoldersStr := strings.Builder{}
+		placeHolderSep := separator
+		for j := 1; j <= len(updateCols); j++ {
+			if j == len(updateCols) {
+				placeHolderSep = ""
+			}
+			placeHolder := fmt.Sprintf("$%v%s", nextPlaceHolder, placeHolderSep)
+			nextPlaceHolder++
+			colPlaceHoldersStr.WriteString(placeHolder)
+		}
+		colPlaceHolders := colPlaceHoldersStr.String()
+
+		valuesStr.WriteString(fmt.Sprintf("(%s)%s", colPlaceHolders, separatorVar))
+	}
+
+	s := fmt.Sprintf(`INSERT INTO %s (%s) VALUES %s ON CONFLICT (%s) DO UPDATE SET %s;`,
 		tableName,
 		columnsStr.String(),
-		colPlaceHoldersStr.String(),
+		valuesStr.String(),
 		onConflictStr.String(),
 		setStr.String(),
 	)
-	return s
+
+	return s, nil
 }
 
 func (db *PostgresDialect) Lock(cfg LockCfg) error {
@@ -269,11 +291,7 @@ func (db *PostgresDialect) Lock(cfg LockCfg) error {
 	query := "SELECT pg_try_advisory_lock(?)"
 	var success bool
 
-	key, err := db.getLockKey()
-	if err != nil {
-		return fmt.Errorf("failed to generate advisory lock key: %w", err)
-	}
-	_, err = cfg.Session.SQL(query, key).Get(&success)
+	_, err := cfg.Session.SQL(query, cfg.Key).Get(&success)
 	if err != nil {
 		return err
 	}
@@ -304,11 +322,7 @@ func (db *PostgresDialect) Unlock(cfg LockCfg) error {
 	query := "SELECT pg_advisory_unlock(?)"
 	var success bool
 
-	key, err := db.getLockKey()
-	if err != nil {
-		return fmt.Errorf("failed to generate advisory lock key: %w", err)
-	}
-	_, err = cfg.Session.SQL(query, key).Get(&success)
+	_, err := cfg.Session.SQL(query, cfg.Key).Get(&success)
 	if err != nil {
 		return err
 	}
@@ -318,7 +332,7 @@ func (db *PostgresDialect) Unlock(cfg LockCfg) error {
 	return nil
 }
 
-func getDBName(dsn string) (string, error) {
+func (db *PostgresDialect) GetDBName(dsn string) (string, error) {
 	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
 		parsedDSN, err := pq.ParseURL(dsn)
 		if err != nil {
@@ -332,16 +346,4 @@ func getDBName(dsn string) (string, error) {
 		return "", fmt.Errorf("failed to get database name")
 	}
 	return string(submatch[1]), nil
-}
-
-func (db *PostgresDialect) getLockKey() (string, error) {
-	dbName, err := getDBName(db.engine.DataSourceName())
-	if err != nil {
-		return "", err
-	}
-	key, err := database.GenerateAdvisoryLockId(dbName)
-	if err != nil {
-		return "", err
-	}
-	return key, nil
 }

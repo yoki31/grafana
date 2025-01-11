@@ -1,5 +1,7 @@
-import { SelectableValue } from '@grafana/data';
 import { FeatureLike } from 'ol/Feature';
+
+import { SelectableValue } from '@grafana/data';
+
 import { GeometryTypeId } from '../style/types';
 
 export interface LayerContentInfo {
@@ -11,7 +13,7 @@ export function getLayerPropertyInfo(features: FeatureLike[]): LayerContentInfo 
   const types = new Set<string>();
   const props = new Set<string>();
   features.some((feature, idx) => {
-    for (const key of Object.keys(feature.getProperties())) {
+    for (const key in feature.getProperties()) {
       if (key === 'geometry') {
         continue;
       }

@@ -1,15 +1,19 @@
-import React from 'react';
-import { withCenteredStory, withHorizontallyCenteredStory } from '../../utils/storybook/withCenteredStory';
-import { Layout, LayoutProps } from './Layout';
+import { StoryFn, Meta } from '@storybook/react';
+
 import { Button, VerticalGroup, HorizontalGroup } from '@grafana/ui';
+
 import { withStoryContainer } from '../../utils/storybook/withStoryContainer';
-import { Story, Meta } from '@storybook/react';
+
+import { Layout, LayoutProps } from './Layout';
 import mdx from './Layout.mdx';
 
-export default {
+const meta: Meta = {
   title: 'Layout/Groups',
   component: Layout,
-  decorators: [withStoryContainer, withCenteredStory, withHorizontallyCenteredStory],
+  decorators: [withStoryContainer],
+  // SB7 has broken subcomponent types due to dropping support for the feature
+  // https://github.com/storybookjs/storybook/issues/20782
+  // @ts-ignore
   subcomponents: { HorizontalGroup, VerticalGroup },
   parameters: {
     docs: {
@@ -51,22 +55,26 @@ export default {
       },
     },
   },
-} as Meta;
+};
 
-export const Horizontal: Story<LayoutProps> = (args) => {
+export default meta;
+
+export const Horizontal: StoryFn<LayoutProps> = (args) => {
   return (
     <HorizontalGroup {...args}>
+      <Button variant="secondary">Cancel</Button>
+      <Button variant="destructive">Delete</Button>
       <Button>Save</Button>
-      <Button>Cancel</Button>
     </HorizontalGroup>
   );
 };
 
-export const Vertical: Story<LayoutProps> = (args) => {
+export const Vertical: StoryFn<LayoutProps> = (args) => {
   return (
     <VerticalGroup {...args}>
+      <Button variant="secondary">Cancel</Button>
+      <Button variant="destructive">Delete</Button>
       <Button>Save</Button>
-      <Button>Cancel</Button>
     </VerticalGroup>
   );
 };

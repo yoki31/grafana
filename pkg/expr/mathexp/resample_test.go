@@ -13,8 +13,8 @@ func TestResampleSeries(t *testing.T) {
 	var tests = []struct {
 		name             string
 		interval         time.Duration
-		downsampler      string
-		upsampler        string
+		downsampler      ReducerID
+		upsampler        Upsampler
 		timeRange        backend.TimeRange
 		seriesToResample Series
 		series           Series
@@ -243,6 +243,38 @@ func TestResampleSeries(t *testing.T) {
 				time.Unix(8, 0), float64Pointer(1),
 			}, tp{
 				time.Unix(10, 0), nil,
+			}),
+		},
+		{
+			name:        "resample series: downsampling (last / pad )",
+			interval:    time.Second * 3,
+			downsampler: "last",
+			upsampler:   "pad",
+			timeRange: backend.TimeRange{
+				From: time.Unix(0, 0),
+				To:   time.Unix(11, 0),
+			},
+			seriesToResample: makeSeries("", nil, tp{
+				time.Unix(0, 0), float64Pointer(0),
+			}, tp{
+				time.Unix(2, 0), float64Pointer(2),
+			}, tp{
+				time.Unix(4, 0), float64Pointer(3),
+			}, tp{
+				time.Unix(6, 0), float64Pointer(4),
+			}, tp{
+				time.Unix(8, 0), float64Pointer(0),
+			}, tp{
+				time.Unix(10, 0), float64Pointer(1),
+			}),
+			series: makeSeries("", nil, tp{
+				time.Unix(0, 0), float64Pointer(0),
+			}, tp{
+				time.Unix(3, 0), float64Pointer(2),
+			}, tp{
+				time.Unix(6, 0), float64Pointer(4),
+			}, tp{
+				time.Unix(9, 0), float64Pointer(0),
 			}),
 		},
 	}

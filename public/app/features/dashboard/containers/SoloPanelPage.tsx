@@ -1,11 +1,19 @@
-import React, { Component } from 'react';
+import { css } from '@emotion/css';
+import { useCallback, useEffect, useState } from 'react';
 import { connect, ConnectedProps } from 'react-redux';
+import { useParams } from 'react-router-dom-v5-compat';
 import AutoSizer from 'react-virtualized-auto-sizer';
+
+import { GrafanaTheme2 } from '@grafana/data';
+import { Alert, useStyles2 } from '@grafana/ui';
+import { GrafanaRouteComponentProps } from 'app/core/navigation/types';
+import { DashboardModel } from 'app/features/dashboard/state/DashboardModel';
+import { PanelModel } from 'app/features/dashboard/state/PanelModel';
+import { StoreState } from 'app/types';
+
+import { useGrafana } from '../../../core/context/GrafanaContext';
 import { DashboardPanel } from '../dashgrid/DashboardPanel';
 import { initDashboard } from '../state/initDashboard';
-import { StoreState } from 'app/types';
-import { DashboardModel, PanelModel } from 'app/features/dashboard/state';
-import { GrafanaRouteComponentProps } from 'app/core/navigation/types';
 
 export interface DashboardPageRouteParams {
   uid?: string;
@@ -23,7 +31,7 @@ const mapDispatchToProps = {
 
 const connector = connect(mapStateToProps, mapDispatchToProps);
 
-export type Props = GrafanaRouteComponentProps<DashboardPageRouteParams, { panelId: string }> &
+export type Props = GrafanaRouteComponentProps<DashboardPageRouteParams, { panelId: string; timezone?: string }> &
   ConnectedProps<typeof connector>;
 
 export interface State {
@@ -31,68 +39,66 @@ export interface State {
   notFound: boolean;
 }
 
-export class SoloPanelPage extends Component<Props, State> {
-  state: State = {
-    panel: null,
-    notFound: false,
-  };
+export const SoloPanelPage = ({ route, queryParams, dashboard, initDashboard }: Props) => {
+  const [panel, setPanel] = useState<State['panel']>(null);
+  const [notFound, setNotFound] = useState(false);
+  const { keybindings } = useGrafana();
 
-  componentDidMount() {
-    const { match, route } = this.props;
+  const { slug, uid, type } = useParams();
 
-    this.props.initDashboard({
-      urlSlug: match.params.slug,
-      urlUid: match.params.uid,
-      urlType: match.params.type,
+  useEffect(() => {
+    initDashboard({
+      urlSlug: slug,
+      urlUid: uid,
+      urlType: type,
       routeName: route.routeName,
       fixUrl: false,
+      keybindingSrv: keybindings,
     });
-  }
+  }, [slug, uid, type, route.routeName, initDashboard, keybindings]);
 
-  getPanelId(): number {
-    return parseInt(this.props.queryParams.panelId ?? '0', 10);
-  }
+  const getPanelId = useCallback(() => {
+    return parseInt(queryParams.panelId ?? '0', 10);
+  }, [queryParams.panelId]);
 
-  componentDidUpdate(prevProps: Props) {
-    const { dashboard } = this.props;
-
-    if (!dashboard) {
-      return;
-    }
-
-    // we just got a new dashboard
-    if (!prevProps.dashboard || prevProps.dashboard.uid !== dashboard.uid) {
-      const panel = dashboard.getPanelByUrlId(this.props.queryParams.panelId);
+  useEffect(() => {
+    if (dashboard) {
+      const panel = dashboard.getPanelByUrlId(queryParams.panelId);
 
       if (!panel) {
-        this.setState({ notFound: true });
+        setNotFound(true);
         return;
       }
 
-      this.setState({ panel });
+      if (panel) {
+        dashboard.exitViewPanel(panel);
+      }
+      setPanel(panel);
+      dashboard.initViewPanel(panel);
     }
-  }
+  }, [dashboard, queryParams.panelId]);
 
-  render() {
-    return (
-      <SoloPanel
-        dashboard={this.props.dashboard}
-        notFound={this.state.notFound}
-        panel={this.state.panel}
-        panelId={this.getPanelId()}
-      />
-    );
-  }
-}
+  return (
+    <SoloPanel
+      dashboard={dashboard}
+      notFound={notFound}
+      panel={panel}
+      panelId={getPanelId()}
+      timezone={queryParams.timezone}
+    />
+  );
+};
 
 export interface SoloPanelProps extends State {
   dashboard: DashboardModel | null;
   panelId: number;
+  timezone?: string;
 }
 
-export const SoloPanel = ({ dashboard, notFound, panel, panelId }: SoloPanelProps) => {
+export const SoloPanel = ({ dashboard, notFound, panel, panelId, timezone }: SoloPanelProps) => {
+  const styles = useStyles2(getStyles);
   if (notFound) {
-    return <div className="alert alert-error">Panel with id {panelId} not found</div>;
+    return <Alert severity="error" title={`Panel with id ${panelId} not found`} />;
   }
 
   if (!panel || !dashboard) {
@@ -100,7 +106,7 @@ export const SoloPanel = ({ dashboard, notFound, panel, panelId }: SoloPanelProp
   }
 
   return (
-    <div className="panel-solo">
+    <div className={styles.container}>
       <AutoSizer>
         {({ width, height }) => {
           if (width === 0) {
@@ -114,8 +120,10 @@ export const SoloPanel = ({ dashboard, notFound, panel, panelId }: SoloPanelProp
               dashboard={dashboard}
               panel={panel}
               isEditing={false}
-              isViewing={false}
+              isViewing={true}
               lazy={false}
+              timezone={timezone}
+              hideMenu={true}
             />
           );
         }}
@@ -125,3 +133,16 @@ export const SoloPanel = ({ dashboard, notFound, panel, panelId }: SoloPanelProp
 };
 
 export default connector(SoloPanelPage);
+
+const getStyles = (theme: GrafanaTheme2) => ({
+  container: css({
+    position: 'fixed',
+    bottom: 0,
+    right: 0,
+    margin: 0,
+    left: 0,
+    top: 0,
+    width: '100%',
+    height: '100%',
+  }),
+});

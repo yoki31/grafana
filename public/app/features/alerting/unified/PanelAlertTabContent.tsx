@@ -1,30 +1,37 @@
 import { css } from '@emotion/css';
+
 import { GrafanaTheme2 } from '@grafana/data';
-import { Alert, CustomScrollbar, LoadingPlaceholder, useStyles2 } from '@grafana/ui';
-import { DashboardModel, PanelModel } from 'app/features/dashboard/state';
-import React, { FC } from 'react';
+import { selectors } from '@grafana/e2e-selectors';
+import { Alert, LoadingPlaceholder, ScrollContainer, useStyles2 } from '@grafana/ui';
+import { contextSrv } from 'app/core/services/context_srv';
+import { DashboardModel } from 'app/features/dashboard/state/DashboardModel';
+import { PanelModel } from 'app/features/dashboard/state/PanelModel';
+
 import { NewRuleFromPanelButton } from './components/panel-alerts-tab/NewRuleFromPanelButton';
 import { RulesTable } from './components/rules/RulesTable';
 import { usePanelCombinedRules } from './hooks/usePanelCombinedRules';
-import { selectors } from '@grafana/e2e-selectors';
+import { getRulesPermissions } from './utils/access-control';
+import { stringifyErrorLike } from './utils/misc';
 
 interface Props {
   dashboard: DashboardModel;
   panel: PanelModel;
 }
 
-export const PanelAlertTabContent: FC<Props> = ({ dashboard, panel }) => {
+export const PanelAlertTabContent = ({ dashboard, panel }: Props) => {
   const styles = useStyles2(getStyles);
   const { errors, loading, rules } = usePanelCombinedRules({
-    dashboard,
-    panel,
+    dashboardUID: dashboard.uid,
+    panelId: panel.id,
     poll: true,
   });
+  const permissions = getRulesPermissions('grafana');
+  const canCreateRules = contextSrv.hasPermission(permissions.create);
 
   const alert = errors.length ? (
     <Alert title="Errors loading rules" severity="error">
       {errors.map((error, index) => (
-        <div key={index}>Failed to load Grafana rules state: {error.message || 'Unknown error.'}</div>
+        <div key={index}>Failed to load Grafana rules state: {stringifyErrorLike(error)}</div>
       ))}
     </Alert>
   ) : null;
@@ -40,25 +47,25 @@ export const PanelAlertTabContent: FC<Props> = ({ dashboard, panel }) => {
 
   if (rules.length) {
     return (
-      <CustomScrollbar autoHeightMin="100%">
+      <ScrollContainer minHeight="100%">
         <div className={styles.innerWrapper}>
           {alert}
           <RulesTable rules={rules} />
-          {!!dashboard.meta.canSave && (
+          {!!dashboard.meta.canSave && canCreateRules && (
             <NewRuleFromPanelButton className={styles.newButton} panel={panel} dashboard={dashboard} />
           )}
         </div>
-      </CustomScrollbar>
+      </ScrollContainer>
     );
   }
 
   return (
-    <div aria-label={selectors.components.PanelAlertTabContent.content} className={styles.noRulesWrapper}>
+    <div data-testid={selectors.components.PanelAlertTabContent.content} className={styles.noRulesWrapper}>
       {alert}
       {!!dashboard.uid && (
         <>
           <p>There are no alert rules linked to this panel.</p>
-          {!!dashboard.meta.canSave && <NewRuleFromPanelButton panel={panel} dashboard={dashboard} />}
+          {!!dashboard.meta.canSave && canCreateRules && <NewRuleFromPanelButton panel={panel} dashboard={dashboard} />}
         </>
       )}
       {!dashboard.uid && !!dashboard.meta.canSave && (
@@ -71,15 +78,15 @@ export const PanelAlertTabContent: FC<Props> = ({ dashboard, panel }) => {
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  newButton: css`
-    margin-top: ${theme.spacing(3)};
-  `,
-  innerWrapper: css`
-    padding: ${theme.spacing(2)};
-  `,
-  noRulesWrapper: css`
-    margin: ${theme.spacing(2)};
-    background-color: ${theme.colors.background.secondary};
-    padding: ${theme.spacing(3)};
-  `,
+  newButton: css({
+    marginTop: theme.spacing(3),
+  }),
+  innerWrapper: css({
+    padding: theme.spacing(2),
+  }),
+  noRulesWrapper: css({
+    margin: theme.spacing(2),
+    backgroundColor: theme.colors.background.secondary,
+    padding: theme.spacing(3),
+  }),
 });

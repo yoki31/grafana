@@ -3,20 +3,41 @@ package guardian
 import (
 	"context"
 
-	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
-	"github.com/grafana/grafana/pkg/services/featuremgmt"
-	"github.com/grafana/grafana/pkg/services/sqlstore"
+	"github.com/grafana/grafana/pkg/services/dashboards"
+	"github.com/grafana/grafana/pkg/services/folder"
+	"github.com/grafana/grafana/pkg/services/team"
+	"github.com/grafana/grafana/pkg/setting"
 )
 
 type Provider struct{}
 
-func ProvideService(store *sqlstore.SQLStore, ac accesscontrol.AccessControl, permissionsServices accesscontrol.PermissionsServices, features featuremgmt.FeatureToggles) *Provider {
-	if features.IsEnabled(featuremgmt.FlagAccesscontrol) {
-		// TODO: Fix this hack, see https://github.com/grafana/grafana-enterprise/issues/2935
-		New = func(ctx context.Context, dashId int64, orgId int64, user *models.SignedInUser) DashboardGuardian {
-			return NewAccessControlDashboardGuardian(ctx, dashId, user, store, ac, permissionsServices)
-		}
-	}
+func ProvideService(
+	cfg *setting.Cfg, ac accesscontrol.AccessControl,
+	dashboardService dashboards.DashboardService, teamService team.Service,
+) *Provider {
+	// TODO: Fix this hack, see https://github.com/grafana/grafana-enterprise/issues/2935
+	InitAccessControlGuardian(cfg, ac, dashboardService)
 	return &Provider{}
+}
+
+func InitAccessControlGuardian(
+	cfg *setting.Cfg, ac accesscontrol.AccessControl, dashboardService dashboards.DashboardService,
+) {
+	New = func(ctx context.Context, dashId int64, orgId int64, user identity.Requester) (DashboardGuardian, error) {
+		return NewAccessControlDashboardGuardian(ctx, cfg, dashId, user, ac, dashboardService)
+	}
+
+	NewByUID = func(ctx context.Context, dashUID string, orgId int64, user identity.Requester) (DashboardGuardian, error) {
+		return NewAccessControlDashboardGuardianByUID(ctx, cfg, dashUID, user, ac, dashboardService)
+	}
+
+	NewByDashboard = func(ctx context.Context, dash *dashboards.Dashboard, orgId int64, user identity.Requester) (DashboardGuardian, error) {
+		return NewAccessControlDashboardGuardianByDashboard(ctx, cfg, dash, user, ac, dashboardService)
+	}
+
+	NewByFolder = func(ctx context.Context, f *folder.Folder, orgId int64, user identity.Requester) (DashboardGuardian, error) {
+		return NewAccessControlFolderGuardian(ctx, cfg, f, user, ac, dashboardService)
+	}
 }

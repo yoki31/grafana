@@ -1,4 +1,4 @@
-import { ArgsTable } from '@storybook/addon-docs/blocks';
+import { ArgTypes } from '@storybook/blocks';
 import { DatePicker } from './DatePicker';
 
 # DatePicker
@@ -8,7 +8,7 @@ A component with a calendar view for selecting a date.
 ### Usage
 
 ```tsx
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { DatePicker, Button } from '@grafana/ui';
 
 const [date, setDate] = useState<Date>(new Date());
@@ -24,4 +24,4 @@ return (
 
 ### Props
 
-<ArgsTable of={DatePicker} />
+<ArgTypes of={DatePicker} />

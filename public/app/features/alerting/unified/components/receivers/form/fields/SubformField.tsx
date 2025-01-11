@@ -1,9 +1,12 @@
-import React, { FC, useState } from 'react';
-import { NotificationChannelOption } from 'app/types';
-import { FieldError, DeepMap, useFormContext } from 'react-hook-form';
-import { OptionField } from './OptionField';
+import { useState } from 'react';
+import { DeepMap, FieldError, useFormContext } from 'react-hook-form';
+
 import { Button, useStyles2 } from '@grafana/ui';
+import { NotificationChannelOption, NotificationChannelSecureFields } from 'app/types';
+
 import { ActionIcon } from '../../../rules/ActionIcon';
+
+import { OptionField } from './OptionField';
 import { getReceiverFormFieldStyles } from './styles';
 
 interface Props {
@@ -12,9 +15,19 @@ interface Props {
   pathPrefix: string;
   errors?: DeepMap<any, FieldError>;
   readOnly?: boolean;
+  secureFields?: NotificationChannelSecureFields;
+  onResetSecureField?: (propertyName: string) => void;
 }
 
-export const SubformField: FC<Props> = ({ option, pathPrefix, errors, defaultValue, readOnly = false }) => {
+export const SubformField = ({
+  option,
+  pathPrefix,
+  errors,
+  defaultValue,
+  readOnly = false,
+  secureFields = {},
+  onResetSecureField,
+}: Props) => {
   const styles = useStyles2(getReceiverFormFieldStyles);
   const name = `${pathPrefix}${option.propertyName}`;
   const { watch } = useFormContext();
@@ -42,7 +55,10 @@ export const SubformField: FC<Props> = ({ option, pathPrefix, errors, defaultVal
             return (
               <OptionField
                 readOnly={readOnly}
+                secureFields={secureFields}
+                onResetSecureField={onResetSecureField}
                 defaultValue={defaultValue?.[subOption.propertyName]}
+                parentOption={option}
                 key={subOption.propertyName}
                 option={subOption}
                 pathPrefix={`${name}.`}

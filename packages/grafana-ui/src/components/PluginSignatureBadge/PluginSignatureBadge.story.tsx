@@ -1,12 +1,12 @@
-import React from 'react';
-import { Story } from '@storybook/react';
-import { PluginSignatureBadge } from '@grafana/ui';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
-import { PluginSignatureStatus } from '@grafana/data';
+import { Meta, StoryFn } from '@storybook/react';
 
-export default {
+import { PluginSignatureStatus } from '@grafana/data';
+import { PluginSignatureBadge } from '@grafana/ui';
+
+import mdx from './PluginSignatureBadge.mdx';
+
+const meta: Meta<typeof PluginSignatureBadge> = {
   title: 'Data Display/PluginSignatureBadge',
-  decorators: [withCenteredStory],
   component: PluginSignatureBadge,
   argTypes: {
     status: {
@@ -22,11 +22,18 @@ export default {
       ],
     },
   },
+  parameters: {
+    docs: {
+      page: mdx,
+    },
+  },
 };
 
-export const Basic: Story = (args) => {
+export const Basic: StoryFn<typeof PluginSignatureBadge> = (args) => {
   return <PluginSignatureBadge status={args.status} />;
 };
 Basic.args = {
   status: PluginSignatureStatus.valid,
 };
+
+export default meta;

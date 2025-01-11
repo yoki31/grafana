@@ -1,20 +1,23 @@
-import { UrlQueryMap } from '@grafana/data';
+import { UrlQueryMap, VariableRefresh } from '@grafana/data';
+import { setDataSourceSrv } from '@grafana/runtime';
+import { DashboardModel } from 'app/features/dashboard/state/DashboardModel';
+import { DatasourceSrv } from 'app/features/plugins/datasource_srv';
 
-import { getTemplatingRootReducer, TemplatingReducerType } from './helpers';
-import { variableAdapters } from '../adapters';
-import { createQueryVariableAdapter } from '../query/adapter';
-import { createCustomVariableAdapter } from '../custom/adapter';
 import { reduxTester } from '../../../../test/core/redux/reduxTester';
-import { initDashboardTemplating, processVariable } from './actions';
-import { setCurrentVariableValue, variableStateCompleted, variableStateFetching } from './sharedReducer';
-import { VariableRefresh } from '../types';
+import { variableAdapters } from '../adapters';
+import { createCustomVariableAdapter } from '../custom/adapter';
+import { createCustomOptionsFromQuery } from '../custom/reducer';
+import { setVariableQueryRunner, VariableQueryRunner } from '../query/VariableQueryRunner';
+import { createQueryVariableAdapter } from '../query/adapter';
 import { updateVariableOptions } from '../query/reducer';
 import { customBuilder, queryBuilder } from '../shared/testing/builders';
-import { variablesInitTransaction } from './transactionReducer';
-import { setVariableQueryRunner, VariableQueryRunner } from '../query/VariableQueryRunner';
-import { setDataSourceSrv } from '@grafana/runtime';
-import { toKeyedAction } from './keyedVariablesReducer';
 import { toKeyedVariableIdentifier, toVariablePayload } from '../utils';
+
+import { initDashboardTemplating, processVariable } from './actions';
+import { getTemplatingRootReducer, TemplatingReducerType } from './helpers';
+import { toKeyedAction } from './keyedVariablesReducer';
+import { setCurrentVariableValue, variableStateCompleted, variableStateFetching } from './sharedReducer';
+import { variablesInitTransaction } from './transactionReducer';
 
 jest.mock('app/features/dashboard/services/TimeSrv', () => ({
   getTimeSrv: jest.fn().mockReturnValue({
@@ -59,7 +62,7 @@ setDataSourceSrv({
       return Promise.resolve([]);
     }),
   }),
-} as any);
+} as unknown as DatasourceSrv);
 
 variableAdapters.setInit(() => [createCustomVariableAdapter(), createQueryVariableAdapter()]);
 
@@ -98,7 +101,7 @@ describe('processVariable', () => {
       .build();
 
     const list = [custom, queryDependsOnCustom, queryNoDepends];
-    const dashboard: any = { templating: { list } };
+    const dashboard = { templating: { list } } as DashboardModel;
     setVariableQueryRunner(new VariableQueryRunner());
 
     return {
@@ -122,9 +125,18 @@ describe('processVariable', () => {
           .whenActionIsDispatched(initDashboardTemplating(key, dashboard))
           .whenAsyncActionIsDispatched(processVariable(toKeyedVariableIdentifier(custom), queryParams), true);
 
-        await tester.thenDispatchedActionsShouldEqual(
-          toKeyedAction(key, variableStateCompleted(toVariablePayload(custom)))
-        );
+        await tester.thenDispatchedActionsPredicateShouldEqual((dispatchedActions) => {
+          expect(dispatchedActions.length).toEqual(4);
+
+          expect(dispatchedActions[0]).toEqual(toKeyedAction(key, variableStateFetching(toVariablePayload(custom))));
+          expect(dispatchedActions[1]).toEqual(
+            toKeyedAction(key, createCustomOptionsFromQuery(toVariablePayload(custom, 'A,B,C')))
+          );
+          expect(dispatchedActions[2].type).toEqual('templating/keyed/shared/setCurrentVariableValue');
+          expect(dispatchedActions[3]).toEqual(toKeyedAction(key, variableStateCompleted(toVariablePayload(custom))));
+
+          return true;
+        });
       });
     });
 
@@ -139,6 +151,21 @@ describe('processVariable', () => {
           .whenAsyncActionIsDispatched(processVariable(toKeyedVariableIdentifier(custom), queryParams), true);
 
         await tester.thenDispatchedActionsShouldEqual(
+          toKeyedAction(key, variableStateFetching(toVariablePayload({ type: 'custom', id: 'custom' }))),
+          toKeyedAction(
+            key,
+            createCustomOptionsFromQuery(toVariablePayload({ type: 'custom', id: 'custom' }, 'A,B,C'))
+          ),
+          toKeyedAction(
+            key,
+            setCurrentVariableValue(
+              toVariablePayload(
+                { type: 'custom', id: 'custom' },
+                { option: { text: 'A', value: 'A', selected: false } }
+              )
+            )
+          ),
+          toKeyedAction(key, variableStateCompleted(toVariablePayload(custom))),
           toKeyedAction(
             key,
             setCurrentVariableValue(
@@ -147,8 +174,7 @@ describe('processVariable', () => {
                 { option: { text: 'B', value: 'B', selected: false } }
               )
             )
-          ),
-          toKeyedAction(key, variableStateCompleted(toVariablePayload(custom)))
+          )
         );
       });
     });

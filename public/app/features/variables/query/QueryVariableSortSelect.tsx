@@ -1,12 +1,13 @@
-import React, { PropsWithChildren, useMemo } from 'react';
-import { SelectableValue } from '@grafana/data';
-import { selectors } from '@grafana/e2e-selectors';
-import { VariableSelectField } from '../editor/VariableSelectField';
-import { VariableSort } from '../types';
+import { PropsWithChildren, useMemo } from 'react';
+
+import { SelectableValue, VariableSort } from '@grafana/data';
+
+import { VariableSelectField } from '../../dashboard-scene/settings/variables/components/VariableSelectField';
 
 interface Props {
   onChange: (option: SelectableValue<VariableSort>) => void;
   sort: VariableSort;
+  testId?: string;
 }
 
 const SORT_OPTIONS = [
@@ -17,20 +18,22 @@ const SORT_OPTIONS = [
   { label: 'Numerical (desc)', value: VariableSort.numericalDesc },
   { label: 'Alphabetical (case-insensitive, asc)', value: VariableSort.alphabeticalCaseInsensitiveAsc },
   { label: 'Alphabetical (case-insensitive, desc)', value: VariableSort.alphabeticalCaseInsensitiveDesc },
+  { label: 'Natural (asc)', value: VariableSort.naturalAsc },
+  { label: 'Natural (desc)', value: VariableSort.naturalDesc },
 ];
 
-export function QueryVariableSortSelect({ onChange, sort }: PropsWithChildren<Props>) {
+export function QueryVariableSortSelect({ onChange, sort, testId }: PropsWithChildren<Props>) {
   const value = useMemo(() => SORT_OPTIONS.find((o) => o.value === sort) ?? SORT_OPTIONS[0], [sort]);
 
   return (
     <VariableSelectField
       name="Sort"
+      description="How to sort the values of this variable"
       value={value}
       options={SORT_OPTIONS}
       onChange={onChange}
-      labelWidth={10}
-      testId={selectors.pages.Dashboard.Settings.Variables.Edit.QueryVariable.queryOptionsSortSelectV2}
-      tooltip="How to sort the values of this variable."
+      testId={testId}
+      width={25}
     />
   );
 }

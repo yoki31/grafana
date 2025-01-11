@@ -1,13 +1,12 @@
 package middleware
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
-	"github.com/grafana/grafana/pkg/bus"
-	"github.com/grafana/grafana/pkg/models"
 	"github.com/stretchr/testify/require"
+
+	"github.com/grafana/grafana/pkg/services/authn"
 )
 
 func TestOrgRedirectMiddleware(t *testing.T) {
@@ -45,23 +44,7 @@ func TestOrgRedirectMiddleware(t *testing.T) {
 
 	for _, tc := range testCases {
 		middlewareScenario(t, tc.desc, func(t *testing.T, sc *scenarioContext) {
-			sc.withTokenSessionCookie("token")
-			bus.AddHandler("test", func(ctx context.Context, query *models.SetUsingOrgCommand) error {
-				return nil
-			})
-
-			bus.AddHandler("test", func(ctx context.Context, query *models.GetSignedInUserQuery) error {
-				query.Result = &models.SignedInUser{OrgId: 1, UserId: 12}
-				return nil
-			})
-
-			sc.userAuthTokenService.LookupTokenProvider = func(ctx context.Context, unhashedToken string) (*models.UserToken, error) {
-				return &models.UserToken{
-					UserId:        0,
-					UnhashedToken: "",
-				}, nil
-			}
-
+			sc.withIdentity(&authn.Identity{})
 			sc.m.Get("/", sc.defaultHandler)
 			sc.fakeReq("GET", tc.input).exec()
 
@@ -71,25 +54,11 @@ func TestOrgRedirectMiddleware(t *testing.T) {
 	}
 
 	middlewareScenario(t, "when setting an invalid org for user", func(t *testing.T, sc *scenarioContext) {
-		sc.withTokenSessionCookie("token")
-		bus.AddHandler("test", func(ctx context.Context, query *models.SetUsingOrgCommand) error {
-			return fmt.Errorf("")
-		})
-
-		bus.AddHandler("test", func(ctx context.Context, query *models.GetSignedInUserQuery) error {
-			query.Result = &models.SignedInUser{OrgId: 1, UserId: 12}
-			return nil
-		})
-
-		sc.userAuthTokenService.LookupTokenProvider = func(ctx context.Context, unhashedToken string) (*models.UserToken, error) {
-			return &models.UserToken{
-				UserId:        12,
-				UnhashedToken: "",
-			}, nil
-		}
+		sc.withIdentity(&authn.Identity{})
+		sc.userService.ExpectedError = fmt.Errorf("")
 
 		sc.m.Get("/", sc.defaultHandler)
-		sc.fakeReq("GET", "/?orgId=3").exec()
+		sc.fakeReq("GET", "/?orgId=1").exec()
 
 		require.Equal(t, 404, sc.resp.Code)
 	})

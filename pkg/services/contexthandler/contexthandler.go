@@ -3,535 +3,229 @@ package contexthandler
 
 import (
 	"context"
-	"errors"
-	"net/url"
-	"strconv"
-	"strings"
-	"time"
+	"fmt"
+	"net/http"
 
-	"github.com/grafana/grafana/pkg/bus"
-	"github.com/grafana/grafana/pkg/components/apikeygen"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/grafana/authlib/claims"
+	authnClients "github.com/grafana/grafana/pkg/services/authn/clients"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
+
+	"github.com/grafana/grafana/pkg/api/response"
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/infra/network"
-	"github.com/grafana/grafana/pkg/infra/remotecache"
 	"github.com/grafana/grafana/pkg/infra/tracing"
-	"github.com/grafana/grafana/pkg/middleware/cookies"
-	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/contexthandler/authproxy"
+	"github.com/grafana/grafana/pkg/services/authn"
+	"github.com/grafana/grafana/pkg/services/contexthandler/ctxkey"
+	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
 	"github.com/grafana/grafana/pkg/services/login"
-	"github.com/grafana/grafana/pkg/services/rendering"
-	"github.com/grafana/grafana/pkg/services/sqlstore"
+	"github.com/grafana/grafana/pkg/services/user"
 	"github.com/grafana/grafana/pkg/setting"
-	"github.com/grafana/grafana/pkg/util"
 	"github.com/grafana/grafana/pkg/web"
-	cw "github.com/weaveworks/common/tracing"
 )
 
-const (
-	InvalidUsernamePassword = "invalid username or password"
-	InvalidAPIKey           = "invalid API key"
-)
-
-const ServiceName = "ContextHandler"
-
-func ProvideService(cfg *setting.Cfg, tokenService models.UserTokenService, jwtService models.JWTService,
-	remoteCache *remotecache.RemoteCache, renderService rendering.Service, sqlStore *sqlstore.SQLStore,
-	tracer tracing.Tracer) *ContextHandler {
+func ProvideService(cfg *setting.Cfg, tracer tracing.Tracer, authenticator authn.Authenticator, features featuremgmt.FeatureToggles,
+) *ContextHandler {
 	return &ContextHandler{
-		Cfg:              cfg,
-		AuthTokenService: tokenService,
-		JWTAuthService:   jwtService,
-		RemoteCache:      remoteCache,
-		RenderService:    renderService,
-		SQLStore:         sqlStore,
-		tracer:           tracer,
+		Cfg:           cfg,
+		tracer:        tracer,
+		authenticator: authenticator,
+		features:      features,
 	}
 }
 
 // ContextHandler is a middleware.
 type ContextHandler struct {
-	Cfg              *setting.Cfg
-	AuthTokenService models.UserTokenService
-	JWTAuthService   models.JWTService
-	RemoteCache      *remotecache.RemoteCache
-	RenderService    rendering.Service
-	SQLStore         sqlstore.Store
-	tracer           tracing.Tracer
-	// GetTime returns the current time.
-	// Stubbable by tests.
-	GetTime func() time.Time
+	Cfg           *setting.Cfg
+	tracer        tracing.Tracer
+	authenticator authn.Authenticator
+	features      featuremgmt.FeatureToggles
 }
 
-type reqContextKey struct{}
+type reqContextKey = ctxkey.Key
 
 // FromContext returns the ReqContext value stored in a context.Context, if any.
-func FromContext(c context.Context) *models.ReqContext {
-	if reqCtx, ok := c.Value(reqContextKey{}).(*models.ReqContext); ok {
+func FromContext(c context.Context) *contextmodel.ReqContext {
+	if reqCtx, ok := c.Value(reqContextKey{}).(*contextmodel.ReqContext); ok {
 		return reqCtx
 	}
 	return nil
 }
 
-// Middleware provides a middleware to initialize the Macaron context.
-func (h *ContextHandler) Middleware(mContext *web.Context) {
-	_, span := h.tracer.Start(mContext.Req.Context(), "Auth - Middleware")
-	defer span.End()
-
-	reqContext := &models.ReqContext{
-		Context:        mContext,
-		SignedInUser:   &models.SignedInUser{},
-		IsSignedIn:     false,
-		AllowAnonymous: false,
-		SkipCache:      false,
-		Logger:         log.New("context"),
+// CopyWithReqContext returns a copy of the parent context with a semi-shallow copy of the ReqContext as a value.
+// The ReqContexts's *web.Context is deep copied so that headers are thread-safe; additional properties are shallow copied and should be treated as read-only.
+func CopyWithReqContext(ctx context.Context) context.Context {
+	origReqCtx := FromContext(ctx)
+	if origReqCtx == nil {
+		return ctx
 	}
 
-	// Inject ReqContext into a request context and replace the request instance in the macaron context
-	mContext.Req = mContext.Req.WithContext(context.WithValue(mContext.Req.Context(), reqContextKey{}, reqContext))
-	mContext.Map(mContext.Req)
-
-	traceID, exists := cw.ExtractTraceID(mContext.Req.Context())
-	if exists {
-		reqContext.Logger = reqContext.Logger.New("traceID", traceID)
+	webCtx := &web.Context{
+		Req:  origReqCtx.Req.Clone(ctx),
+		Resp: web.NewResponseWriter(origReqCtx.Req.Method, response.CreateNormalResponse(http.Header{}, []byte{}, 0)),
 	}
+	reqCtx := &contextmodel.ReqContext{
+		Context:                    webCtx,
+		SignedInUser:               origReqCtx.SignedInUser,
+		UserToken:                  origReqCtx.UserToken,
+		IsSignedIn:                 origReqCtx.IsSignedIn,
+		IsRenderCall:               origReqCtx.IsRenderCall,
+		AllowAnonymous:             origReqCtx.AllowAnonymous,
+		SkipDSCache:                origReqCtx.SkipDSCache,
+		SkipQueryCache:             origReqCtx.SkipQueryCache,
+		Logger:                     origReqCtx.Logger,
+		Error:                      origReqCtx.Error,
+		RequestNonce:               origReqCtx.RequestNonce,
+		PublicDashboardAccessToken: origReqCtx.PublicDashboardAccessToken,
+		LookupTokenErr:             origReqCtx.LookupTokenErr,
+	}
+	return context.WithValue(ctx, reqContextKey{}, reqCtx)
+}
 
-	const headerName = "X-Grafana-Org-Id"
-	orgID := int64(0)
-	orgIDHeader := reqContext.Req.Header.Get(headerName)
-	if orgIDHeader != "" {
-		id, err := strconv.ParseInt(orgIDHeader, 10, 64)
-		if err == nil {
-			orgID = id
+// Middleware provides a middleware to initialize the request context.
+func (h *ContextHandler) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		_, span := h.tracer.Start(ctx, "Auth - Middleware")
+
+		reqContext := &contextmodel.ReqContext{
+			Context: web.FromContext(ctx),
+			SignedInUser: &user.SignedInUser{
+				Permissions: map[int64]map[string][]string{},
+			},
+			IsSignedIn:                false,
+			AllowAnonymous:            false,
+			SkipDSCache:               false,
+			Logger:                    log.New("context"),
+			UseSessionStorageRedirect: h.features.IsEnabledGlobally(featuremgmt.FlagUseSessionStorageForRedirection),
+		}
+
+		// inject ReqContext in the context
+		ctx = context.WithValue(ctx, reqContextKey{}, reqContext)
+		// store list of possible auth header in context
+		ctx = WithAuthHTTPHeaders(ctx, h.Cfg)
+		// Set the context for the http.Request.Context
+		// This modifies both r and reqContext.Req since they point to the same value
+		*reqContext.Req = *reqContext.Req.WithContext(ctx)
+
+		ctx = trace.ContextWithSpan(reqContext.Req.Context(), span)
+		traceID := tracing.TraceIDFromContext(ctx, false)
+		if traceID != "" {
+			reqContext.Logger = reqContext.Logger.New("traceID", traceID)
+		}
+
+		id, err := h.authenticator.Authenticate(ctx, &authn.Request{HTTPRequest: reqContext.Req})
+		if err != nil {
+			// Hack: set all errors on LookupTokenErr, so we can check it in auth middlewares
+			reqContext.LookupTokenErr = err
 		} else {
-			reqContext.Logger.Debug("Received invalid header", "header", headerName, "value", orgIDHeader)
+			reqContext.SignedInUser = id.SignedInUser()
+			reqContext.UserToken = id.SessionToken
+			reqContext.IsSignedIn = !reqContext.SignedInUser.IsAnonymous
+			reqContext.AllowAnonymous = reqContext.SignedInUser.IsAnonymous
+			reqContext.IsRenderCall = id.IsAuthenticatedBy(login.RenderModule)
+			ctx = identity.WithRequester(ctx, id)
 		}
-	}
 
-	queryParameters, err := url.ParseQuery(reqContext.Req.URL.RawQuery)
-	if err != nil {
-		reqContext.Logger.Error("Failed to parse query parameters", "error", err)
-	}
-	if queryParameters.Has("targetOrgId") {
-		targetOrg, err := strconv.ParseInt(queryParameters.Get("targetOrgId"), 10, 64)
-		if err == nil {
-			orgID = targetOrg
-		} else {
-			reqContext.Logger.Error("Invalid target organization ID", "error", err)
+		h.excludeSensitiveHeadersFromRequest(reqContext.Req)
+
+		reqContext.Logger = reqContext.Logger.New("userId", reqContext.UserID, "orgId", reqContext.OrgID, "uname", reqContext.Login)
+		span.AddEvent("user", trace.WithAttributes(
+			attribute.String("uname", reqContext.Login),
+			attribute.Int64("orgId", reqContext.OrgID),
+			attribute.Int64("userId", reqContext.UserID),
+		))
+
+		if h.Cfg.IDResponseHeaderEnabled && reqContext.SignedInUser != nil {
+			reqContext.Resp.Before(h.addIDHeaderEndOfRequestFunc(reqContext.SignedInUser))
 		}
-	}
 
-	// the order in which these are tested are important
-	// look for api key in Authorization header first
-	// then init session and look for userId in session
-	// then look for api key in session (special case for render calls via api)
-	// then test if anonymous access is enabled
-	switch {
-	case h.initContextWithRenderAuth(reqContext):
-	case h.initContextWithAPIKey(reqContext):
-	case h.initContextWithBasicAuth(reqContext, orgID):
-	case h.initContextWithAuthProxy(reqContext, orgID):
-	case h.initContextWithToken(reqContext, orgID):
-	case h.initContextWithJWT(reqContext, orgID):
-	case h.initContextWithAnonymousUser(reqContext):
-	}
-
-	reqContext.Logger = log.New("context", "userId", reqContext.UserId, "orgId", reqContext.OrgId, "uname", reqContext.Login)
-	span.AddEvents(
-		[]string{"uname", "orgId", "userId"},
-		[]tracing.EventValue{
-			{Str: reqContext.Login},
-			{Num: reqContext.OrgId},
-			{Num: reqContext.UserId}},
-	)
-
-	mContext.Map(reqContext)
-
-	// update last seen every 5min
-	if reqContext.ShouldUpdateLastSeenAt() {
-		reqContext.Logger.Debug("Updating last user_seen_at", "user_id", reqContext.UserId)
-		if err := bus.Dispatch(mContext.Req.Context(), &models.UpdateUserLastSeenAtCommand{UserId: reqContext.UserId}); err != nil {
-			reqContext.Logger.Error("Failed to update last_seen_at", "error", err)
-		}
-	}
+		// End the span to make next handlers not wrapped within middleware span
+		span.End()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
-func (h *ContextHandler) initContextWithAnonymousUser(reqContext *models.ReqContext) bool {
-	if !h.Cfg.AnonymousEnabled {
-		return false
-	}
-
-	_, span := h.tracer.Start(reqContext.Req.Context(), "initContextWithAnonymousUser")
-	defer span.End()
-
-	org, err := h.SQLStore.GetOrgByName(h.Cfg.AnonymousOrgName)
-	if err != nil {
-		reqContext.Logger.Error("Anonymous access organization error.", "org_name", h.Cfg.AnonymousOrgName, "error", err)
-		return false
-	}
-
-	reqContext.IsSignedIn = false
-	reqContext.AllowAnonymous = true
-	reqContext.SignedInUser = &models.SignedInUser{IsAnonymous: true}
-	reqContext.OrgRole = models.RoleType(h.Cfg.AnonymousOrgRole)
-	reqContext.OrgId = org.Id
-	reqContext.OrgName = org.Name
-	return true
+func (h *ContextHandler) excludeSensitiveHeadersFromRequest(req *http.Request) {
+	req.Header.Del(authnClients.ExtJWTAuthenticationHeaderName)
+	req.Header.Del(authnClients.ExtJWTAuthorizationHeaderName)
 }
 
-func (h *ContextHandler) initContextWithAPIKey(reqContext *models.ReqContext) bool {
-	header := reqContext.Req.Header.Get("Authorization")
-	parts := strings.SplitN(header, " ", 2)
-	var keyString string
-	if len(parts) == 2 && parts[0] == "Bearer" {
-		keyString = parts[1]
-	} else {
-		username, password, err := util.DecodeBasicAuthHeader(header)
-		if err == nil && username == "api_key" {
-			keyString = password
-		}
-	}
-
-	if keyString == "" {
-		return false
-	}
-
-	_, span := h.tracer.Start(reqContext.Req.Context(), "initContextWithAPIKey")
-	defer span.End()
-
-	// base64 decode key
-	decoded, err := apikeygen.Decode(keyString)
-	if err != nil {
-		reqContext.JsonApiErr(401, InvalidAPIKey, err)
-		return true
-	}
-
-	// fetch key
-	keyQuery := models.GetApiKeyByNameQuery{KeyName: decoded.Name, OrgId: decoded.OrgId}
-	if err := bus.Dispatch(reqContext.Req.Context(), &keyQuery); err != nil {
-		reqContext.JsonApiErr(401, InvalidAPIKey, err)
-		return true
-	}
-
-	apikey := keyQuery.Result
-
-	// validate api key
-	isValid, err := apikeygen.IsValid(decoded, apikey.Key)
-	if err != nil {
-		reqContext.JsonApiErr(500, "Validating API key failed", err)
-		return true
-	}
-	if !isValid {
-		reqContext.JsonApiErr(401, InvalidAPIKey, err)
-		return true
-	}
-
-	// check for expiration
-	getTime := h.GetTime
-	if getTime == nil {
-		getTime = time.Now
-	}
-	if apikey.Expires != nil && *apikey.Expires <= getTime().Unix() {
-		reqContext.JsonApiErr(401, "Expired API key", err)
-		return true
-	}
-
-	if apikey.ServiceAccountId == nil || *apikey.ServiceAccountId < 1 { //There is no service account attached to the apikey
-		//Use the old APIkey method.  This provides backwards compatibility.
-		reqContext.SignedInUser = &models.SignedInUser{}
-		reqContext.OrgRole = apikey.Role
-		reqContext.ApiKeyId = apikey.Id
-		reqContext.OrgId = apikey.OrgId
-		reqContext.IsSignedIn = true
-		return true
-	}
-
-	//There is a service account attached to the API key
-
-	//Use service account linked to API key as the signed in user
-	query := models.GetSignedInUserQuery{UserId: *apikey.ServiceAccountId, OrgId: apikey.OrgId}
-	if err := bus.Dispatch(reqContext.Req.Context(), &query); err != nil {
-		reqContext.Logger.Error(
-			"Failed to link API key to service account in",
-			"id", query.UserId,
-			"org", query.OrgId,
-			"err", err,
-		)
-		reqContext.JsonApiErr(500, "Unable to link API key to service account", err)
-		return true
-	}
-
-	reqContext.IsSignedIn = true
-	reqContext.SignedInUser = query.Result
-	return true
-}
-
-func (h *ContextHandler) initContextWithBasicAuth(reqContext *models.ReqContext, orgID int64) bool {
-	if !h.Cfg.BasicAuthEnabled {
-		return false
-	}
-
-	header := reqContext.Req.Header.Get("Authorization")
-	if header == "" {
-		return false
-	}
-
-	ctx, span := h.tracer.Start(reqContext.Req.Context(), "initContextWithBasicAuth")
-	defer span.End()
-
-	username, password, err := util.DecodeBasicAuthHeader(header)
-	if err != nil {
-		reqContext.JsonApiErr(401, "Invalid Basic Auth Header", err)
-		return true
-	}
-
-	authQuery := models.LoginUserQuery{
-		Username: username,
-		Password: password,
-		Cfg:      h.Cfg,
-	}
-	if err := bus.Dispatch(reqContext.Req.Context(), &authQuery); err != nil {
-		reqContext.Logger.Debug(
-			"Failed to authorize the user",
-			"username", username,
-			"err", err,
-		)
-
-		if errors.Is(err, models.ErrUserNotFound) {
-			err = login.ErrInvalidCredentials
-		}
-		reqContext.JsonApiErr(401, InvalidUsernamePassword, err)
-		return true
-	}
-
-	user := authQuery.User
-
-	query := models.GetSignedInUserQuery{UserId: user.Id, OrgId: orgID}
-	if err := bus.Dispatch(ctx, &query); err != nil {
-		reqContext.Logger.Error(
-			"Failed at user signed in",
-			"id", user.Id,
-			"org", orgID,
-		)
-		reqContext.JsonApiErr(401, InvalidUsernamePassword, err)
-		return true
-	}
-
-	reqContext.SignedInUser = query.Result
-	reqContext.IsSignedIn = true
-	return true
-}
-
-func (h *ContextHandler) initContextWithToken(reqContext *models.ReqContext, orgID int64) bool {
-	if h.Cfg.LoginCookieName == "" {
-		return false
-	}
-
-	rawToken := reqContext.GetCookie(h.Cfg.LoginCookieName)
-	if rawToken == "" {
-		return false
-	}
-
-	ctx, span := h.tracer.Start(reqContext.Req.Context(), "initContextWithToken")
-	defer span.End()
-
-	token, err := h.AuthTokenService.LookupToken(ctx, rawToken)
-	if err != nil {
-		reqContext.Logger.Error("Failed to look up user based on cookie", "error", err)
-		reqContext.LookupTokenErr = err
-		return false
-	}
-
-	query := models.GetSignedInUserQuery{UserId: token.UserId, OrgId: orgID}
-	if err := bus.Dispatch(ctx, &query); err != nil {
-		reqContext.Logger.Error("Failed to get user with id", "userId", token.UserId, "error", err)
-		return false
-	}
-
-	reqContext.SignedInUser = query.Result
-	reqContext.IsSignedIn = true
-	reqContext.UserToken = token
-
-	// Rotate the token just before we write response headers to ensure there is no delay between
-	// the new token being generated and the client receiving it.
-	reqContext.Resp.Before(h.rotateEndOfRequestFunc(reqContext, h.AuthTokenService, token))
-
-	return true
-}
-
-func (h *ContextHandler) rotateEndOfRequestFunc(reqContext *models.ReqContext, authTokenService models.UserTokenService,
-	token *models.UserToken) web.BeforeFunc {
+func (h *ContextHandler) addIDHeaderEndOfRequestFunc(ident identity.Requester) web.BeforeFunc {
 	return func(w web.ResponseWriter) {
-		// if response has already been written, skip.
 		if w.Written() {
 			return
 		}
 
-		// if the request is cancelled by the client we should not try
-		// to rotate the token since the client would not accept any result.
-		if errors.Is(reqContext.Context.Req.Context().Err(), context.Canceled) {
+		id, _ := ident.GetInternalID()
+		if !ident.IsIdentityType(
+			claims.TypeUser,
+			claims.TypeServiceAccount,
+			claims.TypeAPIKey,
+		) || id == 0 {
 			return
 		}
 
-		ctx, span := h.tracer.Start(reqContext.Req.Context(), "rotateEndOfRequestFunc")
-		defer span.End()
-
-		addr := reqContext.RemoteAddr()
-		ip, err := network.GetIPFromAddress(addr)
-		if err != nil {
-			reqContext.Logger.Debug("Failed to get client IP address", "addr", addr, "err", err)
-			ip = nil
-		}
-		rotated, err := authTokenService.TryRotateToken(ctx, token, ip, reqContext.Req.UserAgent())
-		if err != nil {
-			reqContext.Logger.Error("Failed to rotate token", "error", err)
+		if _, ok := h.Cfg.IDResponseHeaderNamespaces[string(ident.GetIdentityType())]; !ok {
 			return
 		}
 
-		if rotated {
-			cookies.WriteSessionCookie(reqContext, h.Cfg, token.UnhashedToken, h.Cfg.LoginMaxLifetime)
+		headerName := fmt.Sprintf("%s-Identity-Id", h.Cfg.IDResponseHeaderPrefix)
+		w.Header().Add(headerName, ident.GetID())
+	}
+}
+
+type authHTTPHeaderListContextKey struct{}
+
+var authHTTPHeaderListKey = authHTTPHeaderListContextKey{}
+
+// AuthHTTPHeaderList used to record HTTP headers that being when verifying authentication
+// of an incoming HTTP request.
+type AuthHTTPHeaderList struct {
+	Items []string
+}
+
+// WithAuthHTTPHeaders returns a new context in which all possible configured auth header will be included
+// and later retrievable by AuthHTTPHeaderListFromContext.
+func WithAuthHTTPHeaders(ctx context.Context, cfg *setting.Cfg) context.Context {
+	list := AuthHTTPHeaderListFromContext(ctx)
+	if list == nil {
+		list = &AuthHTTPHeaderList{
+			Items: []string{},
 		}
 	}
-}
 
-func (h *ContextHandler) initContextWithRenderAuth(reqContext *models.ReqContext) bool {
-	key := reqContext.GetCookie("renderKey")
-	if key == "" {
-		return false
+	// used by basic auth, api keys and potentially jwt auth
+	list.Items = append(list.Items, "Authorization")
+
+	// remove X-Grafana-Device-Id as it is only used for auth in authn clients.
+	list.Items = append(list.Items, "X-Grafana-Device-Id")
+
+	// if jwt is enabled we add it to the list. We can ignore in case it is set to Authorization
+	if cfg.JWTAuth.Enabled && cfg.JWTAuth.HeaderName != "" && cfg.JWTAuth.HeaderName != "Authorization" {
+		list.Items = append(list.Items, cfg.JWTAuth.HeaderName)
 	}
 
-	_, span := h.tracer.Start(reqContext.Req.Context(), "initContextWithRenderAuth")
-	defer span.End()
-
-	renderUser, exists := h.RenderService.GetRenderUser(reqContext.Req.Context(), key)
-	if !exists {
-		reqContext.JsonApiErr(401, "Invalid Render Key", nil)
-		return true
-	}
-
-	reqContext.IsSignedIn = true
-	reqContext.SignedInUser = &models.SignedInUser{
-		OrgId:   renderUser.OrgID,
-		UserId:  renderUser.UserID,
-		OrgRole: models.RoleType(renderUser.OrgRole),
-	}
-	reqContext.IsRenderCall = true
-	reqContext.LastSeenAt = time.Now()
-	return true
-}
-
-func logUserIn(auth *authproxy.AuthProxy, username string, logger log.Logger, ignoreCache bool) (int64, error) {
-	logger.Debug("Trying to log user in", "username", username, "ignoreCache", ignoreCache)
-	// Try to log in user via various providers
-	id, err := auth.Login(logger, ignoreCache)
-	if err != nil {
-		details := err
-		var e authproxy.Error
-		if errors.As(err, &e) {
-			details = e.DetailsError
-		}
-		logger.Error("Failed to login", "username", username, "message", err.Error(), "error", details,
-			"ignoreCache", ignoreCache)
-		return 0, err
-	}
-	return id, nil
-}
-
-func (h *ContextHandler) handleError(ctx *models.ReqContext, err error, statusCode int, cb func(error)) {
-	details := err
-	var e authproxy.Error
-	if errors.As(err, &e) {
-		details = e.DetailsError
-	}
-	ctx.Handle(h.Cfg, statusCode, err.Error(), details)
-
-	if cb != nil {
-		cb(details)
-	}
-}
-
-func (h *ContextHandler) initContextWithAuthProxy(reqContext *models.ReqContext, orgID int64) bool {
-	username := reqContext.Req.Header.Get(h.Cfg.AuthProxyHeaderName)
-	auth := authproxy.New(h.Cfg, &authproxy.Options{
-		RemoteCache: h.RemoteCache,
-		Ctx:         reqContext,
-		OrgID:       orgID,
-	})
-
-	logger := log.New("auth.proxy")
-
-	// Bail if auth proxy is not enabled
-	if !auth.IsEnabled() {
-		return false
-	}
-
-	// If there is no header - we can't move forward
-	if !auth.HasHeader() {
-		return false
-	}
-
-	_, span := h.tracer.Start(reqContext.Req.Context(), "initContextWithAuthProxy")
-	defer span.End()
-
-	// Check if allowed to continue with this IP
-	if err := auth.IsAllowedIP(); err != nil {
-		h.handleError(reqContext, err, 407, func(details error) {
-			logger.Error("Failed to check whitelisted IP addresses", "message", err.Error(), "error", details)
-		})
-		return true
-	}
-
-	id, err := logUserIn(auth, username, logger, false)
-	if err != nil {
-		h.handleError(reqContext, err, 407, nil)
-		return true
-	}
-
-	logger.Debug("Got user ID, getting full user info", "userID", id)
-
-	user, err := auth.GetSignedInUser(id)
-	if err != nil {
-		// The reason we couldn't find the user corresponding to the ID might be that the ID was found from a stale
-		// cache entry. For example, if a user is deleted via the API, corresponding cache entries aren't invalidated
-		// because cache keys are computed from request header values and not just the user ID. Meaning that
-		// we can't easily derive cache keys to invalidate when deleting a user. To work around this, we try to
-		// log the user in again without the cache.
-		logger.Debug("Failed to get user info given ID, retrying without cache", "userID", id)
-		if err := auth.RemoveUserFromCache(logger); err != nil {
-			if !errors.Is(err, remotecache.ErrCacheItemNotFound) {
-				logger.Error("Got unexpected error when removing user from auth cache", "error", err)
+	// if auth proxy is enabled add the main proxy header and all configured headers
+	if cfg.AuthProxy.Enabled {
+		list.Items = append(list.Items, cfg.AuthProxy.HeaderName)
+		for _, header := range cfg.AuthProxy.Headers {
+			if header != "" {
+				list.Items = append(list.Items, header)
 			}
 		}
-		id, err = logUserIn(auth, username, logger, true)
-		if err != nil {
-			h.handleError(reqContext, err, 407, nil)
-			return true
-		}
-
-		user, err = auth.GetSignedInUser(id)
-		if err != nil {
-			h.handleError(reqContext, err, 407, nil)
-			return true
-		}
 	}
 
-	logger.Debug("Successfully got user info", "userID", user.UserId, "username", user.Login)
+	return context.WithValue(ctx, authHTTPHeaderListKey, list)
+}
 
-	// Add user info to context
-	reqContext.SignedInUser = user
-	reqContext.IsSignedIn = true
-
-	// Remember user data in cache
-	if err := auth.Remember(id); err != nil {
-		h.handleError(reqContext, err, 500, func(details error) {
-			logger.Error(
-				"Failed to store user in cache",
-				"username", username,
-				"message", err.Error(),
-				"error", details,
-			)
-		})
-		return true
+// AuthHTTPHeaderListFromContext returns the AuthHTTPHeaderList in a context.Context, if any,
+// and will include any HTTP headers used when verifying authentication of an incoming HTTP request.
+func AuthHTTPHeaderListFromContext(c context.Context) *AuthHTTPHeaderList {
+	if list, ok := c.Value(authHTTPHeaderListKey).(*AuthHTTPHeaderList); ok {
+		return list
 	}
-
-	return true
+	return nil
 }

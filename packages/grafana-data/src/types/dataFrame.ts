@@ -1,11 +1,13 @@
+import { HideSeriesConfig } from '@grafana/schema';
+
+import { ScopedVars } from './ScopedVars';
+import { Action } from './action';
+import { QueryResultBase, Labels, NullValueMode } from './data';
+import { DataLink, LinkModel } from './dataLink';
+import { DecimalCount, DisplayProcessor, DisplayValue, DisplayValueAlignmentFactors } from './displayValue';
+import { FieldColor } from './fieldColor';
 import { ThresholdsConfig } from './thresholds';
 import { ValueMapping } from './valueMapping';
-import { QueryResultBase, Labels, NullValueMode } from './data';
-import { DisplayProcessor, DisplayValue } from './displayValue';
-import { DataLink, LinkModel } from './dataLink';
-import { Vector } from './vector';
-import { FieldColor } from './fieldColor';
-import { ScopedVars } from './ScopedVars';
 
 /** @public */
 export enum FieldType {
@@ -13,10 +15,17 @@ export enum FieldType {
   number = 'number',
   string = 'string',
   boolean = 'boolean',
+
   // Used to detect that the value is some kind of trace data to help with the visualisation and processing.
   trace = 'trace',
   geo = 'geo',
+  enum = 'enum',
   other = 'other', // Object, Array, etc
+  frame = 'frame', // DataFrame
+
+  // @alpha Nested DataFrames. This is for example used with tables where expanding a row will show a nested table.
+  // The value should be DataFrame[] even if it is a single frame.
+  nestedFrames = 'nestedFrames',
 }
 
 /**
@@ -27,12 +36,14 @@ export enum FieldType {
  */
 export interface FieldConfig<TOptions = any> {
   /**
-   * The display value for this field.  This supports template variables blank is auto
+   * The display value for this field.  This supports template variables blank is auto.
+   * If you are a datasource plugin, do not set this. Use `field.value` and if that
+   * is not enough, use `field.config.displayNameFromDS`.
    */
   displayName?: string;
 
   /**
-   * This can be used by data sources that return and explicit naming structure for values and labels
+   * This can be used by data sources that need to customize how values are named.
    * When this property is configured, this value is used rather than the default naming strategy.
    */
   displayNameFromDS?: string;
@@ -63,7 +74,7 @@ export interface FieldConfig<TOptions = any> {
 
   // Numeric Options
   unit?: string;
-  decimals?: number | null; // Significant digits (for display)
+  decimals?: DecimalCount; // Significant digits (for display)
   min?: number | null;
   max?: number | null;
 
@@ -88,11 +99,30 @@ export interface FieldConfig<TOptions = any> {
   // The behavior when clicking on a result
   links?: DataLink[];
 
+  actions?: Action[];
+
   // Alternative to empty string
   noValue?: string;
 
+  // The field type may map to specific config
+  type?: FieldTypeConfig;
+
   // Panel Specific Values
   custom?: TOptions;
+
+  // Calculate min max per field
+  fieldMinMax?: boolean;
+}
+
+export interface FieldTypeConfig {
+  enum?: EnumFieldConfig;
+}
+
+export interface EnumFieldConfig {
+  text?: string[];
+  color?: string[];
+  icon?: string[];
+  description?: string[];
 }
 
 /** @public */
@@ -107,7 +137,7 @@ export interface ValueLinkConfig {
   valueRowIndex?: number;
 }
 
-export interface Field<T = any, V = Vector<T>> {
+export interface Field<T = any> {
   /**
    * Name of the field (column)
    */
@@ -120,7 +150,19 @@ export interface Field<T = any, V = Vector<T>> {
    *  Meta info about how field and how to display it
    */
   config: FieldConfig;
-  values: V; // The raw field values
+
+  /**
+   * The raw field values
+   */
+  values: T[];
+
+  /**
+   * When type === FieldType.Time, this can optionally store
+   * the nanosecond-precison fractions as integers between
+   * 0 and 999999.
+   */
+  nanos?: number[];
+
   labels?: Labels;
 
   /**
@@ -181,6 +223,28 @@ export interface FieldState {
    * This is only related to the cached displayName property above.
    */
   multipleFrames?: boolean;
+
+  /**
+   * Boolean value is true if a null filling threshold has been applied
+   * against the frame of the field. This is used to avoid cases in which
+   * this would applied more than one time.
+   */
+  nullThresholdApplied?: boolean;
+
+  /**
+   * Can be used by visualizations to cache max display value lengths to aid alignment.
+   * It's up to each visualization to calculate and set this.
+   */
+  alignmentFactors?: DisplayValueAlignmentFactors;
+
+  /**
+   * This is the current ad-hoc state of whether this series is hidden in viz, tooltip, and legend.
+   *
+   * Currently this will match field.config.custom.hideFrom because fieldOverrides applies the special __system
+   * override to the actual config during toggle via legend. This should go away once we have a unified system
+   * for layering ad hoc field overrides and options but still being able to get the stateless fieldConfig and panel options
+   */
+  hideFrom?: HideSeriesConfig;
 }
 
 /** @public */
@@ -198,6 +262,11 @@ export interface DataFrame extends QueryResultBase {
   length: number;
 }
 
+// Data frame that include aggregate value, for use by timeSeriesTableTransformer / chart cell type
+export interface DataFrameWithValue extends DataFrame {
+  value: number | null;
+}
+
 /**
  * @public
  * Like a field, but properties are optional and values may be a simple array
@@ -206,7 +275,7 @@ export interface FieldDTO<T = any> {
   name: string; // The column name
   type?: FieldType;
   config?: FieldConfig;
-  values?: Vector<T> | T[]; // toJSON will always be T[], input could be either
+  values?: T[];
   labels?: Labels;
 }
 
@@ -221,6 +290,7 @@ export interface DataFrameDTO extends QueryResultBase {
 
 export interface FieldCalcs extends Record<string, any> {}
 
+/** @deprecated check data plane docs: https://grafana.com/developers/dataplane/heatmap **/
 export const TIME_SERIES_VALUE_FIELD_NAME = 'Value';
 export const TIME_SERIES_TIME_FIELD_NAME = 'Time';
 export const TIME_SERIES_METRIC_FIELD_NAME = 'Metric';

@@ -1,15 +1,13 @@
-import React, { FormEvent, PureComponent } from 'react';
-import { CustomVariableModel, VariableWithMultiSupport } from '../types';
-import { SelectionOptionsEditor } from '../editor/SelectionOptionsEditor';
-import { OnPropChangeArguments, VariableEditorProps } from '../editor/types';
-import { connectWithStore } from 'app/core/utils/connectWithReduxStore';
+import { FormEvent, PureComponent } from 'react';
 import { MapDispatchToProps, MapStateToProps } from 'react-redux';
-import { VerticalGroup } from '@grafana/ui';
-import { selectors } from '@grafana/e2e-selectors';
+
+import { CustomVariableModel, VariableWithMultiSupport } from '@grafana/data';
+import { connectWithStore } from 'app/core/utils/connectWithReduxStore';
+import { CustomVariableForm } from 'app/features/dashboard-scene/settings/variables/components/CustomVariableForm';
 import { StoreState } from 'app/types';
+
+import { OnPropChangeArguments, VariableEditorProps } from '../editor/types';
 import { changeVariableMultiValue } from '../state/actions';
-import { VariableSectionHeader } from '../editor/VariableSectionHeader';
-import { VariableTextAreaField } from '../editor/VariableTextAreaField';
 
 interface OwnProps extends VariableEditorProps<CustomVariableModel> {}
 
@@ -22,18 +20,11 @@ interface DispatchProps {
 export type Props = OwnProps & ConnectedProps & DispatchProps;
 
 class CustomVariableEditorUnconnected extends PureComponent<Props> {
-  onChange = (event: FormEvent<HTMLTextAreaElement>) => {
-    this.props.onPropChange({
-      propName: 'query',
-      propValue: event.currentTarget.value,
-    });
-  };
-
   onSelectionOptionsChange = async ({ propName, propValue }: OnPropChangeArguments<VariableWithMultiSupport>) => {
     this.props.onPropChange({ propName, propValue, updateOptions: true });
   };
 
-  onBlur = (event: FormEvent<HTMLTextAreaElement>) => {
+  onQueryChange = (event: FormEvent<HTMLTextAreaElement>) => {
     this.props.onPropChange({
       propName: 'query',
       propValue: event.currentTarget.value,
@@ -43,29 +34,22 @@ class CustomVariableEditorUnconnected extends PureComponent<Props> {
 
   render() {
     return (
-      <VerticalGroup spacing="xs">
-        <VariableSectionHeader name="Custom options" />
-        <VerticalGroup spacing="md">
-          <VerticalGroup spacing="none">
-            <VariableTextAreaField
-              name="Values separated by comma"
-              value={this.props.variable.query}
-              placeholder="1, 10, mykey : myvalue, myvalue, escaped\,value"
-              onChange={this.onChange}
-              onBlur={this.onBlur}
-              required
-              width={50}
-              labelWidth={27}
-              testId={selectors.pages.Dashboard.Settings.Variables.Edit.CustomVariable.customValueInput}
-            />
-          </VerticalGroup>
-          <SelectionOptionsEditor
-            variable={this.props.variable}
-            onPropChange={this.onSelectionOptionsChange}
-            onMultiChanged={this.props.changeVariableMultiValue}
-          />{' '}
-        </VerticalGroup>
-      </VerticalGroup>
+      <CustomVariableForm
+        query={this.props.variable.query}
+        multi={this.props.variable.multi}
+        allValue={this.props.variable.allValue}
+        includeAll={this.props.variable.includeAll}
+        onQueryChange={this.onQueryChange}
+        onMultiChange={(event) =>
+          this.onSelectionOptionsChange({ propName: 'multi', propValue: event.currentTarget.checked })
+        }
+        onIncludeAllChange={(event) =>
+          this.onSelectionOptionsChange({ propName: 'includeAll', propValue: event.currentTarget.checked })
+        }
+        onAllValueChange={(event) =>
+          this.onSelectionOptionsChange({ propName: 'allValue', propValue: event.currentTarget.value })
+        }
+      />
     );
   }
 }

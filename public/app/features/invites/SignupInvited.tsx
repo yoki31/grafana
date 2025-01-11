@@ -1,22 +1,28 @@
-import React, { FC, useState } from 'react';
-import { getBackendSrv } from '@grafana/runtime';
-import { Button, Field, Form, Input } from '@grafana/ui';
+import { css, cx } from '@emotion/css';
+import { useState } from 'react';
+import { useParams } from 'react-router-dom-v5-compat';
 import { useAsync } from 'react-use';
-import Page from 'app/core/components/Page/Page';
-import { contextSrv } from 'app/core/core';
+
+import { GrafanaTheme2 } from '@grafana/data';
+import { getBackendSrv } from '@grafana/runtime';
+import { Button, Field, Input, useStyles2 } from '@grafana/ui';
+import { Form } from 'app/core/components/Form/Form';
+import { Page } from 'app/core/components/Page/Page';
 import { getConfig } from 'app/core/config';
-import { GrafanaRouteComponentProps } from 'app/core/navigation/types';
+
+import { w3cStandardEmailValidator } from '../admin/utils';
 
 interface FormModel {
   email: string;
   name?: string;
   username: string;
   password?: string;
+  orgName?: string;
 }
 
 const navModel = {
   main: {
-    icon: 'grafana',
+    icon: 'grafana' as const,
     text: 'Invite',
     subTitle: 'Register your Grafana account',
     breadcrumbs: [{ title: 'Login', url: 'login' }],
@@ -26,13 +32,12 @@ const navModel = {
   },
 };
 
-export interface Props extends GrafanaRouteComponentProps<{ code: string }> {}
-
-export const SignupInvitedPage: FC<Props> = ({ match }) => {
-  const code = match.params.code;
+export const SignupInvitedPage = () => {
+  const { code } = useParams();
   const [initFormModel, setInitFormModel] = useState<FormModel>();
   const [greeting, setGreeting] = useState<string>();
   const [invitedBy, setInvitedBy] = useState<string>();
+  const styles = useStyles2(getStyles);
 
   useAsync(async () => {
     const invite = await getBackendSrv().get(`/api/user/invite/${code}`);
@@ -41,6 +46,7 @@ export const SignupInvitedPage: FC<Props> = ({ match }) => {
       email: invite.email,
       name: invite.name,
       username: invite.email,
+      orgName: invite.orgName,
     });
 
     setGreeting(invite.name || invite.email || invite.username);
@@ -61,9 +67,9 @@ export const SignupInvitedPage: FC<Props> = ({ match }) => {
       <Page.Contents>
         <h3 className="page-sub-heading">Hello {greeting || 'there'}.</h3>
 
-        <div className="modal-tagline p-b-2">
+        <div className={cx('modal-tagline', styles.tagline)}>
           <em>{invitedBy || 'Someone'}</em> has invited you to join Grafana and the organization{' '}
-          <span className="highlight-word">{contextSrv.user.orgName}</span>
+          <span className="highlight-word">{initFormModel.orgName}</span>
           <br />
           Please complete the following and choose a password to accept your invitation and continue:
         </div>
@@ -76,7 +82,7 @@ export const SignupInvitedPage: FC<Props> = ({ match }) => {
                   {...register('email', {
                     required: 'Email is required',
                     pattern: {
-                      value: /^\S+@\S+$/,
+                      value: w3cStandardEmailValidator,
                       message: 'Email is invalid',
                     },
                   })}
@@ -104,5 +110,11 @@ export const SignupInvitedPage: FC<Props> = ({ match }) => {
     </Page>
   );
 };
+
+const getStyles = (theme: GrafanaTheme2) => ({
+  tagline: css({
+    paddingBottom: theme.spacing(3),
+  }),
+});
 
 export default SignupInvitedPage;

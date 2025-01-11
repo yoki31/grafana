@@ -1,120 +1,219 @@
-package contexthandler
+package contexthandler_test
 
 import (
-	"context"
-	"net"
+	"errors"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
-	"github.com/grafana/grafana-plugin-sdk-go/backend/gtime"
-	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/auth"
-	"github.com/grafana/grafana/pkg/util"
-	"github.com/grafana/grafana/pkg/web"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/grafana/authlib/claims"
+	"github.com/grafana/grafana/pkg/api/routing"
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
+	"github.com/grafana/grafana/pkg/infra/tracing"
+	"github.com/grafana/grafana/pkg/services/authn"
+	"github.com/grafana/grafana/pkg/services/authn/authntest"
+	"github.com/grafana/grafana/pkg/services/contexthandler"
+	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
+	"github.com/grafana/grafana/pkg/services/login"
+	"github.com/grafana/grafana/pkg/services/user"
+	"github.com/grafana/grafana/pkg/setting"
+	"github.com/grafana/grafana/pkg/web/webtest"
 )
 
-func TestDontRotateTokensOnCancelledRequests(t *testing.T) {
-	ctxHdlr := getContextHandler(t)
+func TestContextHandler(t *testing.T) {
+	t.Run("should set auth error if authentication was unsuccessful", func(t *testing.T) {
+		handler := contexthandler.ProvideService(
+			setting.NewCfg(),
+			tracing.InitializeTracerForTest(),
+			&authntest.FakeService{ExpectedErr: errors.New("some error")},
+			featuremgmt.WithFeatures(),
+		)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	reqContext, _, err := initTokenRotationScenario(ctx, t, ctxHdlr)
-	require.NoError(t, err)
+		server := webtest.NewServer(t, routing.NewRouteRegister())
+		server.Mux.Use(handler.Middleware)
+		server.Mux.Get("/api/handler", func(c *contextmodel.ReqContext) {
+			require.False(t, c.IsSignedIn)
+			require.EqualValues(t, &user.SignedInUser{Permissions: map[int64]map[string][]string{}}, c.SignedInUser)
+			require.Error(t, c.LookupTokenErr)
+		})
 
-	tryRotateCallCount := 0
-	uts := &auth.FakeUserAuthTokenService{
-		TryRotateTokenProvider: func(ctx context.Context, token *models.UserToken, clientIP net.IP,
-			userAgent string) (bool, error) {
-			tryRotateCallCount++
-			return false, nil
-		},
-	}
-
-	token := &models.UserToken{AuthToken: "oldtoken"}
-
-	fn := ctxHdlr.rotateEndOfRequestFunc(reqContext, uts, token)
-	cancel()
-	fn(reqContext.Resp)
-
-	assert.Equal(t, 0, tryRotateCallCount, "Token rotation was attempted")
-}
-
-func TestTokenRotationAtEndOfRequest(t *testing.T) {
-	ctxHdlr := getContextHandler(t)
-
-	reqContext, rr, err := initTokenRotationScenario(context.Background(), t, ctxHdlr)
-	require.NoError(t, err)
-
-	uts := &auth.FakeUserAuthTokenService{
-		TryRotateTokenProvider: func(ctx context.Context, token *models.UserToken, clientIP net.IP,
-			userAgent string) (bool, error) {
-			newToken, err := util.RandomHex(16)
-			require.NoError(t, err)
-			token.AuthToken = newToken
-			return true, nil
-		},
-	}
-
-	token := &models.UserToken{AuthToken: "oldtoken"}
-
-	ctxHdlr.rotateEndOfRequestFunc(reqContext, uts, token)(reqContext.Resp)
-
-	foundLoginCookie := false
-	// nolint:bodyclose
-	resp := rr.Result()
-	t.Cleanup(func() {
-		err := resp.Body.Close()
-		assert.NoError(t, err)
+		res, err := server.Send(server.NewGetRequest("/api/handler"))
+		require.NoError(t, err)
+		require.NoError(t, res.Body.Close())
 	})
-	for _, c := range resp.Cookies() {
-		if c.Name == "login_token" {
-			foundLoginCookie = true
-			require.NotEqual(t, token.AuthToken, c.Value, "Auth token is still the same")
+
+	t.Run("should set identity on successful authentication", func(t *testing.T) {
+		id := &authn.Identity{ID: "1", Type: claims.TypeUser, OrgID: 1}
+		handler := contexthandler.ProvideService(
+			setting.NewCfg(),
+			tracing.InitializeTracerForTest(),
+			&authntest.FakeService{ExpectedIdentity: id},
+			featuremgmt.WithFeatures(),
+		)
+
+		server := webtest.NewServer(t, routing.NewRouteRegister())
+		server.Mux.Use(handler.Middleware)
+		server.Mux.Get("/api/handler", func(c *contextmodel.ReqContext) {
+			require.True(t, c.IsSignedIn)
+			require.EqualValues(t, id.SignedInUser(), c.SignedInUser)
+			require.NoError(t, c.LookupTokenErr)
+
+			requester, err := identity.GetRequester(c.Req.Context())
+			require.NoError(t, err)
+			require.Equal(t, id, requester)
+		})
+
+		res, err := server.Send(server.NewGetRequest("/api/handler"))
+		require.NoError(t, err)
+		require.NoError(t, res.Body.Close())
+	})
+
+	t.Run("should not set IsSignedIn on anonymous identity", func(t *testing.T) {
+		identity := &authn.Identity{ID: "0", Type: claims.TypeAnonymous, OrgID: 1}
+		handler := contexthandler.ProvideService(
+			setting.NewCfg(),
+			tracing.InitializeTracerForTest(),
+			&authntest.FakeService{ExpectedIdentity: identity},
+			featuremgmt.WithFeatures(),
+		)
+
+		server := webtest.NewServer(t, routing.NewRouteRegister())
+		server.Mux.Use(handler.Middleware)
+		server.Mux.Get("/api/handler", func(c *contextmodel.ReqContext) {
+			require.False(t, c.IsSignedIn)
+			require.EqualValues(t, identity.SignedInUser(), c.SignedInUser)
+			require.NoError(t, c.LookupTokenErr)
+		})
+
+		res, err := server.Send(server.NewGetRequest("/api/handler"))
+		require.NoError(t, err)
+		require.NoError(t, res.Body.Close())
+	})
+
+	t.Run("should set IsRenderCall when authenticated by render client", func(t *testing.T) {
+		identity := &authn.Identity{OrgID: 1, AuthenticatedBy: login.RenderModule}
+		handler := contexthandler.ProvideService(
+			setting.NewCfg(),
+			tracing.InitializeTracerForTest(),
+			&authntest.FakeService{ExpectedIdentity: identity},
+			featuremgmt.WithFeatures(),
+		)
+
+		server := webtest.NewServer(t, routing.NewRouteRegister())
+		server.Mux.Use(handler.Middleware)
+		server.Mux.Get("/api/handler", func(c *contextmodel.ReqContext) {
+			require.True(t, c.IsSignedIn)
+			require.True(t, c.IsRenderCall)
+			require.EqualValues(t, identity.SignedInUser(), c.SignedInUser)
+			require.NoError(t, c.LookupTokenErr)
+		})
+
+		res, err := server.Send(server.NewGetRequest("/api/handler"))
+		require.NoError(t, err)
+		require.NoError(t, res.Body.Close())
+	})
+
+	t.Run("should store auth header in context", func(t *testing.T) {
+		cfg := setting.NewCfg()
+		cfg.JWTAuth.Enabled = true
+		cfg.JWTAuth.HeaderName = "jwt-header"
+		cfg.AuthProxy.Enabled = true
+		cfg.AuthProxy.HeaderName = "proxy-header"
+		cfg.AuthProxy.Headers = map[string]string{
+			"name": "proxy-header-name",
 		}
-	}
 
-	assert.True(t, foundLoginCookie, "Could not find cookie")
-}
+		handler := contexthandler.ProvideService(
+			cfg,
+			tracing.InitializeTracerForTest(),
+			&authntest.FakeService{ExpectedIdentity: &authn.Identity{}},
+			featuremgmt.WithFeatures(),
+		)
 
-func initTokenRotationScenario(ctx context.Context, t *testing.T, ctxHdlr *ContextHandler) (
-	*models.ReqContext, *httptest.ResponseRecorder, error) {
-	t.Helper()
+		server := webtest.NewServer(t, routing.NewRouteRegister())
+		server.Mux.Use(handler.Middleware)
+		server.Mux.Get("/api/handler", func(c *contextmodel.ReqContext) {
+			list := contexthandler.AuthHTTPHeaderListFromContext(c.Req.Context())
+			require.NotNil(t, list)
 
-	ctxHdlr.Cfg.LoginCookieName = "login_token"
-	var err error
-	ctxHdlr.Cfg.LoginMaxLifetime, err = gtime.ParseDuration("7d")
-	if err != nil {
-		return nil, nil, err
-	}
+			assert.Contains(t, list.Items, "jwt-header")
+			assert.Contains(t, list.Items, "proxy-header")
+			assert.Contains(t, list.Items, "proxy-header-name")
+			assert.Contains(t, list.Items, "Authorization")
+		})
 
-	rr := httptest.NewRecorder()
-	req, err := http.NewRequestWithContext(ctx, "", "", nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	reqContext := &models.ReqContext{
-		Context: &web.Context{Req: req},
-		Logger:  log.New("testlogger"),
-	}
+		res, err := server.Send(server.NewGetRequest("/api/handler"))
+		require.NoError(t, err)
+		require.NoError(t, res.Body.Close())
+	})
 
-	mw := mockWriter{rr}
-	reqContext.Resp = mw
+	t.Run("id response headers", func(t *testing.T) {
+		run := func(cfg *setting.Cfg, id string) *http.Response {
+			typ, i, err := claims.ParseTypeID(id)
+			require.NoError(t, err)
 
-	return reqContext, rr, nil
-}
+			handler := contexthandler.ProvideService(
+				cfg,
+				tracing.InitializeTracerForTest(),
+				&authntest.FakeService{ExpectedIdentity: &authn.Identity{ID: i, Type: typ}},
+				featuremgmt.WithFeatures(),
+			)
 
-type mockWriter struct {
-	*httptest.ResponseRecorder
-}
+			server := webtest.NewServer(t, routing.NewRouteRegister())
+			server.Mux.Use(handler.Middleware)
+			server.Mux.Get("/api/handler", func(c *contextmodel.ReqContext) {})
 
-func (mw mockWriter) Flush()                {}
-func (mw mockWriter) Status() int           { return 0 }
-func (mw mockWriter) Size() int             { return 0 }
-func (mw mockWriter) Written() bool         { return false }
-func (mw mockWriter) Before(web.BeforeFunc) {}
-func (mw mockWriter) Push(target string, opts *http.PushOptions) error {
-	return nil
+			res, err := server.Send(server.NewGetRequest("/api/handler"))
+			require.NoError(t, err)
+
+			return res
+		}
+
+		t.Run("should add id header for user", func(t *testing.T) {
+			cfg := setting.NewCfg()
+			cfg.IDResponseHeaderEnabled = true
+			cfg.IDResponseHeaderPrefix = "X-Grafana"
+			cfg.IDResponseHeaderNamespaces = map[string]struct{}{"user": {}}
+			res := run(cfg, "user:1")
+
+			require.Equal(t, "user:1", res.Header.Get("X-Grafana-Identity-Id"))
+			require.NoError(t, res.Body.Close())
+		})
+
+		t.Run("should not add id header for user when id is 0", func(t *testing.T) {
+			cfg := setting.NewCfg()
+			cfg.IDResponseHeaderEnabled = true
+			cfg.IDResponseHeaderPrefix = "X-Grafana"
+			cfg.IDResponseHeaderNamespaces = map[string]struct{}{"user": {}}
+			res := run(cfg, "user:0")
+
+			require.Empty(t, res.Header.Get("X-Grafana-Identity-Id"))
+			require.NoError(t, res.Body.Close())
+		})
+
+		t.Run("should add id header for service account", func(t *testing.T) {
+			cfg := setting.NewCfg()
+			cfg.IDResponseHeaderEnabled = true
+			cfg.IDResponseHeaderPrefix = "X-Grafana"
+			cfg.IDResponseHeaderNamespaces = map[string]struct{}{"service-account": {}}
+			res := run(cfg, "service-account:1")
+
+			require.Equal(t, "service-account:1", res.Header.Get("X-Grafana-Identity-Id"))
+			require.NoError(t, res.Body.Close())
+		})
+
+		t.Run("should not add id header for service account when not configured", func(t *testing.T) {
+			cfg := setting.NewCfg()
+			cfg.IDResponseHeaderEnabled = true
+			cfg.IDResponseHeaderPrefix = "X-Grafana"
+			cfg.IDResponseHeaderNamespaces = map[string]struct{}{"user": {}}
+			res := run(cfg, "service-account:1")
+
+			require.Empty(t, res.Header.Get("X-Grafana-Identity-Id"))
+			require.NoError(t, res.Body.Close())
+		})
+	})
 }

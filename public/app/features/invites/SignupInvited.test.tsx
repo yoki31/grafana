@@ -1,10 +1,10 @@
-import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { render } from 'test/test-utils';
 
-import { SignupInvitedPage, Props } from './SignupInvited';
 import { backendSrv } from '../../core/services/backend_srv';
-import { getRouteComponentProps } from 'app/core/navigation/__mocks__/routeProps';
+
+import { SignupInvitedPage } from './SignupInvited';
 
 jest.mock('app/core/core', () => ({
   contextSrv: {
@@ -13,8 +13,13 @@ jest.mock('app/core/core', () => ({
 }));
 
 jest.mock('@grafana/runtime', () => ({
-  ...(jest.requireActual('@grafana/runtime') as unknown as object),
+  ...jest.requireActual('@grafana/runtime'),
   getBackendSrv: () => backendSrv,
+}));
+
+jest.mock('react-router-dom-v5-compat', () => ({
+  ...jest.requireActual('react-router-dom-v5-compat'),
+  useParams: jest.fn().mockReturnValue({ code: 'some code' }),
 }));
 
 const defaultGet = {
@@ -22,6 +27,7 @@ const defaultGet = {
   name: 'Some User',
   invitedBy: 'Invited By User',
   username: 'someuser',
+  orgName: 'Some Org',
 };
 
 async function setupTestContext({ get = defaultGet }: { get?: typeof defaultGet | null } = {}) {
@@ -33,15 +39,7 @@ async function setupTestContext({ get = defaultGet }: { get?: typeof defaultGet 
   const postSpy = jest.spyOn(backendSrv, 'post');
   postSpy.mockResolvedValue([]);
 
-  const props: Props = {
-    ...getRouteComponentProps({
-      match: {
-        params: { code: 'some code' },
-      } as any,
-    }),
-  };
-
-  render(<SignupInvitedPage {...props} />);
+  render(<SignupInvitedPage />);
 
   await waitFor(() => expect(getSpy).toHaveBeenCalled());
   expect(getSpy).toHaveBeenCalledTimes(1);
@@ -86,7 +84,7 @@ describe('SignupInvitedPage', () => {
         /has invited you to join grafana and the organization please complete the following and choose a password to accept your invitation and continue:/i
       );
 
-      expect(within(view).getByText(/invited to org name/i)).toBeInTheDocument();
+      expect(within(view).getByText(/some org/i)).toBeInTheDocument();
     });
 
     it('then the form should include form data', async () => {
@@ -101,9 +99,11 @@ describe('SignupInvitedPage', () => {
 
   describe('when user submits the form and the required fields are not filled in', () => {
     it('then required fields should show error messages and nothing should be posted', async () => {
-      const { postSpy } = await setupTestContext({ get: { email: '', invitedBy: '', name: '', username: '' } });
+      const { postSpy } = await setupTestContext({
+        get: { email: '', invitedBy: '', name: '', username: '', orgName: '' },
+      });
 
-      userEvent.click(screen.getByRole('button', { name: /sign up/i }));
+      await userEvent.click(screen.getByRole('button', { name: /sign up/i }));
 
       await waitFor(() => expect(screen.getByText(/email is required/i)).toBeInTheDocument());
       expect(screen.getByText(/username is required/i)).toBeInTheDocument();
@@ -116,8 +116,8 @@ describe('SignupInvitedPage', () => {
     it('then correct form data should be posted', async () => {
       const { postSpy } = await setupTestContext();
 
-      userEvent.type(screen.getByPlaceholderText(/password/i), 'pass@word1');
-      userEvent.click(screen.getByRole('button', { name: /sign up/i }));
+      await userEvent.type(screen.getByPlaceholderText(/password/i), 'pass@word1');
+      await userEvent.click(screen.getByRole('button', { name: /sign up/i }));
 
       await waitFor(() => expect(postSpy).toHaveBeenCalledTimes(1));
       expect(postSpy).toHaveBeenCalledWith('/api/user/invite/complete', {
@@ -126,6 +126,7 @@ describe('SignupInvitedPage', () => {
         username: 'some.user@localhost',
         password: 'pass@word1',
         inviteCode: 'some code',
+        orgName: 'Some Org',
       });
     });
   });
