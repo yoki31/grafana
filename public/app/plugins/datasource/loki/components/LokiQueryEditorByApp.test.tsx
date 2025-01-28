@@ -1,22 +1,24 @@
-import React from 'react';
-import { render, RenderResult } from '@testing-library/react';
-import { CoreApp } from '@grafana/data';
+import { render, RenderResult, screen } from '@testing-library/react';
 import { noop } from 'lodash';
-import { LokiDatasource } from '../datasource';
-import { testIds as alertingTestIds } from './LokiQueryEditorForAlerting';
+
+import { CoreApp } from '@grafana/data';
+
+import { createLokiDatasource } from '../__mocks__/datasource';
+
 import { testIds as regularTestIds } from './LokiQueryEditor';
-import { testIds as exploreTestIds } from './LokiExploreQueryEditor';
 import { LokiQueryEditorByApp } from './LokiQueryEditorByApp';
+import { testIds as alertingTestIds } from './LokiQueryEditorForAlerting';
+
+jest.mock('@grafana/runtime', () => ({
+  ...jest.requireActual('@grafana/runtime'),
+  getAppEvents: jest.fn().mockReturnValue({
+    subscribe: jest.fn().mockReturnValue({ unsubscribe: jest.fn() }),
+  }),
+}));
 
 function setup(app: CoreApp): RenderResult {
-  const dataSource = {
-    languageProvider: {
-      start: () => Promise.resolve([]),
-      getSyntax: () => {},
-      getLabelKeys: () => [],
-      metrics: [],
-    },
-  } as unknown as LokiDatasource;
+  const dataSource = createLokiDatasource();
+  dataSource.metadataRequest = jest.fn();
 
   return render(
     <LokiQueryEditorByApp
@@ -30,31 +32,30 @@ function setup(app: CoreApp): RenderResult {
 }
 
 describe('LokiQueryEditorByApp', () => {
-  it('should render simplified query editor for cloud alerting', () => {
-    const { getByTestId, queryByTestId } = setup(CoreApp.CloudAlerting);
+  it('should render simplified query editor for cloud alerting', async () => {
+    setup(CoreApp.CloudAlerting);
 
-    expect(getByTestId(alertingTestIds.editor)).toBeInTheDocument();
-    expect(queryByTestId(regularTestIds.editor)).toBeNull();
+    expect(await screen.findByTestId(alertingTestIds.editor)).toBeInTheDocument();
+    expect(screen.queryByTestId(regularTestIds.editor)).toBeNull();
   });
 
-  it('should render regular query editor for unkown apps', () => {
-    const { getByTestId, queryByTestId } = setup(CoreApp.Unknown);
-
-    expect(getByTestId(regularTestIds.editor)).toBeInTheDocument();
-    expect(queryByTestId(alertingTestIds.editor)).toBeNull();
+  it('should render regular query editor for unknown apps', async () => {
+    setup(CoreApp.Unknown);
+    expect(await screen.findByTestId(regularTestIds.editor)).toBeInTheDocument();
+    expect(screen.queryByTestId(alertingTestIds.editor)).toBeNull();
   });
 
-  it('should render expore query editor for explore', () => {
-    const { getByTestId, queryByTestId } = setup(CoreApp.Explore);
+  it('should render regular query editor for explore', async () => {
+    setup(CoreApp.Explore);
 
-    expect(getByTestId(exploreTestIds.editor)).toBeInTheDocument();
-    expect(queryByTestId(alertingTestIds.editor)).toBeNull();
+    expect(await screen.findByTestId(regularTestIds.editor)).toBeInTheDocument();
+    expect(screen.queryByTestId(alertingTestIds.editor)).toBeNull();
   });
 
-  it('should render regular query editor for dashboard', () => {
-    const { getByTestId, queryByTestId } = setup(CoreApp.Dashboard);
+  it('should render regular query editor for dashboard', async () => {
+    setup(CoreApp.Dashboard);
 
-    expect(getByTestId(regularTestIds.editor)).toBeInTheDocument();
-    expect(queryByTestId(alertingTestIds.editor)).toBeNull();
+    expect(await screen.findByTestId(regularTestIds.editor)).toBeInTheDocument();
+    expect(screen.queryByTestId(alertingTestIds.editor)).toBeNull();
   });
 });

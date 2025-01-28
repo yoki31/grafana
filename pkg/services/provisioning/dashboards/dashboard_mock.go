@@ -4,10 +4,10 @@ import "context"
 
 // Calls is a mock implementation of the provisioner interface
 type calls struct {
-	Provision                   []interface{}
-	PollChanges                 []interface{}
-	GetProvisionerResolvedPath  []interface{}
-	GetAllowUIUpdatesFromConfig []interface{}
+	Provision                   []any
+	PollChanges                 []any
+	GetProvisionerResolvedPath  []any
+	GetAllowUIUpdatesFromConfig []any
 }
 
 // ProvisionerMock is a mock implementation of `Provisioner`
@@ -24,6 +24,10 @@ func NewDashboardProvisionerMock() *ProvisionerMock {
 	return &ProvisionerMock{
 		Calls: &calls{},
 	}
+}
+
+func (dpm *ProvisionerMock) HasDashboardSources() bool {
+	return dpm.ProvisionFunc != nil
 }
 
 // Provision is a mock implementation of `Provisioner.Provision`

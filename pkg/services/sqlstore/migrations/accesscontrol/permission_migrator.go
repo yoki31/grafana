@@ -10,7 +10,6 @@ import (
 
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
-	"github.com/grafana/grafana/pkg/util"
 )
 
 var (
@@ -49,7 +48,7 @@ func (m *permissionMigrator) bulkCreateRoles(allRoles []*accesscontrol.Role) ([]
 	// bulk role creations
 	err := batch(len(allRoles), batchSize, func(start, end int) error {
 		roles := allRoles[start:end]
-		createdRoles, err := createRoles(roles, start, end)
+		createdRoles, err := createRoles(roles)
 		if err != nil {
 			return err
 		}
@@ -60,8 +59,8 @@ func (m *permissionMigrator) bulkCreateRoles(allRoles []*accesscontrol.Role) ([]
 	return allCreatedRoles, err
 }
 
-func (m *permissionMigrator) bulkAssignRoles(rolesMap map[int64]map[string]*accesscontrol.Role, assignments map[int64]map[string]struct{}) error {
-	if len(assignments) == 0 {
+func (m *permissionMigrator) bulkAssignRoles(allRoles []*accesscontrol.Role) error {
+	if len(allRoles) == 0 {
 		return nil
 	}
 
@@ -70,45 +69,38 @@ func (m *permissionMigrator) bulkAssignRoles(rolesMap map[int64]map[string]*acce
 	teamRoleAssignments := make([]accesscontrol.TeamRole, 0)
 	builtInRoleAssignments := make([]accesscontrol.BuiltinRole, 0)
 
-	for orgID, roleNames := range assignments {
-		for name := range roleNames {
-			role, ok := rolesMap[orgID][name]
-			if !ok {
-				return &ErrUnknownRole{name}
+	for _, role := range allRoles {
+		if strings.HasPrefix(role.Name, "managed:users") {
+			userID, err := strconv.ParseInt(strings.Split(role.Name, ":")[2], 10, 64)
+			if err != nil {
+				return err
 			}
-
-			if strings.HasPrefix(name, "managed:users") {
-				userID, err := strconv.ParseInt(strings.Split(name, ":")[2], 10, 64)
-				if err != nil {
-					return err
-				}
-				userRoleAssignments = append(userRoleAssignments, accesscontrol.UserRole{
-					OrgID:   role.OrgID,
-					RoleID:  role.ID,
-					UserID:  userID,
-					Created: ts,
-				})
-			} else if strings.HasPrefix(name, "managed:teams") {
-				teamID, err := strconv.ParseInt(strings.Split(name, ":")[2], 10, 64)
-				if err != nil {
-					return err
-				}
-				teamRoleAssignments = append(teamRoleAssignments, accesscontrol.TeamRole{
-					OrgID:   role.OrgID,
-					RoleID:  role.ID,
-					TeamID:  teamID,
-					Created: ts,
-				})
-			} else if strings.HasPrefix(name, "managed:builtins") {
-				builtIn := strings.Title(strings.Split(name, ":")[2])
-				builtInRoleAssignments = append(builtInRoleAssignments, accesscontrol.BuiltinRole{
-					OrgID:   role.OrgID,
-					RoleID:  role.ID,
-					Role:    builtIn,
-					Created: ts,
-					Updated: ts,
-				})
+			userRoleAssignments = append(userRoleAssignments, accesscontrol.UserRole{
+				OrgID:   role.OrgID,
+				RoleID:  role.ID,
+				UserID:  userID,
+				Created: ts,
+			})
+		} else if strings.HasPrefix(role.Name, "managed:teams") {
+			teamID, err := strconv.ParseInt(strings.Split(role.Name, ":")[2], 10, 64)
+			if err != nil {
+				return err
 			}
+			teamRoleAssignments = append(teamRoleAssignments, accesscontrol.TeamRole{
+				OrgID:   role.OrgID,
+				RoleID:  role.ID,
+				TeamID:  teamID,
+				Created: ts,
+			})
+		} else if strings.HasPrefix(role.Name, "managed:builtins") {
+			builtIn := strings.Title(strings.Split(role.Name, ":")[2])
+			builtInRoleAssignments = append(builtInRoleAssignments, accesscontrol.BuiltinRole{
+				OrgID:   role.OrgID,
+				RoleID:  role.ID,
+				Role:    builtIn,
+				Created: ts,
+				Updated: ts,
+			})
 		}
 	}
 
@@ -117,7 +109,7 @@ func (m *permissionMigrator) bulkAssignRoles(rolesMap map[int64]map[string]*acce
 		return err
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create user role assignments: %w", err)
 	}
 
 	err = batch(len(teamRoleAssignments), batchSize, func(start, end int) error {
@@ -125,28 +117,29 @@ func (m *permissionMigrator) bulkAssignRoles(rolesMap map[int64]map[string]*acce
 		return err
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create team role assignments: %w", err)
 	}
 
 	return batch(len(builtInRoleAssignments), batchSize, func(start, end int) error {
-		_, err := m.sess.Table("builtin_role").InsertMulti(builtInRoleAssignments[start:end])
-		return err
+		if _, err := m.sess.Table("builtin_role").InsertMulti(builtInRoleAssignments[start:end]); err != nil {
+			return fmt.Errorf("failed to create builtin role assignments: %w", err)
+		}
+		return nil
 	})
 }
 
 // createRoles creates a list of roles and returns their id, orgID, name in a single query
-func (m *permissionMigrator) createRoles(roles []*accesscontrol.Role, start int, end int) ([]*accesscontrol.Role, error) {
+func (m *permissionMigrator) createRoles(roles []*accesscontrol.Role) ([]*accesscontrol.Role, error) {
 	ts := time.Now()
 	createdRoles := make([]*accesscontrol.Role, 0, len(roles))
 	valueStrings := make([]string, len(roles))
-	args := make([]interface{}, 0, len(roles)*5)
+	args := make([]any, 0, len(roles)*5)
 
 	for i, r := range roles {
-		uid, err := generateNewRoleUID(m.sess, r.OrgID)
+		uid, err := GenerateManagedRoleUID(r.OrgID, r.Name)
 		if err != nil {
 			return nil, err
 		}
-
 		valueStrings[i] = "(?, ?, ?, 1, ?, ?)"
 		args = append(args, r.OrgID, uid, r.Name, ts, ts)
 	}
@@ -155,26 +148,25 @@ func (m *permissionMigrator) createRoles(roles []*accesscontrol.Role, start int,
 	valueString := strings.Join(valueStrings, ",")
 	sql := fmt.Sprintf("INSERT INTO role (org_id, uid, name, version, created, updated) VALUES %s RETURNING id, org_id, name", valueString)
 	if errCreate := m.sess.SQL(sql, args...).Find(&createdRoles); errCreate != nil {
-		return nil, errCreate
+		return nil, fmt.Errorf("failed to create roles: %w", errCreate)
 	}
 
 	return createdRoles, nil
 }
 
 // createRolesMySQL creates a list of roles then fetches them
-func (m *permissionMigrator) createRolesMySQL(roles []*accesscontrol.Role, start int, end int) ([]*accesscontrol.Role, error) {
+func (m *permissionMigrator) createRolesMySQL(roles []*accesscontrol.Role) ([]*accesscontrol.Role, error) {
 	ts := time.Now()
 	createdRoles := make([]*accesscontrol.Role, 0, len(roles))
 
 	where := make([]string, len(roles))
-	args := make([]interface{}, 0, len(roles)*2)
+	args := make([]any, 0, len(roles)*2)
 
 	for i := range roles {
-		uid, err := generateNewRoleUID(m.sess, roles[i].OrgID)
+		uid, err := GenerateManagedRoleUID(roles[i].OrgID, roles[i].Name)
 		if err != nil {
 			return nil, err
 		}
-
 		roles[i].UID = uid
 		roles[i].Created = ts
 		roles[i].Updated = ts
@@ -215,19 +207,11 @@ func batch(count, batchSize int, eachFn func(start, end int) error) error {
 	return nil
 }
 
-func generateNewRoleUID(sess *xorm.Session, orgID int64) (string, error) {
-	for i := 0; i < 3; i++ {
-		uid := util.GenerateShortUID()
-
-		exists, err := sess.Where("org_id=? AND uid=?", orgID, uid).Get(&accesscontrol.Role{})
-		if err != nil {
-			return "", err
-		}
-
-		if !exists {
-			return uid, nil
-		}
+// GenerateManagedRoleUID generated a deterministic uid of the form `managed_{org_id}_{type}_{id}`.
+func GenerateManagedRoleUID(orgID int64, name string) (string, error) {
+	parts := strings.Split(name, ":")
+	if len(parts) != 4 {
+		return "", fmt.Errorf("unexpected role name: %s", name)
 	}
-
-	return "", fmt.Errorf("failed to generate uid")
+	return fmt.Sprintf("managed_%d_%s_%s", orgID, parts[1], parts[2]), nil
 }

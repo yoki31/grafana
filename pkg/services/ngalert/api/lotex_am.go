@@ -7,18 +7,27 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/grafana/grafana/pkg/api/response"
 	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/models"
+	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
+	"github.com/grafana/grafana/pkg/services/datasources"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
 	"github.com/grafana/grafana/pkg/web"
-	"gopkg.in/yaml.v3"
 )
 
 var endpoints = map[string]map[string]string{
 	"cortex": {
+		"silences": "/alertmanager/api/v2/silences",
+		"silence":  "/alertmanager/api/v2/silence/%s",
+		"status":   "/alertmanager/api/v2/status",
+		"groups":   "/alertmanager/api/v2/alerts/groups",
+		"alerts":   "/alertmanager/api/v2/alerts",
+		"config":   "/api/v1/alerts",
+	},
+	"mimir": {
 		"silences": "/alertmanager/api/v2/silences",
 		"silence":  "/alertmanager/api/v2/silence/%s",
 		"status":   "/alertmanager/api/v2/status",
@@ -52,7 +61,7 @@ func NewLotexAM(proxy *AlertingProxy, log log.Logger) *LotexAM {
 }
 
 func (am *LotexAM) withAMReq(
-	ctx *models.ReqContext,
+	ctx *contextmodel.ReqContext,
 	method string,
 	endpoint string,
 	pathParams []string,
@@ -60,17 +69,17 @@ func (am *LotexAM) withAMReq(
 	extractor func(*response.NormalResponse) (interface{}, error),
 	headers map[string]string,
 ) response.Response {
-	recipient, err := strconv.ParseInt(web.Params(ctx.Req)[":Recipient"], 10, 64)
-	if err != nil {
-		return response.Error(http.StatusBadRequest, "Recipient is invalid", err)
+	datasourceUID := web.Params(ctx.Req)[":DatasourceUID"]
+	if datasourceUID == "" {
+		return response.Error(http.StatusBadRequest, "DatasourceUID is invalid", nil)
 	}
 
-	ds, err := am.DataProxy.DataSourceCache.GetDatasource(ctx.Req.Context(), recipient, ctx.SignedInUser, ctx.SkipCache)
+	ds, err := am.DataProxy.DataSourceCache.GetDatasourceByUID(ctx.Req.Context(), datasourceUID, ctx.SignedInUser, ctx.SkipDSCache)
 	if err != nil {
-		if errors.Is(err, models.ErrDataSourceAccessDenied) {
+		if errors.Is(err, datasources.ErrDataSourceAccessDenied) {
 			return ErrResp(http.StatusForbidden, err, "Access denied to datasource")
 		}
-		if errors.Is(err, models.ErrDataSourceNotFound) {
+		if errors.Is(err, datasources.ErrDataSourceNotFound) {
 			return ErrResp(http.StatusNotFound, err, "Unable to find datasource")
 		}
 		return ErrResp(http.StatusInternalServerError, err, "Unable to load datasource meta data")
@@ -101,7 +110,7 @@ func (am *LotexAM) withAMReq(
 	)
 }
 
-func (am *LotexAM) RouteGetAMStatus(ctx *models.ReqContext) response.Response {
+func (am *LotexAM) RouteGetAMStatus(ctx *contextmodel.ReqContext) response.Response {
 	return am.withAMReq(
 		ctx,
 		http.MethodGet,
@@ -113,7 +122,7 @@ func (am *LotexAM) RouteGetAMStatus(ctx *models.ReqContext) response.Response {
 	)
 }
 
-func (am *LotexAM) RouteCreateSilence(ctx *models.ReqContext, silenceBody apimodels.PostableSilence) response.Response {
+func (am *LotexAM) RouteCreateSilence(ctx *contextmodel.ReqContext, silenceBody apimodels.PostableSilence) response.Response {
 	blob, err := json.Marshal(silenceBody)
 	if err != nil {
 		return ErrResp(500, err, "Failed marshal silence")
@@ -124,12 +133,12 @@ func (am *LotexAM) RouteCreateSilence(ctx *models.ReqContext, silenceBody apimod
 		"silences",
 		nil,
 		bytes.NewBuffer(blob),
-		jsonExtractor(&apimodels.GettableSilence{}),
+		jsonExtractor(&apimodels.PostSilencesOKBody{}),
 		map[string]string{"Content-Type": "application/json"},
 	)
 }
 
-func (am *LotexAM) RouteDeleteAlertingConfig(ctx *models.ReqContext) response.Response {
+func (am *LotexAM) RouteDeleteAlertingConfig(ctx *contextmodel.ReqContext) response.Response {
 	return am.withAMReq(
 		ctx,
 		http.MethodDelete,
@@ -141,19 +150,19 @@ func (am *LotexAM) RouteDeleteAlertingConfig(ctx *models.ReqContext) response.Re
 	)
 }
 
-func (am *LotexAM) RouteDeleteSilence(ctx *models.ReqContext) response.Response {
+func (am *LotexAM) RouteDeleteSilence(ctx *contextmodel.ReqContext, silenceID string) response.Response {
 	return am.withAMReq(
 		ctx,
 		http.MethodDelete,
 		"silence",
-		[]string{web.Params(ctx.Req)[":SilenceId"]},
+		[]string{silenceID},
 		nil,
 		messageExtractor,
 		nil,
 	)
 }
 
-func (am *LotexAM) RouteGetAlertingConfig(ctx *models.ReqContext) response.Response {
+func (am *LotexAM) RouteGetAlertingConfig(ctx *contextmodel.ReqContext) response.Response {
 	return am.withAMReq(
 		ctx,
 		http.MethodGet,
@@ -165,7 +174,7 @@ func (am *LotexAM) RouteGetAlertingConfig(ctx *models.ReqContext) response.Respo
 	)
 }
 
-func (am *LotexAM) RouteGetAMAlertGroups(ctx *models.ReqContext) response.Response {
+func (am *LotexAM) RouteGetAMAlertGroups(ctx *contextmodel.ReqContext) response.Response {
 	return am.withAMReq(
 		ctx,
 		http.MethodGet,
@@ -177,7 +186,7 @@ func (am *LotexAM) RouteGetAMAlertGroups(ctx *models.ReqContext) response.Respon
 	)
 }
 
-func (am *LotexAM) RouteGetAMAlerts(ctx *models.ReqContext) response.Response {
+func (am *LotexAM) RouteGetAMAlerts(ctx *contextmodel.ReqContext) response.Response {
 	return am.withAMReq(
 		ctx,
 		http.MethodGet,
@@ -189,19 +198,19 @@ func (am *LotexAM) RouteGetAMAlerts(ctx *models.ReqContext) response.Response {
 	)
 }
 
-func (am *LotexAM) RouteGetSilence(ctx *models.ReqContext) response.Response {
+func (am *LotexAM) RouteGetSilence(ctx *contextmodel.ReqContext, silenceID string) response.Response {
 	return am.withAMReq(
 		ctx,
 		http.MethodGet,
 		"silence",
-		[]string{web.Params(ctx.Req)[":SilenceId"]},
+		[]string{silenceID},
 		nil,
 		jsonExtractor(&apimodels.GettableSilence{}),
 		nil,
 	)
 }
 
-func (am *LotexAM) RouteGetSilences(ctx *models.ReqContext) response.Response {
+func (am *LotexAM) RouteGetSilences(ctx *contextmodel.ReqContext) response.Response {
 	return am.withAMReq(
 		ctx,
 		http.MethodGet,
@@ -213,7 +222,7 @@ func (am *LotexAM) RouteGetSilences(ctx *models.ReqContext) response.Response {
 	)
 }
 
-func (am *LotexAM) RoutePostAlertingConfig(ctx *models.ReqContext, config apimodels.PostableUserConfig) response.Response {
+func (am *LotexAM) RoutePostAlertingConfig(ctx *contextmodel.ReqContext, config apimodels.PostableUserConfig) response.Response {
 	yml, err := yaml.Marshal(&config)
 	if err != nil {
 		return ErrResp(500, err, "Failed marshal alert manager configuration ")
@@ -230,7 +239,7 @@ func (am *LotexAM) RoutePostAlertingConfig(ctx *models.ReqContext, config apimod
 	)
 }
 
-func (am *LotexAM) RoutePostAMAlerts(ctx *models.ReqContext, alerts apimodels.PostableAlerts) response.Response {
+func (am *LotexAM) RoutePostAMAlerts(ctx *contextmodel.ReqContext, alerts apimodels.PostableAlerts) response.Response {
 	yml, err := yaml.Marshal(alerts)
 	if err != nil {
 		return ErrResp(500, err, "Failed marshal postable alerts")
@@ -245,8 +254,4 @@ func (am *LotexAM) RoutePostAMAlerts(ctx *models.ReqContext, alerts apimodels.Po
 		messageExtractor,
 		nil,
 	)
-}
-
-func (am *LotexAM) RoutePostTestReceivers(ctx *models.ReqContext, config apimodels.TestReceiversConfigBodyParams) response.Response {
-	return NotImplementedResp
 }

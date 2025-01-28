@@ -1,14 +1,14 @@
-import React from 'react';
-import { Story } from '@storybook/react';
-import { Tooltip } from './Tooltip';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
+import { Meta, StoryFn } from '@storybook/react';
+
 import { Button } from '../Button';
+import { Stack } from '../Layout/Stack/Stack';
 import mdx from '../Tooltip/Tooltip.mdx';
 
-export default {
+import { Tooltip } from './Tooltip';
+
+const meta: Meta<typeof Tooltip> = {
   title: 'Overlays/Tooltip',
   component: Tooltip,
-  decorators: [withCenteredStory],
   parameters: {
     docs: {
       page: mdx,
@@ -54,11 +54,28 @@ export default {
   },
 };
 
-export const Basic: Story = ({ content, ...args }) => {
+export const Basic: StoryFn<typeof Tooltip> = ({ content, ...args }) => {
   return (
     <Tooltip content={content} {...args}>
       <Button>Hover me for Tooltip </Button>
     </Tooltip>
+  );
+};
+
+export const OverflowViewport: StoryFn<typeof Tooltip> = ({}) => {
+  const content = () => <div>A really long tooltip that will overflow the viewport.</div>;
+
+  return (
+    <Stack justifyContent={'flex-end'}>
+      <Stack direction="column" alignItems={'flex-end'}>
+        <Tooltip content="Static string tooltip" placement="bottom">
+          <Button>Static string tooltip</Button>
+        </Tooltip>
+        <Tooltip content={content} placement="bottom">
+          <Button>Lazy content defined in a function</Button>
+        </Tooltip>
+      </Stack>
+    </Stack>
   );
 };
 
@@ -68,3 +85,5 @@ Basic.args = {
   show: undefined,
   placement: 'auto',
 };
+
+export default meta;

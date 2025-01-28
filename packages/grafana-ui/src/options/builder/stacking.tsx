@@ -1,32 +1,29 @@
 import {
   FieldConfigEditorBuilder,
-  FieldOverrideEditorProps,
+  StandardEditorProps,
   FieldType,
   identityOverrideProcessor,
+  SelectableValue,
 } from '@grafana/data';
-import React from 'react';
-import {
-  GraphFieldConfig,
-  graphFieldOptions,
-  HorizontalGroup,
-  IconButton,
-  Input,
-  RadioButtonGroup,
-  Tooltip,
-} from '../..';
-import { StackingConfig, StackingMode } from '@grafana/schema';
+import { GraphFieldConfig, StackingConfig, StackingMode } from '@grafana/schema';
 
-export const StackingEditor: React.FC<FieldOverrideEditorProps<StackingConfig, any>> = ({
+import { RadioButtonGroup } from '../../components/Forms/RadioButtonGroup/RadioButtonGroup';
+import { IconButton } from '../../components/IconButton/IconButton';
+import { Input } from '../../components/Input/Input';
+import { Stack } from '../../components/Layout/Stack/Stack';
+import { graphFieldOptions } from '../../components/uPlot/config';
+
+export const StackingEditor = ({
   value,
   context,
   onChange,
   item,
-}) => {
+}: StandardEditorProps<StackingConfig, { options: Array<SelectableValue<StackingMode>> }>) => {
   return (
-    <HorizontalGroup>
+    <Stack>
       <RadioButtonGroup
         value={value?.mode || StackingMode.None}
-        options={item.settings.options}
+        options={item.settings?.options ?? []}
         onChange={(v) => {
           onChange({
             ...value,
@@ -38,11 +35,7 @@ export const StackingEditor: React.FC<FieldOverrideEditorProps<StackingConfig, a
         <Input
           type="text"
           placeholder="Group"
-          suffix={
-            <Tooltip content="Name of the stacking group" placement="top">
-              <IconButton name="question-circle" />
-            </Tooltip>
-          }
+          suffix={<IconButton name="question-circle" tooltip="Name of the stacking group" tooltipPlacement="top" />}
           defaultValue={value?.group}
           onChange={(v) => {
             onChange({
@@ -52,7 +45,7 @@ export const StackingEditor: React.FC<FieldOverrideEditorProps<StackingConfig, a
           }}
         />
       )}
-    </HorizontalGroup>
+    </Stack>
   );
 };
 

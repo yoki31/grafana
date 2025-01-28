@@ -1,12 +1,16 @@
-import React from 'react';
-import { connect } from 'react-redux';
 import { css } from '@emotion/css';
-import { LinkButton, useStyles2 } from '@grafana/ui';
+import * as React from 'react';
+import { connect } from 'react-redux';
+
 import { GrafanaTheme2, NavModel } from '@grafana/data';
-import Page from '../../core/components/Page/Page';
+import { LinkButton, useStyles2 } from '@grafana/ui';
+import { Page } from 'app/core/components/Page/Page';
+import { Trans } from 'app/core/internationalization';
+
 import { getNavModel } from '../../core/selectors/navModel';
-import { LicenseChrome } from './LicenseChrome';
 import { StoreState } from '../../types';
+
+import { LicenseChrome } from './LicenseChrome';
 import { ServerStats } from './ServerStats';
 
 interface Props {
@@ -33,12 +37,14 @@ interface UpgradeInfoProps {
   editionNotice?: string;
 }
 
-export const UpgradeInfo: React.FC<UpgradeInfoProps> = ({ editionNotice }) => {
+export const UpgradeInfo = ({ editionNotice }: UpgradeInfoProps) => {
   const styles = useStyles2(getStyles);
 
   return (
     <>
-      <h2 className={styles.title}>Enterprise license</h2>
+      <h2 className={styles.title}>
+        <Trans i18nKey="admin.upgrade-info.title">Enterprise license</Trans>
+      </h2>
       <LicenseChrome header="Grafana Enterprise" subheader="Get your free trial" editionNotice={editionNotice}>
         <div className={styles.column}>
           <FeatureInfo />
@@ -51,51 +57,57 @@ export const UpgradeInfo: React.FC<UpgradeInfoProps> = ({ editionNotice }) => {
 
 const getStyles = (theme: GrafanaTheme2) => {
   return {
-    column: css`
-      display: grid;
-      grid-template-columns: 100%;
-      column-gap: 20px;
-      row-gap: 40px;
+    column: css({
+      display: 'grid',
+      gridTemplateColumns: '100%',
+      columnGap: '20px',
+      rowGap: '40px',
 
-      @media (min-width: 1050px) {
-        grid-template-columns: 50% 50%;
-      }
-    `,
-    title: css`
-      margin: ${theme.spacing(4)} 0;
-    `,
+      '@media (min-width: 1050px)': {
+        gridTemplateColumns: '50% 50%',
+      },
+    }),
+    title: css({
+      margin: theme.spacing(4, 0),
+    }),
   };
 };
 
-const GetEnterprise: React.FC = () => {
+const GetEnterprise = () => {
   return (
     <div style={{ marginTop: '40px', marginBottom: '30px' }}>
-      <h2 style={titleStyles}>Get Grafana Enterprise</h2>
+      <h2 style={titleStyles}>
+        <Trans i18nKey="admin.get-enterprise.title">Get Grafana Enterprise</Trans>
+      </h2>
       <CallToAction />
       <p style={{ paddingTop: '12px' }}>
-        You can use the trial version for free for 30 days. We will remind you about it five days before the trial
-        period ends.
+        <Trans i18nKey="admin.get-enterprise.description">
+          You can use the trial version for free for 30 days. We will remind you about it five days before the trial
+          period ends.
+        </Trans>
       </p>
     </div>
   );
 };
 
-const CallToAction: React.FC = () => {
+const CallToAction = () => {
   return (
     <LinkButton
       variant="primary"
       size="lg"
       href="https://grafana.com/contact?about=grafana-enterprise&utm_source=grafana-upgrade-page"
     >
-      Contact us and get a free trial
+      <Trans i18nKey="admin.get-enterprise.contact-us">Contact us and get a free trial</Trans>
     </LinkButton>
   );
 };
 
-const ServiceInfo: React.FC = () => {
+const ServiceInfo = () => {
   return (
     <div>
-      <h4>At your service</h4>
+      <h4>
+        <Trans i18nKey="admin.get-enterprise.service-title">At your service</Trans>
+      </h4>
 
       <List>
         <Item title="Enterprise Plugins" image="public/img/licensing/plugin_enterprise.svg" />
@@ -114,9 +126,13 @@ const ServiceInfo: React.FC = () => {
       </List>
 
       <div style={{ marginTop: '20px' }}>
-        <strong>Also included:</strong>
+        <strong>
+          <Trans i18nKey="admin.get-enterprise.included-heading">Also included:</Trans>
+        </strong>
         <br />
-        Indemnification, working with Grafana Labs on future prioritization, and training from the core Grafana team.
+        <Trans i18nKey="admin.get-enterprise.included-description">
+          Indemnification, working with Grafana Labs on future prioritization, and training from the core Grafana team.
+        </Trans>
       </div>
 
       <GetEnterprise />
@@ -124,23 +140,27 @@ const ServiceInfo: React.FC = () => {
   );
 };
 
-const FeatureInfo: React.FC = () => {
+const FeatureInfo = () => {
   return (
     <div style={{ paddingRight: '11px' }}>
-      <h4>Enhanced functionality</h4>
+      <h4>
+        <Trans i18nKey="admin.get-enterprise.features-heading">Enhanced functionality</Trans>
+      </h4>
       <FeatureListing />
     </div>
   );
 };
 
-const FeatureListing: React.FC = () => {
+const FeatureListing = () => {
   return (
     <List>
       <Item title="Data source permissions" />
       <Item title="Reporting" />
       <Item title="SAML authentication" />
       <Item title="Enhanced LDAP integration" />
-      <Item title="Team Sync">LDAP, GitHub OAuth, Auth Proxy, Okta</Item>
+      <Item title="Team Sync">
+        <Trans i18nKey="admin.get-enterprise.team-sync-details">LDAP, GitHub OAuth, Auth Proxy, Okta</Trans>
+      </Item>
       <Item title="White labeling" />
       <Item title="Auditing" />
       <Item title="Settings updates at runtime" />
@@ -179,16 +199,16 @@ interface ListProps {
   nested?: boolean;
 }
 
-const List: React.FC<ListProps> = ({ children, nested }) => {
-  const listStyle = css`
-    display: flex;
-    flex-direction: column;
-    padding-top: 8px;
+const List = ({ children, nested }: React.PropsWithChildren<ListProps>) => {
+  const listStyle = css({
+    display: 'flex',
+    flexDirection: 'column',
+    paddingTop: '8px',
 
-    > div {
-      margin-bottom: ${nested ? 0 : 8}px;
-    }
-  `;
+    '> div': {
+      marginBottom: `${nested ? 0 : 8}px`,
+    },
+  });
 
   return <div className={listStyle}>{children}</div>;
 };
@@ -198,22 +218,22 @@ interface ItemProps {
   image?: string;
 }
 
-const Item: React.FC<ItemProps> = ({ children, title, image }) => {
+const Item = ({ children, title, image }: React.PropsWithChildren<ItemProps>) => {
   const imageUrl = image ? image : 'public/img/licensing/checkmark.svg';
-  const itemStyle = css`
-    display: flex;
+  const itemStyle = css({
+    display: 'flex',
 
-    > img {
-      display: block;
-      height: 22px;
-      flex-grow: 0;
-      padding-right: 12px;
-    }
-  `;
-  const titleStyle = css`
-    font-weight: 500;
-    line-height: 1.7;
-  `;
+    '> img': {
+      display: 'block',
+      height: '22px',
+      flexGrow: 0,
+      paddingRight: '12px',
+    },
+  });
+  const titleStyle = css({
+    fontWeight: 500,
+    lineHeight: 1.7,
+  });
 
   return (
     <div className={itemStyle}>

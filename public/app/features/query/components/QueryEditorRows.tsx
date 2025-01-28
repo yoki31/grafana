@@ -1,7 +1,6 @@
-// Libraries
-import React, { PureComponent } from 'react';
+import { DragDropContext, DragStart, Droppable, DropResult } from '@hello-pangea/dnd';
+import { PureComponent, ReactNode } from 'react';
 
-// Types
 import {
   CoreApp,
   DataQuery,
@@ -9,12 +8,13 @@ import {
   EventBusExtended,
   HistoryItem,
   PanelData,
+  getDataSourceRef,
 } from '@grafana/data';
-import { QueryEditorRow } from './QueryEditorRow';
-import { DragDropContext, DragStart, Droppable, DropResult } from 'react-beautiful-dnd';
 import { getDataSourceSrv, reportInteraction } from '@grafana/runtime';
 
-interface Props {
+import { QueryEditorRow } from './QueryEditorRow';
+
+export interface Props {
   // The query configuration
   queries: DataQuery[];
   dsSettings: DataSourceInstanceSettings;
@@ -31,6 +31,10 @@ interface Props {
   app?: CoreApp;
   history?: Array<HistoryItem<DataQuery>>;
   eventBus?: EventBusExtended;
+  onQueryCopied?: () => void;
+  onQueryRemoved?: () => void;
+  onQueryToggled?: (queryStatus?: boolean | undefined) => void;
+  queryRowWrapper?: (children: ReactNode, refId: string) => ReactNode;
 }
 
 export class QueryEditorRows extends PureComponent<Props> {
@@ -61,13 +65,15 @@ export class QueryEditorRows extends PureComponent<Props> {
           return item;
         }
 
+        const dataSourceRef = getDataSourceRef(dataSource);
+
         if (item.datasource) {
           const previous = getDataSourceSrv().getInstanceSettings(item.datasource);
 
           if (previous?.type === dataSource.type) {
             return {
               ...item,
-              datasource: { uid: dataSource.uid },
+              datasource: dataSourceRef,
             };
           }
         }
@@ -75,7 +81,7 @@ export class QueryEditorRows extends PureComponent<Props> {
         return {
           refId: item.refId,
           hide: item.hide,
-          datasource: { uid: dataSource.uid },
+          datasource: dataSourceRef,
         };
       })
     );
@@ -124,21 +130,34 @@ export class QueryEditorRows extends PureComponent<Props> {
   };
 
   render() {
-    const { dsSettings, data, queries, app, history, eventBus } = this.props;
+    const {
+      dsSettings,
+      data,
+      queries,
+      app,
+      history,
+      eventBus,
+      onAddQuery,
+      onRunQueries,
+      onQueryCopied,
+      onQueryRemoved,
+      onQueryToggled,
+      queryRowWrapper,
+    } = this.props;
 
     return (
       <DragDropContext onDragStart={this.onDragStart} onDragEnd={this.onDragEnd}>
         <Droppable droppableId="transformations-list" direction="vertical">
           {(provided) => {
             return (
-              <div ref={provided.innerRef} {...provided.droppableProps}>
+              <div data-testid="query-editor-rows" ref={provided.innerRef} {...provided.droppableProps}>
                 {queries.map((query, index) => {
                   const dataSourceSettings = getDataSourceSettings(query, dsSettings);
                   const onChangeDataSourceSettings = dsSettings.meta.mixed
                     ? (settings: DataSourceInstanceSettings) => this.onDataSourceChange(settings, index)
                     : undefined;
 
-                  return (
+                  const queryEditorRow = (
                     <QueryEditorRow
                       id={query.refId}
                       index={index}
@@ -149,14 +168,19 @@ export class QueryEditorRows extends PureComponent<Props> {
                       onChangeDataSource={onChangeDataSourceSettings}
                       onChange={(query) => this.onChangeQuery(query, index)}
                       onRemoveQuery={this.onRemoveQuery}
-                      onAddQuery={this.props.onAddQuery}
-                      onRunQuery={this.props.onRunQueries}
+                      onAddQuery={onAddQuery}
+                      onRunQuery={onRunQueries}
+                      onQueryCopied={onQueryCopied}
+                      onQueryRemoved={onQueryRemoved}
+                      onQueryToggled={onQueryToggled}
                       queries={queries}
                       app={app}
                       history={history}
                       eventBus={eventBus}
                     />
                   );
+
+                  return queryRowWrapper ? queryRowWrapper(queryEditorRow, query.refId) : queryEditorRow;
                 })}
                 {provided.placeholder}
               </div>

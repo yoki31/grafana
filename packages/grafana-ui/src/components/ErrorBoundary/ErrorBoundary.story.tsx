@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
-import { ErrorBoundary, ErrorBoundaryAlert } from './ErrorBoundary';
-import { withCenteredStory } from '@grafana/ui/src/utils/storybook/withCenteredStory';
-import mdx from './ErrorBoundary.mdx';
-import { Button } from '../Button';
-import { ErrorWithStack } from './ErrorWithStack';
-import { Alert } from '../Alert/Alert';
+import { Meta } from '@storybook/react';
+import { useState } from 'react';
 
-export default {
+import { Alert } from '../Alert/Alert';
+import { Button } from '../Button';
+
+import { ErrorBoundary, ErrorBoundaryAlert } from './ErrorBoundary';
+import mdx from './ErrorBoundary.mdx';
+import { ErrorWithStack } from './ErrorWithStack';
+
+const meta: Meta<typeof ErrorBoundary> = {
   title: 'General/ErrorBoundary',
   component: ErrorBoundary,
-  decorators: [withCenteredStory],
   parameters: {
     docs: {
       page: mdx,
@@ -56,3 +57,5 @@ export const BoundaryAlert = () => {
     </ErrorBoundaryAlert>
   );
 };
+
+export default meta;

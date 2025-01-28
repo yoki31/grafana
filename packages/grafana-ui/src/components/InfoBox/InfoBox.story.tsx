@@ -1,12 +1,14 @@
-import React from 'react';
-import { FeatureState } from '@grafana/data';
-import { InfoBox, FeatureInfoBox, VerticalGroup } from '@grafana/ui';
-import mdx from './InfoBox.mdx';
-import { Story } from '@storybook/react';
-import { FeatureInfoBoxProps } from './FeatureInfoBox';
-import { InfoBoxProps } from './InfoBox';
+import { Meta, StoryFn } from '@storybook/react';
 
-export default {
+import { FeatureState } from '@grafana/data';
+
+import { Stack } from '../Layout/Stack/Stack';
+
+import { FeatureInfoBox, FeatureInfoBoxProps } from './FeatureInfoBox';
+import { InfoBox } from './InfoBox';
+import mdx from './InfoBox.mdx';
+
+const meta: Meta = {
   title: 'Layout/InfoBox',
   component: InfoBox,
   decorators: [],
@@ -23,7 +25,7 @@ export default {
   },
   argTypes: {
     featureState: {
-      control: { type: 'select', options: ['alpha', 'beta', undefined] },
+      control: { type: 'select', options: ['experimental', 'preview'] },
     },
   },
 };
@@ -32,7 +34,7 @@ const defaultProps: FeatureInfoBoxProps = {
   title: 'A title',
   severity: 'info',
   url: 'http://www.grafana.com',
-  featureState: FeatureState.beta,
+  featureState: FeatureState.preview,
 
   children: (
     <p>
@@ -44,25 +46,27 @@ const defaultProps: FeatureInfoBoxProps = {
   ),
 };
 
-const InfoBoxTemplate: Story<InfoBoxProps> = (args) => {
+const InfoBoxTemplate: StoryFn<typeof InfoBox> = (args) => {
   return (
-    <VerticalGroup>
+    <Stack direction="column">
       <div>Deprecrated component, use Alert with info severity</div>
-      <InfoBox {...args} />;
-    </VerticalGroup>
+      <InfoBox {...args} />
+    </Stack>
   );
 };
 export const infoBox = InfoBoxTemplate.bind({});
 infoBox.args = defaultProps;
 
-const FeatureInfoBoxTemplate: Story<FeatureInfoBoxProps> = (args) => {
+const FeatureInfoBoxTemplate: StoryFn<typeof FeatureInfoBox> = (args) => {
   return (
-    <VerticalGroup>
+    <Stack direction="column">
       <div>Deprecrated component, use Alert with info severity</div>
       <FeatureInfoBox {...args} />
-    </VerticalGroup>
+    </Stack>
   );
 };
 
 export const featureInfoBox = FeatureInfoBoxTemplate.bind({});
 featureInfoBox.args = defaultProps;
+
+export default meta;

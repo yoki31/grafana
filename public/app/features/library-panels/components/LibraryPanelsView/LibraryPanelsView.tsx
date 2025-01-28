@@ -1,16 +1,18 @@
-import React, { useMemo, useReducer } from 'react';
+import { css } from '@emotion/css';
+import { useMemo, useReducer } from 'react';
 import { useDebounce } from 'react-use';
-import { css, cx } from '@emotion/css';
-import { Pagination, useStyles } from '@grafana/ui';
-import { GrafanaTheme, LoadingState } from '@grafana/data';
 
-import { LibraryPanelCard } from '../LibraryPanelCard/LibraryPanelCard';
+import { GrafanaTheme2, LoadingState } from '@grafana/data';
+import { EmptyState, Pagination, Stack, TextLink, useStyles2 } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
+
 import { LibraryElementDTO } from '../../types';
-import { changePage, initialLibraryPanelsViewState, libraryPanelsViewReducer } from './reducer';
+import { LibraryPanelCard } from '../LibraryPanelCard/LibraryPanelCard';
+
 import { asyncDispatcher, deleteLibraryPanel, searchForLibraryPanels } from './actions';
+import { changePage, initialLibraryPanelsViewState, libraryPanelsViewReducer } from './reducer';
 
 interface LibraryPanelViewProps {
-  className?: string;
   onClickCard: (panel: LibraryElementDTO) => void;
   showSecondaryActions?: boolean;
   currentPanelId?: string;
@@ -21,8 +23,7 @@ interface LibraryPanelViewProps {
   perPage?: number;
 }
 
-export const LibraryPanelsView: React.FC<LibraryPanelViewProps> = ({
-  className,
+export const LibraryPanelsView = ({
   onClickCard,
   searchString,
   sortDirection,
@@ -31,8 +32,8 @@ export const LibraryPanelsView: React.FC<LibraryPanelViewProps> = ({
   showSecondaryActions,
   currentPanelId: currentPanel,
   perPage: propsPerPage = 40,
-}) => {
-  const styles = useStyles(getPanelViewStyles);
+}: LibraryPanelViewProps) => {
+  const styles = useStyles2(getPanelViewStyles);
   const [{ libraryPanels, page, perPage, numberOfPages, loadingState, currentPanelId }, dispatch] = useReducer(
     libraryPanelsViewReducer,
     {
@@ -49,7 +50,7 @@ export const LibraryPanelsView: React.FC<LibraryPanelViewProps> = ({
           searchString,
           sortDirection,
           panelFilter,
-          folderFilter,
+          folderFilterUIDs: folderFilter,
           page,
           perPage,
           currentPanelId,
@@ -59,28 +60,59 @@ export const LibraryPanelsView: React.FC<LibraryPanelViewProps> = ({
     [searchString, sortDirection, panelFilter, folderFilter, page, asyncDispatch]
   );
   const onDelete = ({ uid }: LibraryElementDTO) =>
-    asyncDispatch(deleteLibraryPanel(uid, { searchString, page, perPage }));
+    asyncDispatch(
+      deleteLibraryPanel(uid, {
+        searchString,
+        sortDirection,
+        panelFilter,
+        folderFilterUIDs: folderFilter,
+        page,
+        perPage,
+      })
+    );
   const onPageChange = (page: number) => asyncDispatch(changePage({ page }));
+  const hasFilter = searchString || panelFilter?.length || folderFilter?.length;
+
+  if (!hasFilter && loadingState === LoadingState.Done && libraryPanels.length < 1) {
+    return (
+      <EmptyState
+        variant="call-to-action"
+        message={t('library-panel.empty-state.message', "You haven't created any library panels yet")}
+      >
+        <Trans i18nKey="library-panel.empty-state.more-info">
+          Create a library panel from any existing dashboard panel through the panel context menu.{' '}
+          <TextLink
+            external
+            href="https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/manage-library-panels/#create-a-library-panel"
+          >
+            Learn more
+          </TextLink>
+        </Trans>
+      </EmptyState>
+    );
+  }
 
   return (
-    <div className={cx(styles.container, className)}>
-      <div className={styles.libraryPanelList}>
-        {loadingState === LoadingState.Loading ? (
-          <p>Loading library panels...</p>
-        ) : libraryPanels.length < 1 ? (
-          <p className={styles.noPanelsFound}>No library panels found.</p>
-        ) : (
-          libraryPanels?.map((item, i) => (
-            <LibraryPanelCard
-              key={`library-panel=${i}`}
-              libraryPanel={item}
-              onDelete={onDelete}
-              onClick={onClickCard}
-              showSecondaryActions={showSecondaryActions}
-            />
-          ))
-        )}
-      </div>
+    <Stack direction="column" wrap="nowrap">
+      {loadingState === LoadingState.Loading ? (
+        <>
+          <LibraryPanelCard.Skeleton showSecondaryActions={showSecondaryActions} />
+          <LibraryPanelCard.Skeleton showSecondaryActions={showSecondaryActions} />
+          <LibraryPanelCard.Skeleton showSecondaryActions={showSecondaryActions} />
+        </>
+      ) : libraryPanels.length < 1 ? (
+        <EmptyState variant="not-found" message={t('library-panels.empty-state.message', 'No library panels found')} />
+      ) : (
+        libraryPanels?.map((item, i) => (
+          <LibraryPanelCard
+            key={`library-panel=${i}`}
+            libraryPanel={item}
+            onDelete={onDelete}
+            onClick={onClickCard}
+            showSecondaryActions={showSecondaryActions}
+          />
+        ))
+      )}
       {libraryPanels.length ? (
         <div className={styles.pagination}>
           <Pagination
@@ -91,36 +123,15 @@ export const LibraryPanelsView: React.FC<LibraryPanelViewProps> = ({
           />
         </div>
       ) : null}
-    </div>
+    </Stack>
   );
 };
 
-const getPanelViewStyles = (theme: GrafanaTheme) => {
+const getPanelViewStyles = (theme: GrafanaTheme2) => {
   return {
-    container: css`
-      display: flex;
-      flex-direction: column;
-      flex-wrap: nowrap;
-    `,
-    libraryPanelList: css`
-      max-width: 100%;
-      display: grid;
-      grid-gap: ${theme.spacing.sm};
-    `,
-    searchHeader: css`
-      display: flex;
-    `,
-    newPanelButton: css`
-      margin-top: 10px;
-      align-self: flex-start;
-    `,
-    pagination: css`
-      align-self: center;
-      margin-top: ${theme.spacing.sm};
-    `,
-    noPanelsFound: css`
-      label: noPanelsFound;
-      min-height: 200px;
-    `,
+    pagination: css({
+      alignSelf: 'center',
+      marginTop: theme.spacing(1),
+    }),
   };
 };

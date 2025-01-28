@@ -1,10 +1,15 @@
-import React, { ChangeEvent, KeyboardEvent, FC, useState } from 'react';
 import { css, cx } from '@emotion/css';
+import { useCallback, useState } from 'react';
+import * as React from 'react';
+
+import { GrafanaTheme2 } from '@grafana/data';
+
+import { useStyles2, useTheme2 } from '../../themes/ThemeContext';
+import { Trans } from '../../utils/i18n';
 import { Button } from '../Button';
-import { TagItem } from './TagItem';
-import { useStyles, useTheme2 } from '../../themes/ThemeContext';
-import { GrafanaTheme } from '@grafana/data';
 import { Input } from '../Input/Input';
+
+import { TagItem } from './TagItem';
 
 export interface Props {
   placeholder?: string;
@@ -22,7 +27,7 @@ export interface Props {
   invalid?: boolean;
 }
 
-export const TagsInput: FC<Props> = ({
+export const TagsInput = ({
   placeholder = 'New tag (enter key to add)',
   tags = [],
   onChange,
@@ -32,25 +37,25 @@ export const TagsInput: FC<Props> = ({
   addOnBlur,
   invalid,
   id,
-}) => {
-  const [newTagName, setNewName] = useState('');
-  const styles = useStyles(getStyles);
+}: Props) => {
+  const [newTagName, setNewTagName] = useState('');
+  const styles = useStyles2(getStyles);
   const theme = useTheme2();
 
-  const onNameChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setNewName(event.target.value);
-  };
+  const onNameChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setNewTagName(event.target.value);
+  }, []);
 
   const onRemove = (tagToRemove: string) => {
     onChange(tags.filter((x) => x !== tagToRemove));
   };
 
-  const onAdd = (event?: React.MouseEvent) => {
+  const onAdd = (event?: React.MouseEvent | React.KeyboardEvent) => {
     event?.preventDefault();
     if (!tags.includes(newTagName)) {
       onChange(tags.concat(newTagName));
     }
-    setNewName('');
+    setNewTagName('');
   };
 
   const onBlur = () => {
@@ -59,58 +64,61 @@ export const TagsInput: FC<Props> = ({
     }
   };
 
-  const onKeyboardAdd = (event: KeyboardEvent) => {
-    event.preventDefault();
+  const onKeyboardAdd = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter' && newTagName !== '') {
-      onChange(tags.concat(newTagName));
-      setNewName('');
+      onAdd(event);
     }
   };
 
   return (
     <div className={cx(styles.wrapper, className, width ? css({ width: theme.spacing(width) }) : '')}>
-      <div className={tags?.length ? styles.tags : undefined}>
-        {tags?.map((tag: string, index: number) => {
-          return <TagItem key={`${tag}-${index}`} name={tag} onRemove={onRemove} disabled={disabled} />;
-        })}
-      </div>
-      <div>
-        <Input
-          id={id}
-          disabled={disabled}
-          placeholder={placeholder}
-          onChange={onNameChange}
-          value={newTagName}
-          onKeyUp={onKeyboardAdd}
-          onBlur={onBlur}
-          invalid={invalid}
-          suffix={
-            newTagName.length > 0 && (
-              <Button fill="text" className={styles.addButtonStyle} onClick={onAdd} size="md">
-                Add
-              </Button>
-            )
-          }
-        />
-      </div>
+      <Input
+        id={id}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={onNameChange}
+        value={newTagName}
+        onKeyDown={onKeyboardAdd}
+        onBlur={onBlur}
+        invalid={invalid}
+        suffix={
+          <Button
+            fill="text"
+            className={styles.addButtonStyle}
+            onClick={onAdd}
+            size="md"
+            disabled={newTagName.length <= 0}
+          >
+            <Trans i18nKey="grafana-ui.tags-input.add">Add</Trans>
+          </Button>
+        }
+      />
+      {tags?.length > 0 && (
+        <ul className={styles.tags}>
+          {tags.map((tag) => (
+            <TagItem key={tag} name={tag} onRemove={onRemove} disabled={disabled} />
+          ))}
+        </ul>
+      )}
     </div>
   );
 };
 
-const getStyles = (theme: GrafanaTheme) => ({
-  wrapper: css`
-    min-height: ${theme.spacing.formInputHeight}px;
-    align-items: center;
-    display: flex;
-    flex-wrap: wrap;
-  `,
-  tags: css`
-    display: flex;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    margin-right: ${theme.spacing.xs};
-  `,
-  addButtonStyle: css`
-    margin: 0 -${theme.spacing.sm};
-  `,
+const getStyles = (theme: GrafanaTheme2) => ({
+  wrapper: css({
+    minHeight: theme.spacing(4),
+    display: 'flex',
+    flexDirection: 'column',
+    gap: theme.spacing(1),
+    flexWrap: 'wrap',
+  }),
+  tags: css({
+    display: 'flex',
+    justifyContent: 'flex-start',
+    flexWrap: 'wrap',
+    gap: theme.spacing(0.5),
+  }),
+  addButtonStyle: css({
+    margin: `0 -${theme.spacing(1)}`,
+  }),
 });

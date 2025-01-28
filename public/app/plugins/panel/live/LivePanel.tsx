@@ -1,8 +1,10 @@
-import React, { PureComponent } from 'react';
+import { css, cx } from '@emotion/css';
+import { isEqual } from 'lodash';
+import { PureComponent } from 'react';
 import { Unsubscribable, PartialObserver } from 'rxjs';
-import { Alert, stylesFactory, Button, JSONFormatter, CustomScrollbar, CodeEditor } from '@grafana/ui';
+
 import {
-  GrafanaTheme,
+  GrafanaTheme2,
   PanelProps,
   LiveChannelStatusEvent,
   isValidLiveChannelAddress,
@@ -14,28 +16,30 @@ import {
   LoadingState,
   applyFieldOverrides,
   LiveChannelAddress,
+  StreamingDataFrame,
 } from '@grafana/data';
-import { TablePanel } from '../table/TablePanel';
-import { LivePanelOptions, MessageDisplayMode } from './types';
 import { config, getGrafanaLiveSrv } from '@grafana/runtime';
-import { css, cx } from '@emotion/css';
-import { isEqual } from 'lodash';
-import { StreamingDataFrame } from 'app/features/live/data/StreamingDataFrame';
+import { Alert, stylesFactory, JSONFormatter, CustomScrollbar } from '@grafana/ui';
+
+import { TablePanel } from '../table/TablePanel';
+
+import { LivePublish } from './LivePublish';
+import { LivePanelOptions, MessageDisplayMode, MessagePublishMode } from './types';
 
 interface Props extends PanelProps<LivePanelOptions> {}
 
 interface State {
-  error?: any;
+  error?: unknown;
   addr?: LiveChannelAddress;
   status?: LiveChannelStatusEvent;
-  message?: any;
+  message?: unknown;
   changed: number;
 }
 
 export class LivePanel extends PureComponent<Props, State> {
   private readonly isValid: boolean;
   subscription?: Unsubscribable;
-  styles = getStyles(config.theme);
+  styles = getStyles(config.theme2);
 
   constructor(props: Props) {
     super(props);
@@ -130,34 +134,6 @@ export class LivePanel extends PureComponent<Props, State> {
     );
   }
 
-  onSaveJSON = (text: string) => {
-    const { options, onOptionsChange } = this.props;
-
-    try {
-      const json = JSON.parse(text);
-      onOptionsChange({ ...options, json });
-    } catch (err) {
-      console.log('Error reading JSON', err);
-    }
-  };
-
-  onPublishClicked = async () => {
-    const { addr } = this.state;
-    if (!addr) {
-      console.log('invalid address');
-      return;
-    }
-
-    const data = this.props.options?.json;
-    if (!data) {
-      console.log('nothing to publish');
-      return;
-    }
-
-    const rsp = await getGrafanaLiveSrv().publish(addr, data);
-    console.log('onPublishClicked (response from publish)', rsp);
-  };
-
   renderMessage(height: number) {
     const { options } = this.props;
     const { message } = this.state;
@@ -171,11 +147,11 @@ export class LivePanel extends PureComponent<Props, State> {
       );
     }
 
-    if (options.message === MessageDisplayMode.JSON) {
+    if (options.display === MessageDisplayMode.JSON) {
       return <JSONFormatter json={message} open={5} />;
     }
 
-    if (options.message === MessageDisplayMode.Auto) {
+    if (options.display === MessageDisplayMode.Auto) {
       if (message instanceof StreamingDataFrame) {
         const data: PanelData = {
           series: applyFieldOverrides({
@@ -189,10 +165,10 @@ export class LivePanel extends PureComponent<Props, State> {
           }),
           state: LoadingState.Streaming,
         } as PanelData;
-        const props = {
+        const props: PanelProps = {
           ...this.props,
           options: { frameIndex: 0, showHeader: true },
-        } as PanelProps<any>;
+        };
         return <TablePanel {...props} data={data} height={height} />;
       }
     }
@@ -203,20 +179,13 @@ export class LivePanel extends PureComponent<Props, State> {
   renderPublish(height: number) {
     const { options } = this.props;
     return (
-      <>
-        <CodeEditor
-          height={height - 32}
-          language="json"
-          value={options.json ? JSON.stringify(options.json, null, 2) : '{ }'}
-          onBlur={this.onSaveJSON}
-          onSave={this.onSaveJSON}
-          showMiniMap={false}
-          showLineNumbers={true}
-        />
-        <div style={{ height: 32 }}>
-          <Button onClick={this.onPublishClicked}>Publish</Button>
-        </div>
-      </>
+      <LivePublish
+        height={height}
+        body={options.message}
+        mode={options.publish ?? MessagePublishMode.JSON}
+        onSave={(message) => this.props.onOptionsChange({ ...options, message })}
+        addr={this.state.addr}
+      />
     );
   }
 
@@ -236,12 +205,13 @@ export class LivePanel extends PureComponent<Props, State> {
   renderBody() {
     const { status } = this.state;
     const { options, height } = this.props;
+    const publish = options.publish === MessagePublishMode.JSON || options.publish === MessagePublishMode.Influx;
 
-    if (options.publish) {
-      // Only the publish form
-      if (options.message === MessageDisplayMode.None) {
-        return <div>{this.renderPublish(height)}</div>;
+    if (publish) {
+      if (options.display === MessageDisplayMode.None) {
+        return this.renderPublish(height);
       }
+
       // Both message and publish
       const halfHeight = height / 2;
       return (
@@ -255,7 +225,7 @@ export class LivePanel extends PureComponent<Props, State> {
         </div>
       );
     }
-    if (options.message === MessageDisplayMode.None) {
+    if (options.display === MessageDisplayMode.None) {
       return <pre>{JSON.stringify(status)}</pre>;
     }
 
@@ -298,31 +268,34 @@ export class LivePanel extends PureComponent<Props, State> {
   }
 }
 
-const getStyles = stylesFactory((theme: GrafanaTheme) => ({
-  statusWrap: css`
-    margin: auto;
-    position: absolute;
-    top: 0;
-    right: 0;
-    background: ${theme.colors.panelBg};
-    padding: 10px;
-    z-index: ${theme.zIndex.modal};
-  `,
+const getStyles = stylesFactory((theme: GrafanaTheme2) => ({
+  statusWrap: css({
+    margin: 'auto',
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    background: theme.components.panel.background,
+    padding: '10px',
+    zIndex: theme.zIndex.modal,
+  }),
   status: {
-    [LiveChannelConnectionState.Pending]: css`
-      border: 1px solid ${theme.palette.brandPrimary};
-    `,
-    [LiveChannelConnectionState.Connected]: css`
-      border: 1px solid ${theme.palette.brandSuccess};
-    `,
-    [LiveChannelConnectionState.Disconnected]: css`
-      border: 1px solid ${theme.palette.brandWarning};
-    `,
-    [LiveChannelConnectionState.Shutdown]: css`
-      border: 1px solid ${theme.palette.brandDanger};
-    `,
-    [LiveChannelConnectionState.Invalid]: css`
-      border: 1px solid red;
-    `,
+    [LiveChannelConnectionState.Pending]: css({
+      border: `1px solid ${theme.v1.palette.orange}`,
+    }),
+    [LiveChannelConnectionState.Connected]: css({
+      border: `1px solid ${theme.colors.success.main}`,
+    }),
+    [LiveChannelConnectionState.Connecting]: css({
+      border: `1px solid ${theme.v1.palette.brandWarning}`,
+    }),
+    [LiveChannelConnectionState.Disconnected]: css({
+      border: `1px solid ${theme.colors.warning.main}`,
+    }),
+    [LiveChannelConnectionState.Shutdown]: css({
+      border: `1px solid ${theme.colors.error.main}`,
+    }),
+    [LiveChannelConnectionState.Invalid]: css({
+      border: '1px solid red',
+    }),
   },
 }));

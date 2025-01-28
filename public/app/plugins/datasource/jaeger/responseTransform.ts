@@ -6,7 +6,8 @@ import {
   TraceLog,
   TraceSpanRow,
 } from '@grafana/data';
-import { transformTraceData } from '@jaegertracing/jaeger-ui-components';
+
+import transformTraceData from './_importedDependencies/model/transform-trace-data';
 import { JaegerResponse, Span, TraceProcess, TraceResponse } from './types';
 
 export function createTraceFrame(data: TraceResponse): DataFrame {
@@ -23,6 +24,7 @@ export function createTraceFrame(data: TraceResponse): DataFrame {
       { name: 'startTime', type: FieldType.number },
       { name: 'duration', type: FieldType.number },
       { name: 'logs', type: FieldType.other },
+      { name: 'references', type: FieldType.other, values: [] },
       { name: 'tags', type: FieldType.other },
       { name: 'warnings', type: FieldType.other },
       { name: 'stackTraces', type: FieldType.other },
@@ -43,10 +45,12 @@ export function createTraceFrame(data: TraceResponse): DataFrame {
 }
 
 function toSpanRow(span: Span, processes: Record<string, TraceProcess>): TraceSpanRow {
+  const parentSpanID = span.references?.find((r) => r.refType === 'CHILD_OF')?.spanID;
+
   return {
     spanID: span.spanID,
     traceID: span.traceID,
-    parentSpanID: span.references?.find((r) => r.refType === 'CHILD_OF')?.spanID,
+    parentSpanID: parentSpanID,
     operationName: span.operationName,
     // from micro to millis
     startTime: span.startTime / 1000,
@@ -58,6 +62,7 @@ function toSpanRow(span: Span, processes: Record<string, TraceProcess>): TraceSp
     tags: span.tags,
     warnings: span.warnings ?? undefined,
     stackTraces: span.stackTraces,
+    references: span.references?.filter((r) => r.spanID !== parentSpanID) ?? [], // parentSpanID is pushed to references in the transformTraceDataFrame method
     serviceName: processes[span.processID].serviceName,
     serviceTags: processes[span.processID].tags,
   };
@@ -70,6 +75,7 @@ export function createTableFrame(data: TraceResponse[], instanceSettings: DataSo
         name: 'traceID',
         type: FieldType.string,
         config: {
+          unit: 'string',
           displayNameFromDS: 'Trace ID',
           links: [
             {

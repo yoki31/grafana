@@ -2,271 +2,392 @@ package guardian
 
 import (
 	"context"
-	"strconv"
+	"errors"
 
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/models"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
 	"github.com/grafana/grafana/pkg/services/dashboards"
-	"github.com/grafana/grafana/pkg/services/sqlstore"
+	"github.com/grafana/grafana/pkg/services/folder"
 	"github.com/grafana/grafana/pkg/setting"
 )
 
-var permissionMap = map[string]models.PermissionType{
-	"View":  models.PERMISSION_VIEW,
-	"Edit":  models.PERMISSION_EDIT,
-	"Admin": models.PERMISSION_ADMIN,
-}
+var _ DashboardGuardian = new(accessControlDashboardGuardian)
 
-var _ DashboardGuardian = new(AccessControlDashboardGuardian)
-
+// NewAccessControlDashboardGuardianByDashboard creates a dashboard guardian by the provided dashboardId.
 func NewAccessControlDashboardGuardian(
-	ctx context.Context, dashboardId int64, user *models.SignedInUser,
-	store *sqlstore.SQLStore, ac accesscontrol.AccessControl, permissionsServices accesscontrol.PermissionsServices,
-) *AccessControlDashboardGuardian {
-	return &AccessControlDashboardGuardian{
-		ctx:                ctx,
-		log:                log.New("dashboard.permissions"),
-		dashboardID:        dashboardId,
-		user:               user,
-		store:              store,
-		ac:                 ac,
-		permissionServices: permissionsServices,
+	ctx context.Context, cfg *setting.Cfg, dashboardId int64, user identity.Requester,
+	ac accesscontrol.AccessControl, dashboardService dashboards.DashboardService,
+	foldersService folder.Service, logger log.Logger,
+) (DashboardGuardian, error) {
+	var dashboard *dashboards.Dashboard
+	if dashboardId != 0 {
+		q := &dashboards.GetDashboardQuery{
+			ID:    dashboardId,
+			OrgID: user.GetOrgID(),
+		}
+
+		qResult, err := dashboardService.GetDashboard(ctx, q)
+		if err != nil {
+			if errors.Is(err, dashboards.ErrDashboardNotFound) {
+				return nil, ErrGuardianDashboardNotFound.Errorf("failed to get dashboard by UID: %w", err)
+			}
+			return nil, ErrGuardianGetDashboardFailure.Errorf("failed to get dashboard by UID: %w", err)
+		}
+		dashboard = qResult
 	}
+
+	if dashboard != nil && dashboard.IsFolder {
+		logger.Info("using dashboard guardian for folder", "folder", dashboard.UID)
+		return &accessControlFolderGuardian{
+			accessControlBaseGuardian: accessControlBaseGuardian{
+				ctx:              ctx,
+				cfg:              cfg,
+				log:              log.New("folder.permissions"),
+				user:             user,
+				ac:               ac,
+				dashboardService: dashboardService,
+			},
+			folder: dashboards.FromDashboard(dashboard),
+		}, nil
+	}
+
+	return &accessControlDashboardGuardian{
+		accessControlBaseGuardian: accessControlBaseGuardian{
+			ctx:              ctx,
+			cfg:              cfg,
+			log:              log.New("dashboard.permissions"),
+			user:             user,
+			ac:               ac,
+			dashboardService: dashboardService,
+			folderService:    foldersService,
+		},
+		dashboard: dashboard,
+	}, nil
 }
 
-type AccessControlDashboardGuardian struct {
-	ctx                context.Context
-	log                log.Logger
-	dashboardID        int64
-	dashboard          *models.Dashboard
-	user               *models.SignedInUser
-	store              *sqlstore.SQLStore
-	ac                 accesscontrol.AccessControl
-	permissionServices accesscontrol.PermissionsServices
+// NewAccessControlDashboardGuardianByDashboard creates a dashboard guardian by the provided dashboard.
+// This constructor should be preferred over the other two if the dashboard is available
+// since it avoids querying the database for fetching the dashboard.
+func NewAccessControlDashboardGuardianByDashboard(
+	ctx context.Context, cfg *setting.Cfg, dashboard *dashboards.Dashboard, user identity.Requester,
+	ac accesscontrol.AccessControl, dashboardService dashboards.DashboardService, folderService folder.Service,
+	logger log.Logger,
+) (DashboardGuardian, error) {
+	if dashboard != nil && dashboard.IsFolder {
+		logger.Info("using by dashboard guardian for folder", "folder", dashboard.UID)
+		return &accessControlFolderGuardian{
+			accessControlBaseGuardian: accessControlBaseGuardian{
+				ctx:              ctx,
+				cfg:              cfg,
+				log:              log.New("folder.permissions"),
+				user:             user,
+				ac:               ac,
+				dashboardService: dashboardService,
+				folderService:    folderService,
+			},
+			folder: dashboards.FromDashboard(dashboard),
+		}, nil
+	}
+
+	return &accessControlDashboardGuardian{
+		accessControlBaseGuardian: accessControlBaseGuardian{
+			cfg:              cfg,
+			ctx:              ctx,
+			log:              log.New("dashboard.permissions"),
+			user:             user,
+			ac:               ac,
+			dashboardService: dashboardService,
+			folderService:    folderService,
+		},
+		dashboard: dashboard,
+	}, nil
 }
 
-func (a *AccessControlDashboardGuardian) CanSave() (bool, error) {
-	if err := a.loadDashboard(); err != nil {
-		return false, err
+// NewAccessControlFolderGuardianByUID creates a folder guardian by the provided folderUID.
+func NewAccessControlFolderGuardianByUID(
+	ctx context.Context, cfg *setting.Cfg, folderUID string, user identity.Requester,
+	ac accesscontrol.AccessControl, dashboardService dashboards.DashboardService, foldersService folder.Service,
+) (DashboardGuardian, error) {
+	if folderUID == "" {
+		return nil, ErrGuardianFolderNotFound.Errorf("failed to get folder by UID: folder UID is empty")
 	}
 
-	if a.dashboard.IsFolder {
-		return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionFoldersWrite, folderScope(a.dashboardID)))
+	q := &folder.GetFolderQuery{
+		UID:          &folderUID,
+		OrgID:        user.GetOrgID(),
+		SignedInUser: user,
 	}
 
-	return a.evaluate(accesscontrol.EvalAny(
-		accesscontrol.EvalPermission(accesscontrol.ActionDashboardsWrite, dashboardScope(a.dashboard.Id)),
-		accesscontrol.EvalPermission(accesscontrol.ActionDashboardsWrite, folderScope(a.dashboard.FolderId)),
-	))
+	f, err := foldersService.Get(ctx, q)
+	if err != nil {
+		if errors.Is(err, dashboards.ErrFolderNotFound) {
+			return nil, ErrGuardianFolderNotFound.Errorf("failed to get folder by UID: %w", err)
+		}
+		return nil, ErrGuardianGetFolderFailure.Errorf("failed to get folder by UID: %w", err)
+	}
+
+	return &accessControlFolderGuardian{
+		accessControlBaseGuardian: accessControlBaseGuardian{
+			ctx:              ctx,
+			cfg:              cfg,
+			log:              log.New("folder.permissions"),
+			user:             user,
+			ac:               ac,
+			dashboardService: dashboardService,
+			folderService:    foldersService,
+		},
+		folder: f,
+	}, nil
 }
 
-func (a *AccessControlDashboardGuardian) CanEdit() (bool, error) {
-	if err := a.loadDashboard(); err != nil {
-		return false, err
+// NewAccessControlFolderGuardian creates a folder guardian by the provided folder.
+func NewAccessControlFolderGuardian(
+	ctx context.Context, cfg *setting.Cfg, f *folder.Folder, user identity.Requester,
+	ac accesscontrol.AccessControl, orgID int64, dashboardService dashboards.DashboardService,
+	folderService folder.Service,
+) (DashboardGuardian, error) {
+	if f.UID == "" { // nolint:staticcheck
+		query := &folder.GetFolderQuery{
+			ID:           &f.ID, // nolint:staticcheck
+			OrgID:        orgID,
+			SignedInUser: user,
+		}
+
+		folder, err := folderService.Get(ctx, query)
+		if err != nil {
+			if errors.Is(err, dashboards.ErrFolderNotFound) {
+				return nil, ErrGuardianFolderNotFound.Errorf("failed to get folder: %w", err)
+			}
+			return nil, ErrGuardianGetFolderFailure.Errorf("failed to get folder: %w", err)
+		}
+		f = folder
 	}
 
-	if setting.ViewersCanEdit {
+	return &accessControlFolderGuardian{
+		accessControlBaseGuardian: accessControlBaseGuardian{
+			ctx:              ctx,
+			cfg:              cfg,
+			log:              log.New("folder.permissions"),
+			user:             user,
+			ac:               ac,
+			dashboardService: dashboardService,
+			folderService:    folderService,
+		},
+		folder: f,
+	}, nil
+}
+
+type accessControlBaseGuardian struct {
+	cfg              *setting.Cfg
+	ctx              context.Context
+	log              log.Logger
+	user             identity.Requester
+	ac               accesscontrol.AccessControl
+	dashboardService dashboards.DashboardService
+	folderService    folder.Service
+}
+
+type accessControlDashboardGuardian struct {
+	accessControlBaseGuardian
+	dashboard *dashboards.Dashboard
+}
+
+type accessControlFolderGuardian struct {
+	accessControlBaseGuardian
+	folder *folder.Folder
+}
+
+func (a *accessControlDashboardGuardian) CanSave() (bool, error) {
+	if a.dashboard == nil {
+		return false, ErrGuardianDashboardNotFound.Errorf("failed to check save permissions for dashboard")
+	}
+
+	return a.evaluate(
+		accesscontrol.EvalPermission(dashboards.ActionDashboardsWrite, dashboards.ScopeDashboardsProvider.GetResourceScopeUID(a.dashboard.UID)),
+	)
+}
+
+func (a *accessControlFolderGuardian) CanSave() (bool, error) {
+	if a.folder == nil {
+		return false, ErrGuardianFolderNotFound.Errorf("failed to check save permissions for folder")
+	}
+
+	return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionFoldersWrite, dashboards.ScopeFoldersProvider.GetResourceScopeUID(a.folder.UID)))
+}
+
+func (a *accessControlDashboardGuardian) CanEdit() (bool, error) {
+	if a.dashboard == nil {
+		return false, ErrGuardianDashboardNotFound.Errorf("failed to check edit permissions for dashboard")
+	}
+
+	if a.cfg.ViewersCanEdit {
 		return a.CanView()
 	}
 
-	if a.dashboard.IsFolder {
-		return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionFoldersWrite, folderScope(a.dashboardID)))
+	return a.evaluate(
+		accesscontrol.EvalPermission(dashboards.ActionDashboardsWrite, dashboards.ScopeDashboardsProvider.GetResourceScopeUID(a.dashboard.UID)),
+	)
+}
+
+func (a *accessControlFolderGuardian) CanEdit() (bool, error) {
+	if a.folder == nil {
+		return false, ErrGuardianFolderNotFound.Errorf("failed to check edit permissions for folder")
 	}
 
-	return a.evaluate(accesscontrol.EvalAny(
-		accesscontrol.EvalPermission(accesscontrol.ActionDashboardsWrite, dashboardScope(a.dashboard.Id)),
-		accesscontrol.EvalPermission(accesscontrol.ActionDashboardsWrite, folderScope(a.dashboard.FolderId)),
+	if a.cfg.ViewersCanEdit {
+		return a.CanView()
+	}
+
+	return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionFoldersWrite, dashboards.ScopeFoldersProvider.GetResourceScopeUID(a.folder.UID)))
+}
+
+func (a *accessControlDashboardGuardian) CanView() (bool, error) {
+	if a.dashboard == nil {
+		return false, ErrGuardianDashboardNotFound.Errorf("failed to check view permissions for dashboard")
+	}
+
+	return a.evaluate(
+		accesscontrol.EvalPermission(dashboards.ActionDashboardsRead, dashboards.ScopeDashboardsProvider.GetResourceScopeUID(a.dashboard.UID)),
+	)
+}
+
+func (a *accessControlFolderGuardian) CanView() (bool, error) {
+	if a.folder == nil {
+		return false, ErrGuardianFolderNotFound.Errorf("failed to check view permissions for folder")
+	}
+
+	return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionFoldersRead, dashboards.ScopeFoldersProvider.GetResourceScopeUID(a.folder.UID)))
+}
+
+func (a *accessControlDashboardGuardian) CanAdmin() (bool, error) {
+	if a.dashboard == nil {
+		return false, ErrGuardianDashboardNotFound.Errorf("failed to check admin permissions for dashboard")
+	}
+
+	return a.evaluate(accesscontrol.EvalAll(
+		accesscontrol.EvalPermission(dashboards.ActionDashboardsPermissionsRead, dashboards.ScopeDashboardsProvider.GetResourceScopeUID(a.dashboard.UID)),
+		accesscontrol.EvalPermission(dashboards.ActionDashboardsPermissionsWrite, dashboards.ScopeDashboardsProvider.GetResourceScopeUID(a.dashboard.UID)),
 	))
 }
 
-func (a *AccessControlDashboardGuardian) CanView() (bool, error) {
-	if err := a.loadDashboard(); err != nil {
-		return false, err
+func (a *accessControlFolderGuardian) CanAdmin() (bool, error) {
+	if a.folder == nil {
+		return false, ErrGuardianFolderNotFound.Errorf("failed to check admin permissions for folder")
 	}
 
-	if a.dashboard.IsFolder {
-		return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionFoldersRead, folderScope(a.dashboardID)))
-	}
-
-	return a.evaluate(accesscontrol.EvalAny(
-		accesscontrol.EvalPermission(accesscontrol.ActionDashboardsRead, dashboardScope(a.dashboard.Id)),
-		accesscontrol.EvalPermission(accesscontrol.ActionDashboardsRead, folderScope(a.dashboard.FolderId)),
+	return a.evaluate(accesscontrol.EvalAll(
+		accesscontrol.EvalPermission(dashboards.ActionFoldersPermissionsRead, dashboards.ScopeFoldersProvider.GetResourceScopeUID(a.folder.UID)),
+		accesscontrol.EvalPermission(dashboards.ActionFoldersPermissionsWrite, dashboards.ScopeFoldersProvider.GetResourceScopeUID(a.folder.UID)),
 	))
 }
 
-func (a *AccessControlDashboardGuardian) CanAdmin() (bool, error) {
-	if err := a.loadDashboard(); err != nil {
-		return false, err
+func (a *accessControlDashboardGuardian) CanDelete() (bool, error) {
+	if a.dashboard == nil {
+		return false, ErrGuardianDashboardNotFound.Errorf("failed to check delete permissions for dashboard")
 	}
 
-	if a.dashboard.IsFolder {
-		return a.evaluate(accesscontrol.EvalAll(
-			accesscontrol.EvalPermission(dashboards.ActionFoldersPermissionsRead, folderScope(a.dashboard.Id)),
-			accesscontrol.EvalPermission(dashboards.ActionFoldersPermissionsWrite, folderScope(a.dashboard.Id)),
-		))
-	}
-
-	return a.evaluate(accesscontrol.EvalAny(
-		accesscontrol.EvalAll(
-			accesscontrol.EvalPermission(accesscontrol.ActionDashboardsPermissionsRead, dashboardScope(a.dashboard.Id)),
-			accesscontrol.EvalPermission(accesscontrol.ActionDashboardsPermissionsWrite, dashboardScope(a.dashboard.Id)),
-		),
-		accesscontrol.EvalAll(
-			accesscontrol.EvalPermission(accesscontrol.ActionDashboardsPermissionsRead, folderScope(a.dashboard.FolderId)),
-			accesscontrol.EvalPermission(accesscontrol.ActionDashboardsPermissionsWrite, folderScope(a.dashboard.FolderId)),
-		),
-	))
+	return a.evaluate(
+		accesscontrol.EvalPermission(dashboards.ActionDashboardsDelete, dashboards.ScopeDashboardsProvider.GetResourceScopeUID(a.dashboard.UID)),
+	)
 }
 
-func (a *AccessControlDashboardGuardian) CanDelete() (bool, error) {
-	if err := a.loadDashboard(); err != nil {
-		return false, err
+func (a *accessControlFolderGuardian) CanDelete() (bool, error) {
+	if a.folder == nil {
+		return false, ErrGuardianFolderNotFound.Errorf("failed to check delete permissions for folder")
 	}
 
-	if a.dashboard.IsFolder {
-		return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionFoldersDelete, folderScope(a.dashboard.Id)))
-	}
-
-	return a.evaluate(accesscontrol.EvalAny(
-		accesscontrol.EvalPermission(accesscontrol.ActionDashboardsDelete, dashboardScope(a.dashboard.Id)),
-		accesscontrol.EvalPermission(accesscontrol.ActionDashboardsDelete, folderScope(a.dashboard.FolderId)),
-	))
+	return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionFoldersDelete, dashboards.ScopeFoldersProvider.GetResourceScopeUID(a.folder.UID)))
 }
 
-func (a *AccessControlDashboardGuardian) CanCreate(folderID int64, isFolder bool) (bool, error) {
+func (a *accessControlDashboardGuardian) CanCreate(folderID int64, isFolder bool) (bool, error) {
 	if isFolder {
 		return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionFoldersCreate))
 	}
-
-	return a.evaluate(accesscontrol.EvalPermission(accesscontrol.ActionDashboardsCreate, folderScope(folderID)))
+	folder, err := a.loadParentFolder(folderID)
+	if err != nil {
+		return false, err
+	}
+	return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionDashboardsCreate, dashboards.ScopeFoldersProvider.GetResourceScopeUID(folder.UID)))
 }
 
-func (a *AccessControlDashboardGuardian) evaluate(evaluator accesscontrol.Evaluator) (bool, error) {
+func (a *accessControlFolderGuardian) CanCreate(folderID int64, isFolder bool) (bool, error) {
+	if isFolder {
+		return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionFoldersCreate))
+	}
+	folder, err := a.loadParentFolder(folderID)
+	if err != nil {
+		return false, err
+	}
+	return a.evaluate(accesscontrol.EvalPermission(dashboards.ActionDashboardsCreate, dashboards.ScopeFoldersProvider.GetResourceScopeUID(folder.UID)))
+}
+
+func (a *accessControlDashboardGuardian) evaluate(evaluator accesscontrol.Evaluator) (bool, error) {
 	ok, err := a.ac.Evaluate(a.ctx, a.user, evaluator)
 	if err != nil {
-		a.log.Error("Failed to evaluate access control to folder or dashboard", "error", err, "userId", a.user.UserId, "id", a.dashboardID)
+		id := 0
+		if a.dashboard != nil {
+			id = int(a.dashboard.ID)
+		}
+		a.log.Debug("Failed to evaluate access control to dashboard", "error", err, "identity", a.user.GetID(), "id", id)
 	}
 
 	if !ok && err == nil {
-		a.log.Info("Access denied to folder or dashboard", "userId", a.user.UserId, "id", a.dashboardID, "permissions", evaluator.GoString())
+		id := 0
+		if a.dashboard != nil {
+			id = int(a.dashboard.ID)
+		}
+		a.log.Debug("Access denied to dashboard", "identity", a.user.GetID(), "id", id, "permissions", evaluator.GoString())
 	}
 
 	return ok, err
 }
 
-func (a *AccessControlDashboardGuardian) CheckPermissionBeforeUpdate(permission models.PermissionType, updatePermissions []*models.DashboardAcl) (bool, error) {
-	// always true for access control
-	return true, nil
+func (a *accessControlFolderGuardian) evaluate(evaluator accesscontrol.Evaluator) (bool, error) {
+	ok, err := a.ac.Evaluate(a.ctx, a.user, evaluator)
+	if err != nil {
+		uid := ""
+		orgID := 0
+		if a.folder != nil {
+			uid = a.folder.UID
+			orgID = int(a.folder.OrgID)
+		}
+		a.log.Debug("Failed to evaluate access control to folder", "error", err, "identity", a.user.GetID(), "orgID", orgID, "uid", uid)
+	}
+
+	if !ok && err == nil {
+		uid := ""
+		orgID := 0
+		if a.folder != nil {
+			uid = a.folder.UID
+			orgID = int(a.folder.OrgID)
+		}
+		a.log.Debug("Access denied to folder", "identity", a.user.GetID(), "identity", a.user.GetID(), "orgID", orgID, "uid", uid, "permissions", evaluator.GoString())
+	}
+
+	return ok, err
 }
 
-// GetAcl translate access control permissions to dashboard acl info
-func (a *AccessControlDashboardGuardian) GetAcl() ([]*models.DashboardAclInfoDTO, error) {
-	if err := a.loadDashboard(); err != nil {
-		return nil, err
+func (a *accessControlDashboardGuardian) loadParentFolder(folderID int64) (*folder.Folder, error) {
+	if folderID == 0 {
+		return &folder.Folder{UID: accesscontrol.GeneralFolderUID, OrgID: a.user.GetOrgID()}, nil
 	}
-
-	svc := a.permissionServices.GetDashboardService()
-	if a.dashboard.IsFolder {
-		svc = a.permissionServices.GetFolderService()
-	}
-
-	permissions, err := svc.GetPermissions(a.ctx, a.user, strconv.FormatInt(a.dashboard.Id, 10))
+	folderQuery := &folder.GetFolderQuery{ID: &folderID, OrgID: a.user.GetOrgID(), SignedInUser: a.user}
+	folderQueryResult, err := a.folderService.Get(a.ctx, folderQuery)
 	if err != nil {
 		return nil, err
 	}
-
-	acl := make([]*models.DashboardAclInfoDTO, 0, len(permissions))
-	for _, p := range permissions {
-		if !p.IsManaged() {
-			continue
-		}
-
-		var role *models.RoleType
-		if p.BuiltInRole != "" {
-			tmp := models.RoleType(p.BuiltInRole)
-			role = &tmp
-		}
-
-		acl = append(acl, &models.DashboardAclInfoDTO{
-			OrgId:          a.dashboard.OrgId,
-			DashboardId:    a.dashboard.Id,
-			FolderId:       a.dashboard.FolderId,
-			Created:        p.Created,
-			Updated:        p.Updated,
-			UserId:         p.UserId,
-			UserLogin:      p.UserLogin,
-			UserEmail:      p.UserEmail,
-			TeamId:         p.TeamId,
-			TeamEmail:      p.TeamEmail,
-			Team:           p.Team,
-			Role:           role,
-			Permission:     permissionMap[svc.MapActions(p)],
-			PermissionName: permissionMap[svc.MapActions(p)].String(),
-			Uid:            a.dashboard.Uid,
-			Title:          a.dashboard.Title,
-			Slug:           a.dashboard.Slug,
-			IsFolder:       a.dashboard.IsFolder,
-			Url:            a.dashboard.GetUrl(),
-			Inherited:      false,
-		})
-	}
-
-	return acl, nil
+	return folderQueryResult, nil
 }
 
-func (a *AccessControlDashboardGuardian) GetACLWithoutDuplicates() ([]*models.DashboardAclInfoDTO, error) {
-	return a.GetAcl()
-}
-
-func (a *AccessControlDashboardGuardian) GetHiddenACL(cfg *setting.Cfg) ([]*models.DashboardAcl, error) {
-	var hiddenACL []*models.DashboardAcl
-	if a.user.IsGrafanaAdmin {
-		return hiddenACL, nil
+func (a *accessControlFolderGuardian) loadParentFolder(folderID int64) (*folder.Folder, error) {
+	if folderID == 0 {
+		return &folder.Folder{UID: accesscontrol.GeneralFolderUID, OrgID: a.user.GetOrgID()}, nil
 	}
-
-	existingPermissions, err := a.GetAcl()
+	folderQuery := &folder.GetFolderQuery{ID: &folderID, OrgID: a.user.GetOrgID(), SignedInUser: a.user}
+	folderQueryResult, err := a.folderService.Get(a.ctx, folderQuery)
 	if err != nil {
-		return hiddenACL, err
+		return nil, err
 	}
-
-	for _, item := range existingPermissions {
-		if item.Inherited || item.UserLogin == a.user.Login {
-			continue
-		}
-
-		if _, hidden := cfg.HiddenUsers[item.UserLogin]; hidden {
-			hiddenACL = append(hiddenACL, &models.DashboardAcl{
-				OrgID:       item.OrgId,
-				DashboardID: item.DashboardId,
-				UserID:      item.UserId,
-				TeamID:      item.TeamId,
-				Role:        item.Role,
-				Permission:  item.Permission,
-				Created:     item.Created,
-				Updated:     item.Updated,
-			})
-		}
-	}
-
-	return hiddenACL, nil
-}
-
-func (a *AccessControlDashboardGuardian) loadDashboard() error {
-	if a.dashboard == nil {
-		query := &models.GetDashboardQuery{Id: a.dashboardID, OrgId: a.user.OrgId}
-		if err := a.store.GetDashboard(a.ctx, query); err != nil {
-			return err
-		}
-		a.dashboard = query.Result
-	}
-	return nil
-}
-
-func dashboardScope(dashboardID int64) string {
-	return accesscontrol.Scope("dashboards", "id", strconv.FormatInt(dashboardID, 10))
-}
-
-func folderScope(folderID int64) string {
-	return dashboards.ScopeFoldersProvider.GetResourceScope(strconv.FormatInt(folderID, 10))
+	return folderQueryResult, nil
 }

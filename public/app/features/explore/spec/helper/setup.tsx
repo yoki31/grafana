@@ -1,75 +1,165 @@
-import React from 'react';
+import { ByRoleMatcher, waitFor, within } from '@testing-library/dom';
 import { render, screen } from '@testing-library/react';
-import { EnhancedStore } from '@reduxjs/toolkit';
-import { Provider } from 'react-redux';
-import { Route, Router } from 'react-router-dom';
+import { createMemoryHistory } from 'history';
+import { KBarProvider } from 'kbar';
 import { fromPairs } from 'lodash';
+import { stringify } from 'querystring';
+import { Provider } from 'react-redux';
+// eslint-disable-next-line no-restricted-imports
+import { Route, Router } from 'react-router-dom';
+import { of } from 'rxjs';
+import { getGrafanaContextMock } from 'test/mocks/getGrafanaContextMock';
 
-import { DataSourceApi, DataSourceInstanceSettings, QueryEditorProps, ScopedVars } from '@grafana/data';
-import { locationService, setDataSourceSrv, setEchoSrv } from '@grafana/runtime';
+import {
+  DataSourceApi,
+  DataSourceInstanceSettings,
+  QueryEditorProps,
+  DataSourcePluginMeta,
+  PluginType,
+} from '@grafana/data';
+import {
+  setDataSourceSrv,
+  setEchoSrv,
+  locationService,
+  HistoryWrapper,
+  LocationService,
+  setBackendSrv,
+  getBackendSrv,
+  getDataSourceSrv,
+  getEchoSrv,
+  setLocationService,
+  setPluginLinksHook,
+} from '@grafana/runtime';
+import { DataSourceRef } from '@grafana/schema';
+import { AppChrome } from 'app/core/components/AppChrome/AppChrome';
+import { GrafanaContext } from 'app/core/context/GrafanaContext';
 import { GrafanaRoute } from 'app/core/navigation/GrafanaRoute';
 import { Echo } from 'app/core/services/echo/Echo';
+import { setLastUsedDatasourceUID } from 'app/core/utils/explore';
+import { IdentityServiceMocks, QueryLibraryMocks } from 'app/features/query-library';
+import { MIXED_DATASOURCE_NAME } from 'app/plugins/datasource/mixed/MixedDataSource';
 import { configureStore } from 'app/store/configureStore';
 
-import Wrapper from '../../Wrapper';
-import { initialUserState } from '../../../profile/state/reducers';
-
+import { RichHistoryRemoteStorageDTO } from '../../../../core/history/RichHistoryRemoteStorage';
 import { LokiDatasource } from '../../../../plugins/datasource/loki/datasource';
 import { LokiQuery } from '../../../../plugins/datasource/loki/types';
+import { ExploreQueryParams } from '../../../../types';
+import { initialUserState } from '../../../profile/state/reducers';
+import ExplorePage from '../../ExplorePage';
+import { QueriesDrawerContextProvider } from '../../QueriesDrawer/QueriesDrawerContext';
 
 type DatasourceSetup = { settings: DataSourceInstanceSettings; api: DataSourceApi };
 
 type SetupOptions = {
-  // default true
   clearLocalStorage?: boolean;
   datasources?: DatasourceSetup[];
-  urlParams?: { left: string; right?: string };
-  searchParams?: string;
+  queryHistory?: { queryHistory: Array<Partial<RichHistoryRemoteStorageDTO>>; totalCount: number };
+  urlParams?: ExploreQueryParams;
+  prevUsedDatasource?: { orgId: number; datasource: string };
+  failAddToLibrary?: boolean;
+  // Use AppChrome wrapper around ExplorePage - needed to test query library/history
+  withAppChrome?: boolean;
+};
+
+type TearDownOptions = {
+  clearLocalStorage?: boolean;
 };
 
 export function setupExplore(options?: SetupOptions): {
-  datasources: { [name: string]: DataSourceApi };
-  store: EnhancedStore;
+  datasources: { [uid: string]: DataSourceApi };
+  store: ReturnType<typeof configureStore>;
   unmount: () => void;
+  container: HTMLElement;
+  location: LocationService;
 } {
+  const previousBackendSrv = getBackendSrv();
+  setBackendSrv({
+    datasourceRequest: jest.fn().mockRejectedValue(undefined),
+    delete: jest.fn().mockRejectedValue(undefined),
+    chunked: jest.fn().mockRejectedValue(undefined),
+    fetch: jest.fn().mockImplementation((req) => {
+      let data: Record<string, string | object | number> = {};
+      if (req.url.startsWith('/api/datasources/correlations') && req.method === 'GET') {
+        data.correlations = [];
+        data.totalCount = 0;
+      } else if (req.url.startsWith('/api/query-history') && req.method === 'GET') {
+        data.result = options?.queryHistory || {};
+      } else if (req.url.startsWith(QueryLibraryMocks.data.url)) {
+        data = QueryLibraryMocks.data.response;
+      }
+      return of({ data });
+    }),
+    get: jest.fn().mockResolvedValue(IdentityServiceMocks.data.response),
+    patch: jest.fn().mockRejectedValue(undefined),
+    post: jest.fn(),
+    put: jest.fn().mockRejectedValue(undefined),
+    request: jest.fn().mockRejectedValue(undefined),
+  });
+
+  setPluginLinksHook(() => ({ links: [], isLoading: false }));
+
   // Clear this up otherwise it persists data source selection
   // TODO: probably add test for that too
   if (options?.clearLocalStorage !== false) {
     window.localStorage.clear();
   }
 
+  if (options?.prevUsedDatasource) {
+    setLastUsedDatasourceUID(options?.prevUsedDatasource.orgId, options?.prevUsedDatasource.datasource);
+  }
+
   // Create this here so any mocks are recreated on setup and don't retain state
   const defaultDatasources: DatasourceSetup[] = [
     makeDatasourceSetup(),
     makeDatasourceSetup({ name: 'elastic', id: 2 }),
+    makeDatasourceSetup({ name: MIXED_DATASOURCE_NAME, uid: MIXED_DATASOURCE_NAME, id: 999 }),
   ];
 
   const dsSettings = options?.datasources || defaultDatasources;
 
+  const previousDataSourceSrv = getDataSourceSrv();
+
   setDataSourceSrv({
+    registerRuntimeDataSource: jest.fn(),
     getList(): DataSourceInstanceSettings[] {
       return dsSettings.map((d) => d.settings);
     },
-    getInstanceSettings(name: string) {
-      return dsSettings.map((d) => d.settings).find((x) => x.name === name || x.uid === name);
+    getInstanceSettings(ref?: DataSourceRef) {
+      const allSettings = dsSettings.map((d) => d.settings);
+      return allSettings.find((x) => x.name === ref || x.uid === ref || x.uid === ref?.uid) || allSettings[0];
     },
-    get(name?: string | null, scopedVars?: ScopedVars): Promise<DataSourceApi> {
-      return Promise.resolve(
-        (name ? dsSettings.find((d) => d.api.name === name || d.api.uid === name) : dsSettings[0])!.api
-      );
-    },
-  } as any);
+    get(datasource?: string | DataSourceRef | null): Promise<DataSourceApi> {
+      let ds: DataSourceApi | undefined;
+      if (!datasource) {
+        ds = dsSettings[0]?.api;
+      } else {
+        ds = dsSettings.find((ds) =>
+          typeof datasource === 'string'
+            ? ds.api.name === datasource || ds.api.uid === datasource
+            : ds.api.uid === datasource?.uid
+        )?.api;
+      }
 
+      if (ds) {
+        return Promise.resolve(ds);
+      }
+
+      return Promise.reject();
+    },
+    reload() {},
+  });
+
+  const previousEchoSrv = getEchoSrv();
   setEchoSrv(new Echo());
 
-  const store = configureStore();
-  store.getState().user = {
+  const storeState = configureStore();
+  storeState.getState().user = {
     ...initialUserState,
     orgId: 1,
     timeZone: 'utc',
   };
 
-  store.getState().navIndex = {
+  storeState.getState().navIndex = {
     explore: {
       id: 'explore',
       text: 'Explore',
@@ -79,43 +169,101 @@ export function setupExplore(options?: SetupOptions): {
     },
   };
 
-  locationService.push({ pathname: '/explore', search: options?.searchParams });
+  const history = createMemoryHistory({
+    initialEntries: [{ pathname: '/explore', search: stringify(options?.urlParams) }],
+  });
 
-  if (options?.urlParams) {
-    locationService.partial(options.urlParams);
-  }
+  const location = new HistoryWrapper(history);
+  setLocationService(location);
 
-  const route = { component: Wrapper };
+  const contextMock = getGrafanaContextMock({ location });
 
-  const { unmount } = render(
-    <Provider store={store}>
-      <Router history={locationService.getHistory()}>
-        <Route path="/explore" exact render={(props) => <GrafanaRoute {...props} route={route as any} />} />
-      </Router>
+  const { unmount, container } = render(
+    <Provider store={storeState}>
+      <GrafanaContext.Provider value={contextMock}>
+        <Router history={history}>
+          <QueriesDrawerContextProvider>
+            {options?.withAppChrome ? (
+              <KBarProvider>
+                <AppChrome>
+                  <Route
+                    path="/explore"
+                    exact
+                    render={(props) => <GrafanaRoute {...props} route={{ component: ExplorePage, path: '/explore' }} />}
+                  />
+                </AppChrome>
+              </KBarProvider>
+            ) : (
+              <Route
+                path="/explore"
+                exact
+                render={(props) => <GrafanaRoute {...props} route={{ component: ExplorePage, path: '/explore' }} />}
+              />
+            )}
+          </QueriesDrawerContextProvider>
+        </Router>
+      </GrafanaContext.Provider>
     </Provider>
   );
 
-  return { datasources: fromPairs(dsSettings.map((d) => [d.api.name, d.api])), store, unmount };
+  exploreTestsHelper.tearDownExplore = (options?: TearDownOptions) => {
+    setDataSourceSrv(previousDataSourceSrv);
+    setEchoSrv(previousEchoSrv);
+    setBackendSrv(previousBackendSrv);
+    setLocationService(locationService);
+    if (options?.clearLocalStorage !== false) {
+      window.localStorage.clear();
+    }
+  };
+
+  return {
+    datasources: fromPairs(dsSettings.map((d) => [d.api.name, d.api])),
+    store: storeState,
+    unmount,
+    container,
+    location,
+  };
 }
 
-function makeDatasourceSetup({ name = 'loki', id = 1 }: { name?: string; id?: number } = {}): DatasourceSetup {
-  const meta: any = {
+export function makeDatasourceSetup({
+  name = 'loki',
+  id = 1,
+  uid: uidOverride,
+}: { name?: string; id?: number; uid?: string } = {}): DatasourceSetup {
+  const uid = uidOverride || `${name}-uid`;
+  const type = 'logs';
+
+  const meta: DataSourcePluginMeta = {
     info: {
+      author: {
+        name: 'Grafana',
+      },
+      description: '',
+      links: [],
+      screenshots: [],
+      updated: '',
+      version: '',
       logos: {
         small: '',
+        large: '',
       },
     },
     id: id.toString(),
+    module: 'loki',
+    name,
+    type: PluginType.datasource,
+    baseUrl: '',
   };
   return {
     settings: {
       id,
-      uid: name,
-      type: 'logs',
+      uid,
+      type,
       name,
       meta,
       access: 'proxy',
       jsonData: {},
+      readOnly: false,
     },
     api: {
       components: {
@@ -135,18 +283,47 @@ function makeDatasourceSetup({ name = 'loki', id = 1 }: { name?: string; id?: nu
         },
       },
       name: name,
-      uid: name,
+      uid: uid,
       query: jest.fn(),
-      getRef: jest.fn(),
+      getRef: () => ({ type, uid }),
       meta,
     } as any,
   };
 }
 
-export const waitForExplore = async () => {
-  await screen.findByText(/Editor/i);
+export const waitForExplore = (exploreId = 'left') => {
+  return waitFor(async () => {
+    const container = screen.getAllByTestId('data-testid Explore');
+    return within(container[exploreId === 'left' ? 0 : 1]);
+  });
 };
 
-export const tearDown = () => {
-  window.localStorage.clear();
+export const tearDown = (options?: TearDownOptions) => {
+  exploreTestsHelper.tearDownExplore?.(options);
+};
+
+export const withinExplore = (exploreId: string) => {
+  const container = screen.getAllByTestId('data-testid Explore');
+  return within(container[exploreId === 'left' ? 0 : 1]);
+};
+
+export const withinQueryHistory = () => {
+  const container = screen.getByTestId('data-testid QueryHistory');
+  return within(container);
+};
+
+const exploreTestsHelper: { setupExplore: typeof setupExplore; tearDownExplore?: (options?: TearDownOptions) => void } =
+  {
+    setupExplore,
+    tearDownExplore: undefined,
+  };
+
+/**
+ * Optimized version of getAllByRole to avoid timeouts in tests. Please check #70158, #59116 and #47635, #78236.
+ */
+export const getAllByRoleInQueryHistoryTab = (role: ByRoleMatcher, name: string | RegExp) => {
+  const selector = withinQueryHistory();
+  // Test ID is used to avoid test timeouts reported in
+  const queriesContainer = selector.getByTestId('query-history-queries-tab');
+  return within(queriesContainer).getAllByRole(role, { name });
 };

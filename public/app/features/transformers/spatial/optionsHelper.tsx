@@ -1,10 +1,11 @@
+import { set, get as lodashGet } from 'lodash';
+
 import { StandardEditorContext, TransformerUIProps, PanelOptionsEditorBuilder } from '@grafana/data';
-import { OptionsPaneCategoryDescriptor } from 'app/features/dashboard/components/PanelEditor/OptionsPaneCategoryDescriptor';
 import { PanelOptionsSupplier } from '@grafana/data/src/panel/PanelPlugin';
 import { NestedValueAccess } from '@grafana/data/src/utils/OptionsUIBuilders';
-import { set, get as lodashGet } from 'lodash';
-import { setOptionImmutably } from 'app/features/dashboard/components/PanelEditor/utils';
+import { OptionsPaneCategoryDescriptor } from 'app/features/dashboard/components/PanelEditor/OptionsPaneCategoryDescriptor';
 import { fillOptionsPaneItems } from 'app/features/dashboard/components/PanelEditor/getVisualizationOptions';
+import { setOptionImmutably } from 'app/features/dashboard/components/PanelEditor/utils';
 
 export function getTransformerOptionPane<T = any>(
   props: TransformerUIProps<T>,
@@ -30,8 +31,8 @@ export function getTransformerOptionPane<T = any>(
   };
 
   const access: NestedValueAccess = {
-    getValue: (path: string) => lodashGet(props.options, path),
-    onChange: (path: string, value: any) => {
+    getValue: (path) => lodashGet(props.options, path),
+    onChange: (path, value) => {
       props.onChange(setOptionImmutably(props.options as any, path, value));
     },
   };

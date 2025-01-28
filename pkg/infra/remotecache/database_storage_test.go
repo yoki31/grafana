@@ -5,20 +5,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/services/sqlstore"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/grafana/grafana/pkg/infra/db"
+	"github.com/grafana/grafana/pkg/infra/log"
 )
 
 func TestDatabaseStorageGarbageCollection(t *testing.T) {
-	sqlstore := sqlstore.InitTestDB(t)
+	sqlstore := db.InitTestDB(t)
 
 	db := &databaseCache{
 		SQLStore: sqlstore,
 		log:      log.New("remotecache.database"),
 	}
 
-	obj := &CacheableStruct{String: "foolbar"}
+	obj := []byte("foolbar")
 
 	// set time.now to 2 weeks ago
 	var err error
@@ -59,14 +60,14 @@ func TestDatabaseStorageGarbageCollection(t *testing.T) {
 
 func TestSecondSet(t *testing.T) {
 	var err error
-	sqlstore := sqlstore.InitTestDB(t)
+	sqlstore := db.InitTestDB(t)
 
 	db := &databaseCache{
 		SQLStore: sqlstore,
 		log:      log.New("remotecache.database"),
 	}
 
-	obj := &CacheableStruct{String: "hey!"}
+	obj := []byte("hey!")
 
 	err = db.Set(context.Background(), "killa-gorilla", obj, 0)
 	assert.Equal(t, err, nil)

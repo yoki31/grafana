@@ -1,5 +1,6 @@
-import React, { useMemo, useCallback } from 'react';
-import { css } from '@emotion/css';
+import { cloneDeep } from 'lodash';
+import { useMemo, useCallback } from 'react';
+
 import {
   DataTransformerID,
   standardTransformers,
@@ -11,15 +12,17 @@ import {
   FieldType,
   ValueMatcherID,
   valueMatchers,
+  TransformerCategory,
 } from '@grafana/data';
-import { Button, RadioButtonGroup, stylesFactory } from '@grafana/ui';
-import { cloneDeep } from 'lodash';
 import {
   FilterByValueFilter,
   FilterByValueMatch,
   FilterByValueTransformerOptions,
   FilterByValueType,
 } from '@grafana/data/src/transformations/transformers/filterByValue';
+import { Button, RadioButtonGroup, InlineField, Box } from '@grafana/ui';
+
+import { getTransformationContent } from '../docs/getTransformationContent';
 
 import { DataFrameFieldsInfo, FilterByValueFilterEditor } from './FilterByValueFilterEditor';
 
@@ -33,11 +36,8 @@ const filterMatch: Array<SelectableValue<FilterByValueMatch>> = [
   { label: 'Match any', value: FilterByValueMatch.any },
 ];
 
-export const FilterByValueTransformerEditor: React.FC<TransformerUIProps<FilterByValueTransformerOptions>> = (
-  props
-) => {
+export const FilterByValueTransformerEditor = (props: TransformerUIProps<FilterByValueTransformerOptions>) => {
   const { input, options, onChange } = props;
-  const styles = getEditorStyles();
   const fieldsInfo = useFieldsInfo(input);
 
   const onAddFilter = useCallback(() => {
@@ -49,7 +49,7 @@ export const FilterByValueTransformerEditor: React.FC<TransformerUIProps<FilterB
     }
 
     const filters = cloneDeep(options.filters);
-    const matcher = valueMatchers.get(ValueMatcherID.greater);
+    const matcher = valueMatchers.get(ValueMatcherID.isNull);
 
     filters.push({
       fieldName: getFieldDisplayName(field, frame, input),
@@ -101,19 +101,17 @@ export const FilterByValueTransformerEditor: React.FC<TransformerUIProps<FilterB
 
   return (
     <div>
-      <div className="gf-form gf-form-inline">
-        <div className="gf-form-label width-8">Filter type</div>
+      <InlineField label="Filter type" labelWidth={16}>
         <div className="width-15">
           <RadioButtonGroup options={filterTypes} value={options.type} onChange={onChangeType} fullWidth />
         </div>
-      </div>
-      <div className="gf-form gf-form-inline">
-        <div className="gf-form-label width-8">Conditions</div>
+      </InlineField>
+      <InlineField label="Conditions" labelWidth={16}>
         <div className="width-15">
           <RadioButtonGroup options={filterMatch} value={options.match} onChange={onChangeMatch} fullWidth />
         </div>
-      </div>
-      <div className={styles.conditions}>
+      </InlineField>
+      <Box paddingLeft={2}>
         {options.filters.map((filter, idx) => (
           <FilterByValueFilterEditor
             key={idx}
@@ -123,12 +121,10 @@ export const FilterByValueTransformerEditor: React.FC<TransformerUIProps<FilterB
             onDelete={() => onDeleteFilter(idx)}
           />
         ))}
-        <div className="gf-form">
-          <Button icon="plus" size="sm" onClick={onAddFilter} variant="secondary">
-            Add condition
-          </Button>
-        </div>
-      </div>
+        <Button icon="plus" size="sm" onClick={onAddFilter} variant="secondary">
+          Add condition
+        </Button>
+      </Box>
     </div>
   );
 };
@@ -140,13 +136,9 @@ export const filterByValueTransformRegistryItem: TransformerRegistryItem<FilterB
   name: standardTransformers.filterByValueTransformer.name,
   description:
     'Removes rows of the query results using user-defined filters. This is useful if you can not filter your data in the data source.',
+  categories: new Set([TransformerCategory.Filter]),
+  help: getTransformationContent(DataTransformerID.filterByValue).helperDocs,
 };
-
-const getEditorStyles = stylesFactory(() => ({
-  conditions: css`
-    padding-left: 16px;
-  `,
-}));
 
 const useFieldsInfo = (data: DataFrame[]): DataFrameFieldsInfo => {
   return useMemo(() => {

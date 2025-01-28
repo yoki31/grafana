@@ -1,17 +1,17 @@
 package macros
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana/pkg/components/simplejson"
-	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/tsdb/azuremonitor/azlog"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/gtime"
+
+	"github.com/grafana/grafana/pkg/tsdb/azuremonitor/kinds/dataquery"
 	"github.com/grafana/grafana/pkg/tsdb/azuremonitor/types"
-	"github.com/grafana/grafana/pkg/tsdb/legacydata/interval"
 )
 
 const rsIdentifier = `__(timeFilter|timeFrom|timeTo|interval|contains|escapeMulti)`
@@ -37,7 +37,7 @@ func KqlInterpolate(query backend.DataQuery, dsInfo types.DatasourceInfo, kql st
 	engine := kqlMacroEngine{}
 
 	defaultTimeFieldForAllDatasources := "timestamp"
-	if len(defaultTimeField) > 0 {
+	if len(defaultTimeField) > 0 && query.QueryType != string(dataquery.AzureQueryTypeAzureTraces) {
 		defaultTimeFieldForAllDatasources = defaultTimeField[0]
 	}
 	return engine.Interpolate(query, dsInfo, kql, defaultTimeFieldForAllDatasources)
@@ -88,6 +88,11 @@ func (m *kqlMacroEngine) Interpolate(query backend.DataQuery, dsInfo types.Datas
 	return kql, nil
 }
 
+type interval struct {
+	IntervalMs int64
+	Interval   string
+}
+
 func (m *kqlMacroEngine) evaluateMacro(name string, defaultTimeField string, args []string, dsInfo types.DatasourceInfo) (string, error) {
 	switch name {
 	case "timeFilter":
@@ -109,16 +114,20 @@ func (m *kqlMacroEngine) evaluateMacro(name string, defaultTimeField string, arg
 			from := m.timeRange.From.UnixNano()
 			// default to "100 datapoints" if nothing in the query is more specific
 			defaultInterval := time.Duration((to - from) / 60)
-			model, err := simplejson.NewJson(m.query.JSON)
+			var queryInterval interval
+			err := json.Unmarshal(m.query.JSON, &queryInterval)
 			if err != nil {
-				azlog.Warn("Unable to parse model from query", "JSON", m.query.JSON)
 				it = defaultInterval
 			} else {
-				it, err = interval.GetIntervalFrom(&models.DataSource{
-					JsonData: simplejson.NewFromAny(dsInfo.JSONData),
-				}, model, defaultInterval)
+				var (
+					dsInterval string
+					ok         bool
+				)
+				if dsInterval, ok = dsInfo.JSONData["interval"].(string); !ok {
+					dsInterval = ""
+				}
+				it, err = gtime.GetIntervalFrom(dsInterval, queryInterval.Interval, queryInterval.IntervalMs, defaultInterval)
 				if err != nil {
-					azlog.Warn("Unable to get interval from query", "model", model)
 					it = defaultInterval
 				}
 			}
@@ -148,7 +157,7 @@ func (m *kqlMacroEngine) ReplaceAllStringSubmatchFunc(re *regexp.Regexp, str str
 	result := ""
 	lastIndex := 0
 
-	for _, v := range re.FindAllSubmatchIndex([]byte(str), -1) {
+	for _, v := range re.FindAllStringSubmatchIndex(str, -1) {
 		groups := []string{}
 		for i := 0; i < len(v); i += 2 {
 			if v[i] < 0 {

@@ -7,9 +7,10 @@ import (
 
 	"xorm.io/xorm"
 
-	"github.com/grafana/grafana/pkg/models"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
+	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
+	"github.com/grafana/grafana/pkg/services/team"
 )
 
 const (
@@ -45,7 +46,7 @@ func (p *teamPermissionMigrator) setRolePermissions(roleID int64, permissions []
 	}
 
 	// Then insert new permissions
-	var newPermissions []accesscontrol.Permission
+	newPermissions := make([]accesscontrol.Permission, 0, len(permissions))
 	now := time.Now()
 	for _, permission := range permissions {
 		permission.RoleID = roleID
@@ -61,13 +62,13 @@ func (p *teamPermissionMigrator) setRolePermissions(roleID int64, permissions []
 	return nil
 }
 
-// mapPermissionToFGAC translates the legacy membership (Member or Admin) into FGAC permissions
-func (p *teamPermissionMigrator) mapPermissionToFGAC(permission models.PermissionType, teamID int64) []accesscontrol.Permission {
+// mapPermissionToRBAC translates the legacy membership (Member or Admin) into RBAC permissions
+func (p *teamPermissionMigrator) mapPermissionToRBAC(permission team.PermissionType, teamID int64) []accesscontrol.Permission {
 	teamIDScope := accesscontrol.Scope("teams", "id", strconv.FormatInt(teamID, 10))
 	switch permission {
-	case 0:
+	case team.PermissionTypeMember:
 		return []accesscontrol.Permission{{Action: "teams:read", Scope: teamIDScope}}
-	case models.PERMISSION_ADMIN:
+	case team.PermissionTypeAdmin:
 		return []accesscontrol.Permission{
 			{Action: "teams:delete", Scope: teamIDScope},
 			{Action: "teams:read", Scope: teamIDScope},
@@ -81,7 +82,7 @@ func (p *teamPermissionMigrator) mapPermissionToFGAC(permission models.Permissio
 }
 
 func (p *teamPermissionMigrator) getUserRoleByOrgMapping() (map[int64]map[int64]string, error) {
-	var orgUsers []*models.OrgUserDTO
+	var orgUsers []*org.OrgUserDTO
 	if err := p.sess.SQL(`SELECT * FROM org_user`).Cols("org_user.org_id", "org_user.user_id", "org_user.role").Find(&orgUsers); err != nil {
 		return nil, err
 	}
@@ -90,13 +91,13 @@ func (p *teamPermissionMigrator) getUserRoleByOrgMapping() (map[int64]map[int64]
 
 	// Loop through users and organise them by organization ID
 	for _, orgUser := range orgUsers {
-		orgRoles, initialized := userRolesByOrg[orgUser.OrgId]
+		orgRoles, initialized := userRolesByOrg[orgUser.OrgID]
 		if !initialized {
 			orgRoles = map[int64]string{}
 		}
 
-		orgRoles[orgUser.UserId] = orgUser.Role
-		userRolesByOrg[orgUser.OrgId] = orgRoles
+		orgRoles[orgUser.UserID] = orgUser.Role
+		userRolesByOrg[orgUser.OrgID] = orgRoles
 	}
 
 	return userRolesByOrg, nil
@@ -111,7 +112,7 @@ func (p *teamPermissionMigrator) migrateMemberships() error {
 	}
 
 	// Fetch team memberships
-	teamMemberships := []*models.TeamMember{}
+	teamMemberships := []*team.TeamMember{}
 	if err := p.sess.SQL("SELECT * FROM team_member").Find(&teamMemberships); err != nil {
 		return err
 	}
@@ -130,9 +131,9 @@ func (p *teamPermissionMigrator) migrateMemberships() error {
 	}
 
 	// Sort roles that:
-	// * need to be created and assigned (rolesToCreate, assignments)
+	// * need to be created and assigned (rolesToCreate)
 	// * are already created and assigned (rolesByOrg)
-	rolesToCreate, assignments, rolesByOrg, errOrganizeRoles := p.sortRolesToAssign(userPermissionsByOrg)
+	rolesToCreate, rolesByOrg, errOrganizeRoles := p.sortRolesToAssign(userPermissionsByOrg)
 	if errOrganizeRoles != nil {
 		return errOrganizeRoles
 	}
@@ -149,7 +150,7 @@ func (p *teamPermissionMigrator) migrateMemberships() error {
 	}
 
 	// Assign newly created roles
-	if errAssign := p.bulkAssignRoles(rolesByOrg, assignments); errAssign != nil {
+	if errAssign := p.bulkAssignRoles(createdRoles); errAssign != nil {
 		return errAssign
 	}
 
@@ -173,10 +174,8 @@ func (p *teamPermissionMigrator) setRolePermissionsForOrgs(userPermissionsByOrg 
 	return nil
 }
 
-func (p *teamPermissionMigrator) sortRolesToAssign(userPermissionsByOrg map[int64]map[int64][]accesscontrol.Permission) ([]*accesscontrol.Role, map[int64]map[string]struct{}, map[int64]map[string]*accesscontrol.Role, error) {
+func (p *teamPermissionMigrator) sortRolesToAssign(userPermissionsByOrg map[int64]map[int64][]accesscontrol.Permission) ([]*accesscontrol.Role, map[int64]map[string]*accesscontrol.Role, error) {
 	var rolesToCreate []*accesscontrol.Role
-
-	assignments := map[int64]map[string]struct{}{}
 
 	rolesByOrg := map[int64]map[string]*accesscontrol.Role{}
 	for orgID, userPermissions := range userPermissionsByOrg {
@@ -184,7 +183,7 @@ func (p *teamPermissionMigrator) sortRolesToAssign(userPermissionsByOrg map[int6
 			roleName := fmt.Sprintf("managed:users:%d:permissions", userID)
 			role, errFindingRoles := p.findRole(orgID, roleName)
 			if errFindingRoles != nil {
-				return nil, nil, nil, errFindingRoles
+				return nil, nil, errFindingRoles
 			}
 
 			if rolesByOrg[orgID] == nil {
@@ -194,27 +193,15 @@ func (p *teamPermissionMigrator) sortRolesToAssign(userPermissionsByOrg map[int6
 			if role.ID != 0 {
 				rolesByOrg[orgID][roleName] = &role
 			} else {
-				roleToCreate := &accesscontrol.Role{
-					Name:  roleName,
-					OrgID: orgID,
-				}
-				rolesToCreate = append(rolesToCreate, roleToCreate)
-
-				userAssignments, initialized := assignments[orgID]
-				if !initialized {
-					userAssignments = map[string]struct{}{}
-				}
-
-				userAssignments[roleName] = struct{}{}
-				assignments[orgID] = userAssignments
+				rolesToCreate = append(rolesToCreate, &accesscontrol.Role{Name: roleName, OrgID: orgID})
 			}
 		}
 	}
 
-	return rolesToCreate, assignments, rolesByOrg, nil
+	return rolesToCreate, rolesByOrg, nil
 }
 
-func (p *teamPermissionMigrator) generateAssociatedPermissions(teamMemberships []*models.TeamMember,
+func (p *teamPermissionMigrator) generateAssociatedPermissions(teamMemberships []*team.TeamMember,
 	userRolesByOrg map[int64]map[int64]string) (map[int64]map[int64][]accesscontrol.Permission, error) {
 	userPermissionsByOrg := map[int64]map[int64][]accesscontrol.Permission{}
 
@@ -222,22 +209,22 @@ func (p *teamPermissionMigrator) generateAssociatedPermissions(teamMemberships [
 		// Downgrade team permissions if needed:
 		// only admins or editors (when editorsCanAdmin option is enabled)
 		// can access team administration endpoints
-		if m.Permission == models.PERMISSION_ADMIN {
-			if userRolesByOrg[m.OrgId][m.UserId] == string(models.ROLE_VIEWER) || (userRolesByOrg[m.OrgId][m.UserId] == string(models.ROLE_EDITOR) && !p.editorsCanAdmin) {
+		if m.Permission == team.PermissionTypeAdmin {
+			if userRolesByOrg[m.OrgID][m.UserID] == string(org.RoleViewer) || (userRolesByOrg[m.OrgID][m.UserID] == string(org.RoleEditor) && !p.editorsCanAdmin) {
 				m.Permission = 0
 
-				if _, err := p.sess.Cols("permission").Where("org_id=? and team_id=? and user_id=?", m.OrgId, m.TeamId, m.UserId).Update(m); err != nil {
+				if _, err := p.sess.Cols("permission").Where("org_id=? and team_id=? and user_id=?", m.OrgID, m.TeamID, m.UserID).Update(m); err != nil {
 					return nil, err
 				}
 			}
 		}
 
-		userPermissions, initialized := userPermissionsByOrg[m.OrgId]
+		userPermissions, initialized := userPermissionsByOrg[m.OrgID]
 		if !initialized {
 			userPermissions = map[int64][]accesscontrol.Permission{}
 		}
-		userPermissions[m.UserId] = append(userPermissions[m.UserId], p.mapPermissionToFGAC(m.Permission, m.TeamId)...)
-		userPermissionsByOrg[m.OrgId] = userPermissions
+		userPermissions[m.UserID] = append(userPermissions[m.UserID], p.mapPermissionToRBAC(m.Permission, m.TeamID)...)
+		userPermissionsByOrg[m.OrgID] = userPermissions
 	}
 
 	return userPermissionsByOrg, nil

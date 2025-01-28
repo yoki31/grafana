@@ -1,10 +1,14 @@
-import React, { HTMLAttributes } from 'react';
-import { Label } from './Label';
-import { stylesFactory, useTheme2 } from '../../themes';
 import { css, cx } from '@emotion/css';
+import { HTMLAttributes } from 'react';
+import * as React from 'react';
+
 import { GrafanaTheme2 } from '@grafana/data';
-import { FieldValidationMessage } from './FieldValidationMessage';
+
+import { useStyles2 } from '../../themes';
 import { getChildId } from '../../utils/reactUtils';
+
+import { FieldValidationMessage } from './FieldValidationMessage';
+import { Label } from './Label';
 
 export interface FieldProps extends HTMLAttributes<HTMLDivElement> {
   /** Form input element, i.e Input or Switch */
@@ -37,71 +41,57 @@ export interface FieldProps extends HTMLAttributes<HTMLDivElement> {
   htmlFor?: string;
 }
 
-export const getFieldStyles = stylesFactory((theme: GrafanaTheme2) => {
-  return {
-    field: css`
-      display: flex;
-      flex-direction: column;
-      margin-bottom: ${theme.spacing(2)};
-    `,
-    fieldHorizontal: css`
-      flex-direction: row;
-      justify-content: space-between;
-      flex-wrap: wrap;
-    `,
-    fieldValidationWrapper: css`
-      margin-top: ${theme.spacing(0.5)};
-    `,
-    fieldValidationWrapperHorizontal: css`
-      flex: 1 1 100%;
-    `,
-    validationMessageHorizontalOverflow: css`
-      width: 0;
-      overflow-x: visible;
+export const Field = React.forwardRef<HTMLDivElement, FieldProps>(
+  (
+    {
+      label,
+      description,
+      horizontal,
+      invalid,
+      loading,
+      disabled,
+      required,
+      error,
+      children,
+      className,
+      validationMessageHorizontalOverflow,
+      htmlFor,
+      ...otherProps
+    }: FieldProps,
+    ref
+  ) => {
+    const styles = useStyles2(getFieldStyles);
+    const inputId = htmlFor ?? getChildId(children);
 
-      & > * {
-        white-space: nowrap;
-      }
-    `,
-  };
-});
+    const labelElement =
+      typeof label === 'string' ? (
+        <Label htmlFor={inputId} description={description}>
+          {`${label}${required ? ' *' : ''}`}
+        </Label>
+      ) : (
+        label
+      );
 
-export const Field: React.FC<FieldProps> = ({
-  label,
-  description,
-  horizontal,
-  invalid,
-  loading,
-  disabled,
-  required,
-  error,
-  children,
-  className,
-  validationMessageHorizontalOverflow,
-  htmlFor,
-  ...otherProps
-}) => {
-  const theme = useTheme2();
-  const styles = getFieldStyles(theme);
-  const inputId = htmlFor ?? getChildId(children);
+    const childProps = deleteUndefinedProps({ invalid, disabled, loading });
+    return (
+      <div className={cx(styles.field, horizontal && styles.fieldHorizontal, className)} {...otherProps}>
+        {labelElement}
+        <div>
+          <div ref={ref}>{React.cloneElement(children, childProps)}</div>
+          {invalid && error && !horizontal && (
+            <div
+              className={cx(styles.fieldValidationWrapper, {
+                [styles.validationMessageHorizontalOverflow]: !!validationMessageHorizontalOverflow,
+              })}
+            >
+              <FieldValidationMessage>{error}</FieldValidationMessage>
+            </div>
+          )}
+        </div>
 
-  const labelElement =
-    typeof label === 'string' ? (
-      <Label htmlFor={inputId} description={description}>
-        {`${label}${required ? ' *' : ''}`}
-      </Label>
-    ) : (
-      label
-    );
-
-  return (
-    <div className={cx(styles.field, horizontal && styles.fieldHorizontal, className)} {...otherProps}>
-      {labelElement}
-      <div>
-        {React.cloneElement(children, { invalid, disabled, loading })}
-        {invalid && error && !horizontal && (
+        {invalid && error && horizontal && (
           <div
-            className={cx(styles.fieldValidationWrapper, {
+            className={cx(styles.fieldValidationWrapper, styles.fieldValidationWrapperHorizontal, {
               [styles.validationMessageHorizontalOverflow]: !!validationMessageHorizontalOverflow,
             })}
           >
@@ -109,16 +99,45 @@ export const Field: React.FC<FieldProps> = ({
           </div>
         )}
       </div>
+    );
+  }
+);
 
-      {invalid && error && horizontal && (
-        <div
-          className={cx(styles.fieldValidationWrapper, styles.fieldValidationWrapperHorizontal, {
-            [styles.validationMessageHorizontalOverflow]: !!validationMessageHorizontalOverflow,
-          })}
-        >
-          <FieldValidationMessage>{error}</FieldValidationMessage>
-        </div>
-      )}
-    </div>
-  );
-};
+Field.displayName = 'Field';
+
+function deleteUndefinedProps<T extends Object>(obj: T): Partial<T> {
+  for (const key in obj) {
+    if (obj[key] === undefined) {
+      delete obj[key];
+    }
+  }
+
+  return obj;
+}
+
+export const getFieldStyles = (theme: GrafanaTheme2) => ({
+  field: css({
+    display: 'flex',
+    flexDirection: 'column',
+    marginBottom: theme.spacing(2),
+  }),
+  fieldHorizontal: css({
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+  }),
+  fieldValidationWrapper: css({
+    marginTop: theme.spacing(0.5),
+  }),
+  fieldValidationWrapperHorizontal: css({
+    flex: '1 1 100%',
+  }),
+  validationMessageHorizontalOverflow: css({
+    width: 0,
+    overflowX: 'visible',
+
+    '& > *': {
+      whiteSpace: 'nowrap',
+    },
+  }),
+});

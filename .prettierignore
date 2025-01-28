@@ -12,12 +12,24 @@ node_modules
 pkg
 public/lib/monaco
 public/sass/*.generated.scss
+scripts/cli/bettererIssueTemplate.md
 scripts/grafana-server/tmp
 vendor
 
 # TS generate from cue by cuetsy
 **/*.gen.ts
 
-# Auto-generated localisation files
-public/locales/_build/
-public/locales/**/*.js
+# Auto-generated theme files
+theme.light.generated.json
+theme.dark.generated.json
+
+# Generated Swagger API specs
+public/api-merged.json
+public/api-enterprise-spec.json
+public/openapi3.json
+
+# Generated mock service worker
+public/mockServiceWorker.js
+
+# Crowdin files
+public/locales/**/*.json

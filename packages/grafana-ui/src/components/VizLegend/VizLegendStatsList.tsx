@@ -1,15 +1,20 @@
-import React from 'react';
-import { InlineList } from '../List/InlineList';
 import { css } from '@emotion/css';
-import { DisplayValue, formattedValueToString } from '@grafana/data';
 import { capitalize } from 'lodash';
-import { useStyles } from '../../themes/ThemeContext';
+
+import { DisplayValue, formattedValueToString } from '@grafana/data';
+
+import { useStyles2 } from '../../themes/ThemeContext';
+import { InlineList } from '../List/InlineList';
+
+interface Props {
+  stats: DisplayValue[];
+}
 
 /**
  * @internal
  */
-export const VizLegendStatsList: React.FunctionComponent<{ stats: DisplayValue[] }> = ({ stats }) => {
-  const styles = useStyles(getStyles);
+export const VizLegendStatsList = ({ stats }: Props) => {
+  const styles = useStyles2(getStyles);
 
   if (stats.length === 0) {
     return null;
@@ -29,13 +34,13 @@ export const VizLegendStatsList: React.FunctionComponent<{ stats: DisplayValue[]
 };
 
 const getStyles = () => ({
-  list: css`
-    flex-grow: 1;
-    text-align: right;
-  `,
-  item: css`
-    margin-left: 8px;
-  `,
+  list: css({
+    flexGrow: 1,
+    textAlign: 'right',
+  }),
+  item: css({
+    marginLeft: '8px',
+  }),
 });
 
 VizLegendStatsList.displayName = 'VizLegendStatsList';

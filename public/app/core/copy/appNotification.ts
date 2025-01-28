@@ -1,7 +1,9 @@
-import { useMemo } from 'react';
-import { AppNotification, AppNotificationSeverity, AppNotificationTimeout, useDispatch } from 'app/types';
-import { getMessageFromError } from 'app/core/utils/errors';
+import { useMemo, ReactElement } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+
+import { getMessageFromError } from 'app/core/utils/errors';
+import { AppNotification, AppNotificationSeverity, useDispatch } from 'app/types';
+
 import { notifyApp } from '../actions';
 
 const defaultSuccessNotification = {
@@ -9,7 +11,6 @@ const defaultSuccessNotification = {
   text: '',
   severity: AppNotificationSeverity.Success,
   icon: 'check',
-  timeout: AppNotificationTimeout.Success,
 };
 
 const defaultWarningNotification = {
@@ -17,7 +18,6 @@ const defaultWarningNotification = {
   text: '',
   severity: AppNotificationSeverity.Warning,
   icon: 'exclamation-triangle',
-  timeout: AppNotificationTimeout.Warning,
 };
 
 const defaultErrorNotification = {
@@ -25,43 +25,62 @@ const defaultErrorNotification = {
   text: '',
   severity: AppNotificationSeverity.Error,
   icon: 'exclamation-triangle',
-  timeout: AppNotificationTimeout.Error,
 };
 
-export const createSuccessNotification = (title: string, text = ''): AppNotification => ({
+export const createSuccessNotification = (title: string, text = '', traceId?: string): AppNotification => ({
   ...defaultSuccessNotification,
-  title: title,
-  text: text,
+  title,
+  text,
   id: uuidv4(),
+  timestamp: Date.now(),
+  showing: true,
 });
 
 export const createErrorNotification = (
   title: string,
   text: string | Error = '',
-  component?: React.ReactElement
+  traceId?: string,
+  component?: ReactElement
 ): AppNotification => {
   return {
     ...defaultErrorNotification,
     text: getMessageFromError(text),
     title,
     id: uuidv4(),
+    traceId,
     component,
+    timestamp: Date.now(),
+    showing: true,
   };
 };
 
-export const createWarningNotification = (title: string, text = ''): AppNotification => ({
+export const createWarningNotification = (title: string, text = '', traceId?: string): AppNotification => ({
   ...defaultWarningNotification,
-  title: title,
-  text: text,
+  title,
+  text,
+  traceId,
   id: uuidv4(),
+  timestamp: Date.now(),
+  showing: true,
 });
 
-/** Hook for showing toast notifications with varying severity (success, warning error).
+export const createInfoNotification = (title: string, text = '', traceId?: string): AppNotification => ({
+  severity: AppNotificationSeverity.Info,
+  icon: 'info-circle',
+  title,
+  text,
+  id: uuidv4(),
+  timestamp: Date.now(),
+  showing: true,
+});
+
+/** Hook for showing toast notifications with varying severity (success, warning, error, info).
  * @example
  * const notifyApp = useAppNotification();
  * notifyApp.success('Success!', 'Some additional text');
  * notifyApp.warning('Warning!');
  * notifyApp.error('Error!');
+ * notifyApp.info('Info text');
  */
 export function useAppNotification() {
   const dispatch = useDispatch();
@@ -70,11 +89,14 @@ export function useAppNotification() {
       success: (title: string, text = '') => {
         dispatch(notifyApp(createSuccessNotification(title, text)));
       },
-      warning: (title: string, text = '') => {
-        dispatch(notifyApp(createWarningNotification(title, text)));
+      warning: (title: string, text = '', traceId?: string) => {
+        dispatch(notifyApp(createWarningNotification(title, text, traceId)));
       },
-      error: (title: string, text = '') => {
-        dispatch(notifyApp(createErrorNotification(title, text)));
+      error: (title: string, text = '', traceId?: string) => {
+        dispatch(notifyApp(createErrorNotification(title, text, traceId)));
+      },
+      info: (title: string, text = '') => {
+        dispatch(notifyApp(createInfoNotification(title, text)));
       },
     }),
     [dispatch]

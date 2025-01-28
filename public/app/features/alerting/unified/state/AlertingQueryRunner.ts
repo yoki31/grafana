@@ -1,26 +1,32 @@
-import { Observable, of, OperatorFunction, ReplaySubject, Unsubscribable } from 'rxjs';
+import { reject } from 'lodash';
+import { Observable, OperatorFunction, ReplaySubject, Unsubscribable, of } from 'rxjs';
 import { catchError, map, share } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
+
 import {
-  dataFrameFromJSON,
   DataFrameJSON,
-  getDefaultTimeRange,
   LoadingState,
   PanelData,
-  rangeUtil,
   TimeRange,
+  dataFrameFromJSON,
+  getDefaultTimeRange,
+  preProcessPanelData,
+  rangeUtil,
   withLoadingIndicator,
 } from '@grafana/data';
-import { FetchResponse, getDataSourceSrv, toDataQueryError } from '@grafana/runtime';
+import { DataSourceWithBackend, FetchResponse, getDataSourceSrv, toDataQueryError } from '@grafana/runtime';
 import { BackendSrv, getBackendSrv } from 'app/core/services/backend_srv';
-import { preProcessPanelData } from 'app/features/query/state/runRequest';
-import { AlertQuery } from 'app/types/unified-alerting-dto';
-import { getTimeRangeForExpression } from '../utils/timeRange';
 import { isExpressionQuery } from 'app/features/expressions/guards';
-import { setStructureRevision } from 'app/features/query/state/processing/revision';
 import { cancelNetworkRequestsOnUnsubscribe } from 'app/features/query/state/processing/canceler';
+import { setStructureRevision } from 'app/features/query/state/processing/revision';
+import { AlertQuery } from 'app/types/unified-alerting-dto';
+
+import { createDagFromQueries, getDescendants } from '../components/rule-editor/dag';
+import { getTimeRangeForExpression } from '../utils/timeRange';
 
 export interface AlertingQueryResult {
+  error?: string;
+  status?: number; // HTTP status error
   frames: DataFrameJSON[];
 }
 
@@ -32,7 +38,10 @@ export class AlertingQueryRunner {
   private subscription?: Unsubscribable;
   private lastResult: Record<string, PanelData>;
 
-  constructor(private backendSrv = getBackendSrv(), private dataSourceSrv = getDataSourceSrv()) {
+  constructor(
+    private backendSrv = getBackendSrv(),
+    private dataSourceSrv = getDataSourceSrv()
+  ) {
     this.subject = new ReplaySubject(1);
     this.lastResult = {};
   }
@@ -41,25 +50,15 @@ export class AlertingQueryRunner {
     return this.subject.asObservable();
   }
 
-  async run(queries: AlertQuery[]) {
-    if (queries.length === 0) {
-      const empty = initialState(queries, LoadingState.Done);
+  async run(queries: AlertQuery[], condition: string) {
+    const empty = initialState(queries, LoadingState.Done);
+    const queriesToRun = await this.prepareQueries(queries);
+
+    if (queriesToRun.length === 0) {
       return this.subject.next(empty);
     }
 
-    // do not execute if one more of the queries are not runnable,
-    // for example not completely configured
-    for (const query of queries) {
-      if (!isExpressionQuery(query.model)) {
-        const ds = await this.dataSourceSrv.get(query.datasourceUid);
-        if (ds.filterQuery && !ds.filterQuery(query.model)) {
-          const empty = initialState(queries, LoadingState.Done);
-          return this.subject.next(empty);
-        }
-      }
-    }
-
-    this.subscription = runRequest(this.backendSrv, queries).subscribe({
+    this.subscription = runRequest(this.backendSrv, queriesToRun, condition).subscribe({
       next: (dataPerQuery) => {
         const nextResult = applyChange(dataPerQuery, (refId, data) => {
           const previous = this.lastResult[refId];
@@ -76,6 +75,38 @@ export class AlertingQueryRunner {
         this.subject.next(this.lastResult);
       },
     });
+  }
+
+  // this function will omit any invalid queries and all of its descendants from the list of queries
+  // to do this we will convert the list of queries into a DAG and walk the invalid node's output edges recursively
+  async prepareQueries(queries: AlertQuery[]) {
+    const queriesToExclude: string[] = [];
+
+    // convert our list of queries to a graph
+    const queriesGraph = createDagFromQueries(queries);
+
+    // find all invalid nodes and omit those and their child nodes from the final queries array
+    // ⚠️ also make sure all dependent nodes are omitted, otherwise we will be evaluating a broken graph with missing references
+    for (const query of queries) {
+      const refId = query.model.refId;
+
+      if (isExpressionQuery(query.model)) {
+        continue;
+      }
+
+      const dataSourceInstance = await this.dataSourceSrv.get(query.datasourceUid);
+      const skipRunningQuery =
+        dataSourceInstance instanceof DataSourceWithBackend &&
+        dataSourceInstance.filterQuery &&
+        !dataSourceInstance.filterQuery(query.model);
+
+      if (skipRunningQuery) {
+        const descendants = getDescendants(refId, queriesGraph);
+        queriesToExclude.push(refId, ...descendants);
+      }
+    }
+
+    return reject(queries, (q) => queriesToExclude.includes(q.model.refId));
   }
 
   cancel() {
@@ -111,10 +142,14 @@ export class AlertingQueryRunner {
   }
 }
 
-const runRequest = (backendSrv: BackendSrv, queries: AlertQuery[]): Observable<Record<string, PanelData>> => {
+const runRequest = (
+  backendSrv: BackendSrv,
+  queries: AlertQuery[],
+  condition: string
+): Observable<Record<string, PanelData>> => {
   const initial = initialState(queries, LoadingState.Loading);
   const request = {
-    data: { data: queries },
+    data: { data: queries, condition },
     url: '/api/v1/eval',
     method: 'POST',
     requestId: uuidv4(),
@@ -165,10 +200,16 @@ const mapToPanelData = (
     const results: Record<string, PanelData> = {};
 
     for (const [refId, result] of Object.entries(data.results)) {
+      const { error, status, frames = [] } = result;
+
+      // extract errors from the /eval results
+      const errors = error ? [{ message: error, refId, status }] : [];
+
       results[refId] = {
+        errors,
         timeRange: dataByQuery[refId].timeRange,
         state: LoadingState.Done,
-        series: result.frames.map(dataFrameFromJSON),
+        series: frames.map(dataFrameFromJSON),
       };
     }
 

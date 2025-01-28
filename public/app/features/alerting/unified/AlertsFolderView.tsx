@@ -1,21 +1,22 @@
 import { css } from '@emotion/css';
+import { orderBy } from 'lodash';
+import { useEffect, useState } from 'react';
+import { useDebounce } from 'react-use';
+
 import { GrafanaTheme2, SelectableValue } from '@grafana/data';
-import { Stack } from '@grafana/experimental';
-import { Card, FilterInput, Icon, Pagination, Select, TagList, useStyles2 } from '@grafana/ui';
+import { Card, FilterInput, Icon, Pagination, Select, Stack, TagList, useStyles2 } from '@grafana/ui';
 import { DEFAULT_PER_PAGE_PAGINATION } from 'app/core/constants';
 import { getQueryParamValue } from 'app/core/utils/query';
-import { FolderState } from 'app/types';
+import { FolderState, useDispatch } from 'app/types';
 import { CombinedRule } from 'app/types/unified-alerting';
-import { isEqual, orderBy, uniqWith } from 'lodash';
-import React, { useEffect, useState } from 'react';
-import { useDispatch } from 'react-redux';
-import { useDebounce } from 'react-use';
+
 import { useCombinedRuleNamespaces } from './hooks/useCombinedRuleNamespaces';
 import { usePagination } from './hooks/usePagination';
 import { useURLSearchParams } from './hooks/useURLSearchParams';
 import { fetchPromRulesAction, fetchRulerRulesAction } from './state/actions';
-import { labelsMatchMatchers, matchersToString, parseMatcher, parseMatchers } from './utils/alertmanager';
+import { combineMatcherStrings, labelsMatchMatchers } from './utils/alertmanager';
 import { GRAFANA_RULES_SOURCE_NAME } from './utils/datasource';
+import { parsePromQLStyleMatcherLooseSafe } from './utils/matchers';
 import { createViewLink } from './utils/misc';
 
 interface Props {
@@ -37,10 +38,7 @@ export const AlertsFolderView = ({ folder }: Props) => {
   const dispatch = useDispatch();
 
   const onTagClick = (tagName: string) => {
-    const matchers = parseMatchers(labelFilter);
-    const tagMatcherField = parseMatcher(tagName);
-    const uniqueMatchers = uniqWith([...matchers, tagMatcherField], isEqual);
-    const matchersString = matchersToString(uniqueMatchers);
+    const matchersString = combineMatcherStrings(labelFilter, tagName);
     setLabelFilter(matchersString);
   };
 
@@ -53,8 +51,9 @@ export const AlertsFolderView = ({ folder }: Props) => {
   const { nameFilter, labelFilter, sortOrder, setNameFilter, setLabelFilter, setSortOrder } =
     useAlertsFolderViewParams();
 
-  const matchingNamespace = combinedNamespaces.find((namespace) => namespace.name === folder.title);
-  const alertRules = matchingNamespace?.groups[0]?.rules ?? [];
+  const matchingNamespace = combinedNamespaces.find((namespace) => namespace.uid === folder.uid);
+
+  const alertRules = matchingNamespace?.groups.flatMap((group) => group.rules) ?? [];
 
   const filteredRules = filterAndSortRules(alertRules, nameFilter, labelFilter, sortOrder ?? SortOrder.Ascending);
 
@@ -89,7 +88,7 @@ export const AlertsFolderView = ({ folder }: Props) => {
           />
         </Stack>
 
-        <Stack gap={1}>
+        <Stack direction="column" gap={1}>
           {pageItems.map((currentRule) => (
             <Card
               key={currentRule.name}
@@ -143,8 +142,8 @@ function useAlertsFolderViewParams() {
     sortParam === SortOrder.Ascending
       ? SortOrder.Ascending
       : sortParam === SortOrder.Descending
-      ? SortOrder.Descending
-      : undefined
+        ? SortOrder.Descending
+        : undefined
   );
 
   useDebounce(
@@ -170,33 +169,33 @@ function filterAndSortRules(
   labelFilter: string,
   sortOrder: SortOrder
 ) {
-  const matchers = parseMatchers(labelFilter);
-  let rules = originalRules.filter(
+  const matchers = parsePromQLStyleMatcherLooseSafe(labelFilter);
+  const rules = originalRules.filter(
     (rule) => rule.name.toLowerCase().includes(nameFilter.toLowerCase()) && labelsMatchMatchers(rule.labels, matchers)
   );
 
-  return orderBy(rules, (x) => x.name, [sortOrder === SortOrder.Ascending ? 'asc' : 'desc']);
+  return orderBy(rules, (x) => x.name.toLowerCase(), [sortOrder === SortOrder.Ascending ? 'asc' : 'desc']);
 }
 
 export const getStyles = (theme: GrafanaTheme2) => ({
-  container: css`
-    padding: ${theme.spacing(1)};
-  `,
-  card: css`
-    grid-template-columns: auto 1fr 2fr;
-    margin: 0;
-  `,
-  pagination: css`
-    align-self: center;
-  `,
-  filterLabelsInput: css`
-    flex: 1;
-    width: auto;
-    min-width: 240px;
-  `,
-  noResults: css`
-    padding: ${theme.spacing(2)};
-    background-color: ${theme.colors.background.secondary};
-    font-style: italic;
-  `,
+  container: css({
+    padding: theme.spacing(1),
+  }),
+  card: css({
+    gridTemplateColumns: 'auto 1fr 2fr',
+    margin: 0,
+  }),
+  pagination: css({
+    alignSelf: 'center',
+  }),
+  filterLabelsInput: css({
+    flex: 1,
+    width: 'auto',
+    minWidth: '240px',
+  }),
+  noResults: css({
+    padding: theme.spacing(2),
+    backgroundColor: theme.colors.background.secondary,
+    fontStyle: 'italic',
+  }),
 });

@@ -1,14 +1,18 @@
-import React, { FunctionComponent, PropsWithChildren, ReactElement, useMemo } from 'react';
-import { VariableHide, VariableModel } from '../types';
+import { PropsWithChildren, ReactElement, useMemo } from 'react';
+
+import { TypedVariableModel, VariableHide } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
+import { Stack, Tooltip } from '@grafana/ui';
+
 import { variableAdapters } from '../adapters';
-import { Tooltip } from '@grafana/ui';
+import { VARIABLE_PREFIX } from '../constants';
 
 interface Props {
-  variable: VariableModel;
+  variable: TypedVariableModel;
+  readOnly?: boolean;
 }
 
-export const PickerRenderer: FunctionComponent<Props> = (props) => {
+export const PickerRenderer = (props: Props) => {
   const PickerToRender = useMemo(() => variableAdapters.get(props.variable.type).picker, [props.variable]);
 
   if (!props.variable) {
@@ -16,12 +20,12 @@ export const PickerRenderer: FunctionComponent<Props> = (props) => {
   }
 
   return (
-    <div className="gf-form">
+    <Stack gap={0}>
       <PickerLabel variable={props.variable} />
       {props.variable.hide !== VariableHide.hideVariable && PickerToRender && (
-        <PickerToRender variable={props.variable} />
+        <PickerToRender variable={props.variable} readOnly={props.readOnly ?? false} />
       )}
-    </div>
+    </Stack>
   );
 };
 
@@ -32,13 +36,14 @@ function PickerLabel({ variable }: PropsWithChildren<Props>): ReactElement | nul
     return null;
   }
 
+  const elementId = VARIABLE_PREFIX + variable.id;
   if (variable.description) {
     return (
       <Tooltip content={variable.description} placement={'bottom'}>
         <label
           className="gf-form-label gf-form-label--variable"
           data-testid={selectors.pages.Dashboard.SubMenu.submenuItemLabels(labelOrName)}
-          htmlFor={variable.id}
+          htmlFor={elementId}
         >
           {labelOrName}
         </label>
@@ -50,7 +55,7 @@ function PickerLabel({ variable }: PropsWithChildren<Props>): ReactElement | nul
     <label
       className="gf-form-label gf-form-label--variable"
       data-testid={selectors.pages.Dashboard.SubMenu.submenuItemLabels(labelOrName)}
-      htmlFor={variable.id}
+      htmlFor={elementId}
     >
       {labelOrName}
     </label>

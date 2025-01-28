@@ -1,19 +1,26 @@
-import React, { ReactElement, useCallback, useMemo, useState, useRef, useImperativeHandle } from 'react';
 import { css, cx } from '@emotion/css';
+import { ReactElement, useCallback, useState, useRef, useImperativeHandle, CSSProperties, AriaRole } from 'react';
+import * as React from 'react';
+
 import { GrafanaTheme2, LinkTarget } from '@grafana/data';
+
 import { useStyles2 } from '../../themes';
-import { Icon } from '../Icon/Icon';
-import { IconName } from '../../types';
-import { SubMenu } from './SubMenu';
 import { getFocusStyles } from '../../themes/mixins';
+import { IconName } from '../../types/icon';
+import { Icon } from '../Icon/Icon';
+import { Stack } from '../Layout/Stack/Stack';
+
+import { SubMenu } from './SubMenu';
 
 /** @internal */
 export type MenuItemElement = HTMLAnchorElement & HTMLButtonElement & HTMLDivElement;
 
 /** @internal */
-export interface MenuItemProps<T = any> {
+export interface MenuItemProps<T = unknown> {
   /** Label of the menu item */
   label: string;
+  /** Description of item */
+  description?: string;
   /** Aria label for accessibility support */
   ariaLabel?: string;
   /** Aria checked for accessibility support */
@@ -23,20 +30,30 @@ export interface MenuItemProps<T = any> {
   /** Icon of the menu item */
   icon?: IconName;
   /** Role of the menu item */
-  role?: string;
+  role?: AriaRole;
   /** Url of the menu item */
   url?: string;
   /** Handler for the click behaviour */
-  onClick?: (event?: React.SyntheticEvent<HTMLElement>, payload?: T) => void;
+  onClick?: (event: React.MouseEvent<HTMLElement>, payload?: T) => void;
   /** Custom MenuItem styles*/
   className?: string;
   /** Active */
   active?: boolean;
-
+  /** Disabled */
+  disabled?: boolean;
+  /** Show in destructive style (error color) */
+  destructive?: boolean;
   tabIndex?: number;
-
   /** List of menu items for the subMenu */
   childItems?: Array<ReactElement<MenuItemProps>>;
+  /** Custom style for SubMenu */
+  customSubMenuContainerStyles?: CSSProperties;
+  /** Shortcut key combination */
+  shortcut?: string;
+  /** Test id for e2e tests and fullstory*/
+  testId?: string;
+  /* Optional component that will be shown together with other options. Does not get passed any props. */
+  component?: React.ComponentType;
 }
 
 /** @internal */
@@ -46,37 +63,62 @@ export const MenuItem = React.memo(
       url,
       icon,
       label,
+      description,
       ariaLabel,
       ariaChecked,
       target,
       onClick,
       className,
       active,
+      disabled,
+      destructive,
       childItems,
-      role = 'menuitem',
+      role,
       tabIndex = -1,
+      customSubMenuContainerStyles,
+      shortcut,
+      testId,
     } = props;
     const styles = useStyles2(getStyles);
     const [isActive, setIsActive] = useState(active);
     const [isSubMenuOpen, setIsSubMenuOpen] = useState(false);
-    const [openedWithArrow, setOpenedWithArrow] = useState(false);
     const onMouseEnter = useCallback(() => {
+      if (disabled) {
+        return;
+      }
+
       setIsSubMenuOpen(true);
       setIsActive(true);
-    }, []);
+    }, [disabled]);
     const onMouseLeave = useCallback(() => {
+      if (disabled) {
+        return;
+      }
+
       setIsSubMenuOpen(false);
       setIsActive(false);
-    }, []);
-    const hasSubMenu = useMemo(() => childItems && childItems.length > 0, [childItems]);
-    const Wrapper = hasSubMenu ? 'div' : url === undefined ? 'button' : 'a';
+    }, [disabled]);
+
+    const hasSubMenu = childItems && childItems.length > 0;
+    const ItemElement = hasSubMenu ? 'div' : url === undefined ? 'button' : 'a';
     const itemStyle = cx(
       {
         [styles.item]: true,
-        [styles.activeItem]: isActive,
+        [styles.active]: isActive,
+        [styles.disabled]: disabled,
+        [styles.destructive]: destructive && !disabled,
       },
       className
     );
+
+    const disabledProps = {
+      [ItemElement === 'button' ? 'disabled' : 'aria-disabled']: disabled,
+      ...(ItemElement === 'a' && disabled && { href: undefined, onClick: undefined }),
+      ...(disabled && {
+        tabIndex: -1,
+        ['data-disabled']: disabled, // used to identify disabled items in Menu.tsx
+      }),
+    };
 
     const localRef = useRef<MenuItemElement>(null);
     useImperativeHandle(ref, () => localRef.current!);
@@ -88,7 +130,6 @@ export const MenuItem = React.memo(
           event.stopPropagation();
           if (hasSubMenu) {
             setIsSubMenuOpen(true);
-            setOpenedWithArrow(true);
             setIsActive(true);
           }
           break;
@@ -103,84 +144,160 @@ export const MenuItem = React.memo(
       localRef?.current?.focus();
     };
 
+    const hasShortcut = Boolean(shortcut && shortcut.length > 0);
+
     return (
-      <Wrapper
+      <ItemElement
         target={target}
         className={itemStyle}
         rel={target === '_blank' ? 'noopener noreferrer' : undefined}
         href={url}
-        onClick={
-          onClick
-            ? (event) => {
-                if (!(event.ctrlKey || event.metaKey || event.shiftKey) && onClick) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onClick(event);
-                }
-              }
-            : undefined
-        }
+        onClick={(event) => {
+          if (hasSubMenu && !isSubMenuOpen) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          onClick?.(event);
+        }}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
         onKeyDown={handleKeys}
-        role={url === undefined ? role : undefined}
+        // If there's no URL, then set either the role from the props, or fallback to menuitem
+        // If there IS a URL, then use the role from props - which will result in this either being a
+        // link (default role of an anchor), or whatever the user of this component specified
+        role={!url ? role || 'menuitem' : role}
         data-role="menuitem" // used to identify menuitem in Menu.tsx
         ref={localRef}
+        data-testid={testId}
         aria-label={ariaLabel}
         aria-checked={ariaChecked}
         tabIndex={tabIndex}
+        {...disabledProps}
       >
-        {icon && <Icon name={icon} className={styles.icon} aria-hidden />}
-        {label}
-        {hasSubMenu && (
-          <SubMenu
-            items={childItems}
-            isOpen={isSubMenuOpen}
-            openedWithArrow={openedWithArrow}
-            setOpenedWithArrow={setOpenedWithArrow}
-            close={closeSubMenu}
-          />
+        <Stack direction="row" justifyContent="flex-start" alignItems="center">
+          {icon && <Icon name={icon} className={styles.icon} aria-hidden />}
+          <span className={styles.ellipsis}>{label}</span>
+          <div className={cx(styles.rightWrapper, { [styles.withShortcut]: hasShortcut })}>
+            {hasShortcut && (
+              <div className={styles.shortcut}>
+                <Icon name="keyboard" title="keyboard shortcut" />
+                {shortcut}
+              </div>
+            )}
+            {hasSubMenu && (
+              <SubMenu
+                items={childItems}
+                isOpen={isSubMenuOpen}
+                close={closeSubMenu}
+                customStyle={customSubMenuContainerStyles}
+              />
+            )}
+          </div>
+        </Stack>
+        {description && (
+          <div
+            className={cx(styles.description, styles.ellipsis, {
+              [styles.descriptionWithIcon]: icon !== undefined,
+            })}
+          >
+            {description}
+          </div>
         )}
-      </Wrapper>
+        {props.component ? <props.component /> : null}
+      </ItemElement>
     );
   })
 );
+
 MenuItem.displayName = 'MenuItem';
 
-/** @internal */
 const getStyles = (theme: GrafanaTheme2) => {
   return {
-    item: css`
-      background: none;
-      cursor: pointer;
-      white-space: nowrap;
-      color: ${theme.colors.text.primary};
-      display: flex;
-      padding: 5px 12px 5px 10px;
-      margin: 0;
-      border: none;
-      width: 100%;
-      position: relative;
+    item: css({
+      background: 'none',
+      cursor: 'pointer',
+      whiteSpace: 'nowrap',
+      color: theme.colors.text.primary,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'stretch',
+      justifyContent: 'center',
+      padding: theme.spacing(0.5, 1.5),
+      minHeight: theme.spacing(4),
+      borderRadius: theme.shape.radius.default,
+      margin: 0,
+      border: 'none',
+      width: '100%',
+      position: 'relative',
 
-      &:hover,
-      &:focus,
-      &:focus-visible {
-        background: ${theme.colors.action.hover};
-        color: ${theme.colors.text.primary};
-        text-decoration: none;
-      }
+      '&:hover, &:focus-visible': {
+        background: theme.colors.action.hover,
+        color: theme.colors.text.primary,
+        textDecoration: 'none',
+      },
 
-      &:focus-visible {
-        ${getFocusStyles(theme)}
-      }
-    `,
-    activeItem: css`
-      background: ${theme.colors.action.selected};
-    `,
-    icon: css`
-      opacity: 0.7;
-      margin-right: 10px;
-      color: ${theme.colors.text.secondary};
-    `,
+      '&:focus-visible': getFocusStyles(theme),
+    }),
+    active: css({
+      background: theme.colors.action.hover,
+    }),
+    destructive: css({
+      color: theme.colors.error.text,
+
+      svg: {
+        color: theme.colors.error.text,
+      },
+
+      '&:hover, &:focus, &:focus-visible': {
+        background: theme.colors.error.main,
+        color: theme.colors.error.contrastText,
+
+        svg: {
+          color: theme.colors.error.contrastText,
+        },
+      },
+    }),
+    disabled: css({
+      color: theme.colors.action.disabledText,
+      label: 'menu-item-disabled',
+      '&:hover, &:focus, &:focus-visible': {
+        cursor: 'not-allowed',
+        background: 'none',
+        color: theme.colors.action.disabledText,
+      },
+    }),
+    icon: css({
+      opacity: 0.7,
+      color: theme.colors.text.secondary,
+    }),
+    rightWrapper: css({
+      display: 'flex',
+      alignItems: 'center',
+      marginLeft: 'auto',
+    }),
+    withShortcut: css({
+      minWidth: theme.spacing(10.5),
+    }),
+    shortcut: css({
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(1),
+      marginLeft: theme.spacing(2),
+      color: theme.colors.text.secondary,
+      opacity: 0.7,
+    }),
+    description: css({
+      ...theme.typography.bodySmall,
+      color: theme.colors.text.secondary,
+      textAlign: 'start',
+    }),
+    descriptionWithIcon: css({
+      marginLeft: theme.spacing(3),
+    }),
+    ellipsis: css({
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    }),
   };
 };

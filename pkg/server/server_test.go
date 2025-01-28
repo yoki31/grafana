@@ -7,11 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grafana/grafana/pkg/registry"
-	"github.com/grafana/grafana/pkg/server/backgroundsvcs"
-	"github.com/grafana/grafana/pkg/services/accesscontrol/ossaccesscontrol"
-	"github.com/grafana/grafana/pkg/setting"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
+
+	"github.com/grafana/grafana/pkg/registry"
+	"github.com/grafana/grafana/pkg/registry/backgroundsvcs"
+	"github.com/grafana/grafana/pkg/services/accesscontrol/acimpl"
+	"github.com/grafana/grafana/pkg/setting"
 )
 
 type testService struct {
@@ -47,7 +49,7 @@ func (s *testService) IsDisabled() bool {
 
 func testServer(t *testing.T, services ...registry.BackgroundService) *Server {
 	t.Helper()
-	s, err := newServer(Options{}, setting.NewCfg(), nil, &ossaccesscontrol.OSSAccessControlService{}, nil, backgroundsvcs.NewBackgroundServiceRegistry(services...))
+	s, err := newServer(Options{}, setting.NewCfg(), nil, &acimpl.Service{}, nil, backgroundsvcs.NewBackgroundServiceRegistry(services...), prometheus.NewRegistry())
 	require.NoError(t, err)
 	// Required to skip configuration initialization that causes
 	// DI errors in this test.
@@ -60,7 +62,6 @@ func TestServer_Run_Error(t *testing.T) {
 	s := testServer(t, newTestService(nil, false), newTestService(testErr, false))
 	err := s.Run()
 	require.ErrorIs(t, err, testErr)
-	require.NotZero(t, s.ExitCode(err))
 }
 
 func TestServer_Shutdown(t *testing.T) {
@@ -86,7 +87,6 @@ func TestServer_Shutdown(t *testing.T) {
 	}()
 	err := s.Run()
 	require.NoError(t, err)
-	require.Zero(t, s.ExitCode(err))
 
 	err = <-ch
 	require.NoError(t, err)

@@ -1,14 +1,18 @@
 'use strict';
 
-const path = require('path');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const path = require('path');
 
 module.exports = function (options) {
   return {
-    test: /\.scss$/,
-    exclude: /node_modules/,
+    test: /\.(sa|sc|c)ss$/,
     use: [
-      MiniCssExtractPlugin.loader,
+      {
+        loader: MiniCssExtractPlugin.loader,
+        options: {
+          publicPath: './',
+        },
+      },
       {
         loader: 'css-loader',
         options: {
@@ -30,6 +34,10 @@ module.exports = function (options) {
         loader: 'sass-loader',
         options: {
           sourceMap: options.sourceMap,
+          sassOptions: {
+            // silencing these warnings since we're planning to remove sass when angular is gone
+            silenceDeprecations: ['import', 'global-builtin'],
+          },
         },
       },
     ],

@@ -1,9 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { GrafanaTheme2, MappingType, SelectableValue, SpecialValueMatch, ValueMapping } from '@grafana/data';
-import { ValueMappingEditRow, ValueMappingEditRowModel } from './ValueMappingEditRow';
-import { DragDropContext, Droppable, DropResult } from 'react-beautiful-dnd';
 import { css } from '@emotion/css';
+import { DragDropContext, Droppable, DropResult } from '@hello-pangea/dnd';
+import { uniqueId } from 'lodash';
+import { useEffect, useState } from 'react';
+
+import { GrafanaTheme2, MappingType, SelectableValue, SpecialValueMatch, ValueMapping } from '@grafana/data';
 import { useStyles2, Modal, ValuePicker, Button } from '@grafana/ui';
+
+import { ValueMappingEditRow, ValueMappingEditRowModel } from './ValueMappingEditRow';
 
 export interface Props {
   value: ValueMapping[];
@@ -52,18 +55,11 @@ export function ValueMappingsEditorModal({ value, onChange, onClose, showIconPic
   ];
 
   const onAddValueMapping = (value: SelectableValue<MappingType>) => {
-    updateRows([
-      ...rows,
-      {
-        type: value.value!,
-        isNew: true,
-        result: {},
-      },
-    ]);
+    updateRows([...rows, createRow({ type: value.value!, result: {}, isNew: true })]);
   };
 
   const onDuplicateMapping = (index: number) => {
-    const sourceRow = rows[index];
+    const sourceRow = duplicateRow(rows[index]);
     const copy = [...rows];
     copy.splice(index, 0, { ...sourceRow });
 
@@ -109,7 +105,7 @@ export function ValueMappingsEditorModal({ value, onChange, onClose, showIconPic
                 <tbody ref={provided.innerRef} {...provided.droppableProps}>
                   {rows.map((row, index) => (
                     <ValueMappingEditRow
-                      key={index.toString()}
+                      key={row.id}
                       mapping={row}
                       index={index}
                       onChange={onChangeMapping}
@@ -152,11 +148,11 @@ export function ValueMappingsEditorModal({ value, onChange, onClose, showIconPic
 }
 
 export const getStyles = (theme: GrafanaTheme2) => ({
-  tableWrap: css`
-    max-height: calc(80vh - 170px);
-    min-height: 40px;
-    overflow: auto;
-  `,
+  tableWrap: css({
+    maxHeight: 'calc(80vh - 170px)',
+    minHeight: '40px',
+    overflow: 'auto',
+  }),
 
   editTable: css({
     width: '100%',
@@ -175,6 +171,27 @@ export const getStyles = (theme: GrafanaTheme2) => ({
     },
   }),
 });
+
+function getRowUniqueId(): string {
+  return uniqueId('mapping-');
+}
+
+function createRow(row: Partial<ValueMappingEditRowModel>): ValueMappingEditRowModel {
+  return {
+    type: MappingType.ValueToText,
+    result: {},
+    id: getRowUniqueId(),
+    ...row,
+  };
+}
+
+function duplicateRow(row: Partial<ValueMappingEditRowModel>): ValueMappingEditRowModel {
+  return {
+    ...createRow(row),
+    // provide a new unique id to the duplicated row, to preserve focus when dragging 2 duplicated rows
+    id: getRowUniqueId(),
+  };
+}
 
 export function editModelToSaveModel(rows: ValueMappingEditRowModel[]) {
   const mappings: ValueMapping[] = [];
@@ -247,35 +264,43 @@ export function buildEditRowModels(value: ValueMapping[]) {
     for (const mapping of value) {
       switch (mapping.type) {
         case MappingType.ValueToText:
-          for (const key of Object.keys(mapping.options)) {
-            editRows.push({
-              type: mapping.type,
-              result: mapping.options[key],
-              key,
-            });
+          for (const key in mapping.options) {
+            editRows.push(
+              createRow({
+                type: mapping.type,
+                result: mapping.options[key],
+                key,
+              })
+            );
           }
           break;
         case MappingType.RangeToText:
-          editRows.push({
-            type: mapping.type,
-            result: mapping.options.result,
-            from: mapping.options.from ?? 0,
-            to: mapping.options.to ?? 0,
-          });
+          editRows.push(
+            createRow({
+              type: mapping.type,
+              result: mapping.options.result,
+              from: mapping.options.from ?? 0,
+              to: mapping.options.to ?? 0,
+            })
+          );
           break;
         case MappingType.RegexToText:
-          editRows.push({
-            type: mapping.type,
-            result: mapping.options.result,
-            pattern: mapping.options.pattern,
-          });
+          editRows.push(
+            createRow({
+              type: mapping.type,
+              result: mapping.options.result,
+              pattern: mapping.options.pattern,
+            })
+          );
           break;
         case MappingType.SpecialValue:
-          editRows.push({
-            type: mapping.type,
-            result: mapping.options.result,
-            specialMatch: mapping.options.match ?? SpecialValueMatch.Null,
-          });
+          editRows.push(
+            createRow({
+              type: mapping.type,
+              result: mapping.options.result,
+              specialMatch: mapping.options.match ?? SpecialValueMatch.Null,
+            })
+          );
       }
     }
   }

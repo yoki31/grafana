@@ -1,18 +1,12 @@
 import { setBackendSrv } from '@grafana/runtime';
+
 import { API_ROOT, GCOM_API_ROOT } from '../constants';
-import {
-  CatalogPlugin,
-  LocalPlugin,
-  RemotePlugin,
-  Version,
-  ReducerState,
-  RequestStatus,
-  PluginListDisplayMode,
-} from '../types';
 import * as permissions from '../permissions';
-import remotePluginMock from './remotePlugin.mock';
-import localPluginMock from './localPlugin.mock';
+import { CatalogPlugin, LocalPlugin, RemotePlugin, Version, ReducerState, RequestStatus } from '../types';
+
 import catalogPluginMock from './catalogPlugin.mock';
+import localPluginMock from './localPlugin.mock';
+import remotePluginMock from './remotePlugin.mock';
 
 // Returns a sample mock for a CatalogPlugin plugin with the possibility to extend it
 export const getCatalogPluginMock = (overrides?: Partial<CatalogPlugin>) => ({ ...catalogPluginMock, ...overrides });
@@ -37,9 +31,6 @@ export const getPluginsStateMock = (plugins: CatalogPlugin[] = []): ReducerState
     'plugins/fetchDetails': {
       status: RequestStatus.Fulfilled,
     },
-  },
-  settings: {
-    displayMode: PluginListDisplayMode.Grid,
   },
   // Backward compatibility
   plugins: [],

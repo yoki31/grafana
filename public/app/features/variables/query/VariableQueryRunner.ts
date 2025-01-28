@@ -1,27 +1,28 @@
 import { merge, Observable, of, Subject, throwError, Unsubscribable } from 'rxjs';
 import { catchError, filter, finalize, mergeMap, take, takeUntil } from 'rxjs/operators';
+import { v4 as uuidv4 } from 'uuid';
+
 import {
   CoreApp,
   DataQuery,
   DataQueryRequest,
   DataSourceApi,
-  getDefaultTimeRange,
   LoadingState,
   PanelData,
+  QueryVariableModel,
   ScopedVars,
 } from '@grafana/data';
 
-import { KeyedVariableIdentifier } from '../state/types';
-import { getLastKey, getVariable } from '../state/selectors';
-import { QueryVariableModel, VariableRefresh } from '../types';
-import { StoreState, ThunkDispatch } from '../../../types';
 import { dispatch, getState } from '../../../store/store';
-import { getTemplatedRegex } from '../utils';
-import { v4 as uuidv4 } from 'uuid';
+import { StoreState, ThunkDispatch } from '../../../types';
 import { getTimeSrv } from '../../dashboard/services/TimeSrv';
-import { QueryRunners } from './queryRunners';
 import { runRequest } from '../../query/state/runRequest';
-import { toMetricFindValues, updateOptionsState, validateVariableSelection } from './operators';
+import { getLastKey, getVariable } from '../state/selectors';
+import { KeyedVariableIdentifier } from '../state/types';
+import { getTemplatedRegex } from '../utils';
+
+import { toMetricFindValuesOperator, updateOptionsState, validateVariableSelection } from './operators';
+import { QueryRunners } from './queryRunners';
 
 interface UpdateOptionsArgs {
   identifier: KeyedVariableIdentifier;
@@ -103,9 +104,20 @@ export class VariableQueryRunner {
 
       this.updateOptionsResults.next({ identifier, state: LoadingState.Loading });
 
-      const variable = getVariable<QueryVariableModel>(identifier, getState());
+      const variable = getVariable(identifier, getState());
+      if (variable.type !== 'query') {
+        return;
+      }
+
       const timeSrv = getTimeSrv();
       const runnerArgs = { variable, datasource, searchFilter, timeSrv, runRequest };
+      //if query runner is not available for the datasource, we should return early
+      if (!queryRunners.isQueryRunnerAvailableForDatasource(datasource)) {
+        const error = new Error('Query Runner is not available for datasource.');
+        this.updateOptionsResults.next({ identifier, state: LoadingState.Error, error });
+        return;
+      }
+
       const runner = queryRunners.getRunnerForDatasource(datasource);
       const target = runner.getTarget({ datasource, variable });
       const request = this.getRequest(variable, args, target);
@@ -128,7 +140,7 @@ export class VariableQueryRunner {
 
             return of(data);
           }),
-          toMetricFindValues(),
+          toMetricFindValuesOperator(),
           updateOptionsState({ variable, dispatch, getTemplatedRegexFunc }),
           validateVariableSelection({ variable, dispatch, searchFilter }),
           takeUntil(
@@ -169,10 +181,7 @@ export class VariableQueryRunner {
     const searchFilterScope = { searchFilter: { text: searchFilter, value: searchFilter } };
     const searchFilterAsVars = searchFilter ? searchFilterScope : {};
     const scopedVars = { ...searchFilterAsVars, ...variableAsVars } as ScopedVars;
-    const range =
-      variable.refresh === VariableRefresh.onTimeRangeChanged
-        ? this.dependencies.getTimeSrv().timeRange()
-        : getDefaultTimeRange();
+    const range = this.dependencies.getTimeSrv().timeRange();
 
     const request: DataQueryRequest = {
       app: CoreApp.Dashboard,

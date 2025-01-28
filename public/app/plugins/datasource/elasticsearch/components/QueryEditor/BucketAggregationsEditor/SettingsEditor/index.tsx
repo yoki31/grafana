@@ -1,18 +1,21 @@
+import { uniqueId } from 'lodash';
+import { ComponentProps, useRef } from 'react';
+
 import { InlineField, Input } from '@grafana/ui';
-import React, { ComponentProps, useRef } from 'react';
+
 import { useDispatch } from '../../../../hooks/useStatelessReducer';
+import { BucketAggregation } from '../../../../types';
 import { SettingsEditorContainer } from '../../SettingsEditorContainer';
 import { changeBucketAggregationSetting } from '../state/actions';
-import { BucketAggregation } from '../aggregations';
 import { bucketAggregationConfig } from '../utils';
-import { FiltersSettingsEditor } from './FiltersSettingsEditor';
-import { useDescription } from './useDescription';
+
 import { DateHistogramSettingsEditor } from './DateHistogramSettingsEditor';
+import { FiltersSettingsEditor } from './FiltersSettingsEditor';
 import { TermsSettingsEditor } from './TermsSettingsEditor';
-import { uniqueId } from 'lodash';
+import { useDescription } from './useDescription';
 
 export const inlineFieldProps: Partial<ComponentProps<typeof InlineField>> = {
-  labelWidth: 16,
+  labelWidth: 18,
 };
 
 interface Props {

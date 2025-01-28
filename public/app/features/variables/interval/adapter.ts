@@ -1,13 +1,16 @@
 import { cloneDeep } from 'lodash';
-import { IntervalVariableModel } from '../types';
+
+import { IntervalVariableModel } from '@grafana/data';
+
 import { dispatch } from '../../../store/store';
-import { setOptionAsCurrent, setOptionFromUrl } from '../state/actions';
 import { VariableAdapter } from '../adapters';
-import { initialIntervalVariableModelState, intervalVariableReducer } from './reducer';
+import { optionPickerFactory } from '../pickers';
+import { setOptionAsCurrent, setOptionFromUrl } from '../state/actions';
+import { toKeyedVariableIdentifier } from '../utils';
+
 import { IntervalVariableEditor } from './IntervalVariableEditor';
 import { updateAutoValue, updateIntervalVariableOptions } from './actions';
-import { optionPickerFactory } from '../pickers';
-import { toKeyedVariableIdentifier } from '../utils';
+import { initialIntervalVariableModelState, intervalVariableReducer } from './reducer';
 
 export const createIntervalVariableAdapter = (): VariableAdapter<IntervalVariableModel> => {
   return {

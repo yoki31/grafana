@@ -1,4 +1,4 @@
-import { Meta, Story, Preview, Props } from '@storybook/addon-docs/blocks';
+import { Meta, ArgTypes } from '@storybook/blocks';
 import { Icon } from './Icon';
 
 <Meta title="MDX|Icon" component={Icon} />
@@ -6,6 +6,14 @@ import { Icon } from './Icon';
 # Icon
 
 Grafana's wrapper component over [Font Awesome](https://fontawesome.com/) and Unicons icons
+
+## Accessibility
+
+`Icon` is aria-hidden by default. If your icon has semantic meaning, please provide a `title` or wrap it in a `Tooltip`.
+
+### Usage with Tooltip
+
+If you decide to use a `Tooltip` to wrap `Icon`, you need to set a `title` or `aria-label` on the `Icon` component in order for it to appear in the accessibility tree. `Tooltip` only provides `aria-describedby` on interaction.
 
 ### Changing icon size
 
@@ -17,4 +25,4 @@ import { css } from '@emotion/css';
 <Icon name="check" />;
 ```
 
-<Props of={Icon} />
+<ArgTypes of={Icon} />

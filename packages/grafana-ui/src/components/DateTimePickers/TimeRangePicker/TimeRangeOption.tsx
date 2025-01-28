@@ -1,38 +1,40 @@
-import React, { memo } from 'react';
 import { css, cx } from '@emotion/css';
+import { memo } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+
 import { GrafanaTheme2, TimeOption } from '@grafana/data';
+
 import { useStyles2 } from '../../../themes/ThemeContext';
 import { getFocusStyles } from '../../../themes/mixins';
-import { v4 as uuidv4 } from 'uuid';
 
 const getStyles = (theme: GrafanaTheme2) => {
   return {
-    container: css`
-      display: flex;
-      align-items: center;
-      flex-direction: row-reverse;
-      justify-content: space-between;
-      padding: 7px 9px 7px 9px;
+    container: css({
+      display: 'flex',
+      alignItems: 'center',
+      flexDirection: 'row-reverse',
+      justifyContent: 'space-between',
+    }),
+    selected: css({
+      background: theme.colors.action.selected,
+      fontWeight: theme.typography.fontWeightMedium,
+    }),
+    radio: css({
+      opacity: 0,
+      width: '0 !important',
 
-      &:hover {
-        background: ${theme.colors.action.hover};
-        cursor: pointer;
-      }
-    `,
-    selected: css`
-      background: ${theme.colors.action.selected};
-      font-weight: ${theme.typography.fontWeightMedium};
-    `,
-    radio: css`
-      opacity: 0;
+      '&:focus-visible + label': getFocusStyles(theme),
+    }),
+    label: css({
+      cursor: 'pointer',
+      flex: 1,
+      padding: '7px 9px 7px 9px',
 
-      &:focus-visible + label {
-        ${getFocusStyles(theme)};
-      }
-    `,
-    label: css`
-      cursor: pointer;
-    `,
+      '&:hover': {
+        background: theme.colors.action.hover,
+        cursor: 'pointer',
+      },
+    }),
   };
 };
 
@@ -52,12 +54,14 @@ export const TimeRangeOption = memo<Props>(({ value, onSelect, selected = false,
   const id = uuidv4();
 
   return (
-    <li onClick={() => onSelect(value)} className={cx(styles.container, selected && styles.selected)}>
+    <li className={cx(styles.container, selected && styles.selected)}>
       <input
         className={styles.radio}
         checked={selected}
         name={name}
         type="checkbox"
+        data-role="item"
+        tabIndex={-1}
         id={id}
         onChange={() => onSelect(value)}
       />

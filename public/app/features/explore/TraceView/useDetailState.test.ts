@@ -1,7 +1,8 @@
-import { act, renderHook } from '@testing-library/react-hooks';
+import { act, renderHook } from '@testing-library/react';
+
+import { DataFrame, TraceLog } from '@grafana/data';
+
 import { useDetailState } from './useDetailState';
-import { TraceLog } from '@jaegertracing/jaeger-ui-components/src/types/trace';
-import { DataFrame } from '@grafana/data';
 
 const sampleFrame: DataFrame = {
   name: 'trace',
@@ -28,7 +29,7 @@ describe('useDetailState', () => {
     act(() => result.current.detailLogsToggle('span1'));
     expect(result.current.detailStates.get('span1')?.logs.isOpen).toBe(true);
 
-    const log = { timestamp: 1 } as TraceLog;
+    const log: TraceLog = { timestamp: 1, fields: [] };
     act(() => result.current.detailLogItemToggle('span1', log));
     expect(result.current.detailStates.get('span1')?.logs.openedItems.has(log)).toBe(true);
   });

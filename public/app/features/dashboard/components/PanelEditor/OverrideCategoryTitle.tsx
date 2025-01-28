@@ -1,26 +1,26 @@
-import React, { FC } from 'react';
-import { FieldConfigOptionsRegistry, GrafanaTheme, ConfigOverrideRule } from '@grafana/data';
-import { HorizontalGroup, Icon, IconButton, useStyles } from '@grafana/ui';
-import { FieldMatcherUIRegistryItem } from '@grafana/ui/src/components/MatchersUI/types';
 import { css } from '@emotion/css';
 
-interface OverrideCategoryTitleProps {
+import { FieldConfigOptionsRegistry, GrafanaTheme2, ConfigOverrideRule } from '@grafana/data';
+import { Button, HorizontalGroup, Icon, useStyles2 } from '@grafana/ui';
+import { FieldMatcherUIRegistryItem } from '@grafana/ui/src/components/MatchersUI/types';
+
+interface Props {
   isExpanded: boolean;
   registry: FieldConfigOptionsRegistry;
-  matcherUi: FieldMatcherUIRegistryItem<any>;
+  matcherUi: FieldMatcherUIRegistryItem<ConfigOverrideRule>;
   override: ConfigOverrideRule;
   overrideName: string;
   onOverrideRemove: () => void;
 }
-export const OverrideCategoryTitle: FC<OverrideCategoryTitleProps> = ({
+export const OverrideCategoryTitle = ({
   isExpanded,
   registry,
   matcherUi,
   overrideName,
   override,
   onOverrideRemove,
-}) => {
-  const styles = useStyles(getStyles);
+}: Props) => {
+  const styles = useStyles2(getStyles);
   const properties = override.properties.map((p) => registry.getIfExists(p.id)).filter((prop) => !!prop);
   const propertyNames = properties.map((p) => p?.name).join(', ');
   const matcherOptions = matcherUi.optionsToLabel(override.matcher.options);
@@ -29,7 +29,14 @@ export const OverrideCategoryTitle: FC<OverrideCategoryTitleProps> = ({
     <div>
       <HorizontalGroup justify="space-between">
         <div>{overrideName}</div>
-        <IconButton name="trash-alt" onClick={onOverrideRemove} title="Remove override" />
+        <Button
+          variant="secondary"
+          fill="text"
+          icon="trash-alt"
+          onClick={onOverrideRemove}
+          tooltip="Remove override"
+          aria-label="Remove override"
+        />
       </HorizontalGroup>
       {!isExpanded && (
         <div className={styles.overrideDetails}>
@@ -44,25 +51,25 @@ export const OverrideCategoryTitle: FC<OverrideCategoryTitleProps> = ({
 
 OverrideCategoryTitle.displayName = 'OverrideTitle';
 
-const getStyles = (theme: GrafanaTheme) => {
+const getStyles = (theme: GrafanaTheme2) => {
   return {
-    matcherUi: css`
-      padding: ${theme.spacing.sm};
-    `,
-    propertyPickerWrapper: css`
-      margin-top: ${theme.spacing.formSpacingBase * 2}px;
-    `,
-    overrideDetails: css`
-      font-size: ${theme.typography.size.sm};
-      color: ${theme.colors.textWeak};
-      font-weight: ${theme.typography.weight.regular};
-    `,
-    options: css`
-      overflow: hidden;
-      padding-right: ${theme.spacing.xl};
-    `,
-    unknownLabel: css`
-      margin-bottom: 0;
-    `,
+    matcherUi: css({
+      padding: theme.spacing(1),
+    }),
+    propertyPickerWrapper: css({
+      marginTop: theme.spacing(2),
+    }),
+    overrideDetails: css({
+      fontSize: theme.typography.bodySmall.fontSize,
+      color: theme.colors.text.secondary,
+      fontWeight: theme.typography.fontWeightRegular,
+    }),
+    options: css({
+      overflow: 'hidden',
+      paddingRight: theme.spacing(4),
+    }),
+    unknownLabel: css({
+      marginBottom: 0,
+    }),
   };
 };

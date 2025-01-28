@@ -1,16 +1,21 @@
-import React, { ReactElement } from 'react';
-import { DragDropContext, Droppable, DropResult } from 'react-beautiful-dnd';
+import { css } from '@emotion/css';
+import { DragDropContext, Droppable, DropResult } from '@hello-pangea/dnd';
+import { ReactElement } from 'react';
+
+import { TypedVariableModel } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { reportInteraction } from '@grafana/runtime';
+import { Button, useStyles2, Stack, EmptyState, TextLink } from '@grafana/ui';
+import { t, Trans } from 'app/core/internationalization';
 
-import { VariableModel } from '../types';
-import { KeyedVariableIdentifier } from '../state/types';
+import { VariablesDependenciesButton } from '../inspect/VariablesDependenciesButton';
 import { UsagesToNetwork, VariableUsageTree } from '../inspect/utils';
+import { KeyedVariableIdentifier } from '../state/types';
+
 import { VariableEditorListRow } from './VariableEditorListRow';
-import EmptyListCTA from 'app/core/components/EmptyListCTA/EmptyListCTA';
 
 export interface Props {
-  variables: VariableModel[];
+  variables: TypedVariableModel[];
   usages: VariableUsageTree[];
   usagesNetwork: UsagesToNetwork[];
   onAdd: () => void;
@@ -30,13 +35,14 @@ export function VariableEditorList({
   onDelete,
   onDuplicate,
 }: Props): ReactElement {
+  const styles = useStyles2(getStyles);
   const onDragEnd = (result: DropResult) => {
     if (!result.destination || !result.source) {
       return;
     }
     reportInteraction('Variable drag and drop');
     const identifier = JSON.parse(result.draggableId);
-    onChangeOrder(identifier, result.source.index, result.destination.index);
+    onChangeOrder(identifier, variables[result.source.index].index, variables[result.destination.index].index);
   };
 
   return (
@@ -45,41 +51,54 @@ export function VariableEditorList({
         {variables.length === 0 && <EmptyVariablesList onAdd={onAdd} />}
 
         {variables.length > 0 && (
-          <div>
-            <table
-              className="filter-table filter-table--hover"
-              aria-label={selectors.pages.Dashboard.Settings.Variables.List.table}
-            >
-              <thead>
-                <tr>
-                  <th>Variable</th>
-                  <th>Definition</th>
-                  <th colSpan={5} />
-                </tr>
-              </thead>
-              <DragDropContext onDragEnd={onDragEnd}>
-                <Droppable droppableId="variables-list" direction="vertical">
-                  {(provided) => (
-                    <tbody ref={provided.innerRef} {...provided.droppableProps}>
-                      {variables.map((variable, index) => (
-                        <VariableEditorListRow
-                          index={index}
-                          key={`${variable.name}-${index}`}
-                          variable={variable}
-                          usageTree={usages}
-                          usagesNetwork={usagesNetwork}
-                          onDelete={onDelete}
-                          onDuplicate={onDuplicate}
-                          onEdit={onEdit}
-                        />
-                      ))}
-                      {provided.placeholder}
-                    </tbody>
-                  )}
-                </Droppable>
-              </DragDropContext>
-            </table>
-          </div>
+          <Stack direction="column" gap={4}>
+            <div className={styles.tableContainer}>
+              <table
+                className="filter-table filter-table--hover"
+                aria-label={selectors.pages.Dashboard.Settings.Variables.List.table}
+                role="grid"
+              >
+                <thead>
+                  <tr>
+                    <th>Variable</th>
+                    <th>Definition</th>
+                    <th colSpan={5} />
+                  </tr>
+                </thead>
+                <DragDropContext onDragEnd={onDragEnd}>
+                  <Droppable droppableId="variables-list" direction="vertical">
+                    {(provided) => (
+                      <tbody ref={provided.innerRef} {...provided.droppableProps}>
+                        {variables.map((variable, index) => (
+                          <VariableEditorListRow
+                            index={index}
+                            key={`${variable.name}-${index}`}
+                            variable={variable}
+                            usageTree={usages}
+                            usagesNetwork={usagesNetwork}
+                            onDelete={onDelete}
+                            onDuplicate={onDuplicate}
+                            onEdit={onEdit}
+                          />
+                        ))}
+                        {provided.placeholder}
+                      </tbody>
+                    )}
+                  </Droppable>
+                </DragDropContext>
+              </table>
+            </div>
+            <Stack>
+              <VariablesDependenciesButton variables={variables} />
+              <Button
+                aria-label={selectors.pages.Dashboard.Settings.Variables.List.newButton}
+                onClick={onAdd}
+                icon="plus"
+              >
+                New variable
+              </Button>
+            </Stack>
+          </Stack>
         )}
       </div>
     </div>
@@ -88,29 +107,44 @@ export function VariableEditorList({
 
 function EmptyVariablesList({ onAdd }: { onAdd: () => void }): ReactElement {
   return (
-    <div>
-      <EmptyListCTA
-        title="There are no variables yet"
-        buttonIcon="calculator-alt"
-        buttonTitle="Add variable"
-        infoBox={{
-          __html: ` <p>
-                    Variables enable more interactive and dynamic dashboards. Instead of hard-coding things like server
-                    or sensor names in your metric queries you can use variables in their place. Variables are shown as
-                    list boxes at the top of the dashboard. These drop-down lists make it easy to change the data
-                    being displayed in your dashboard. Check out the
-                    <a class="external-link" href="https://grafana.com/docs/grafana/latest/variables/" target="_blank">
-                      Templates and variables documentation
-                    </a>
-                    for more information.
-                  </p>`,
-        }}
-        infoBoxTitle="What do variables do?"
-        onClick={(event) => {
-          event.preventDefault();
-          onAdd();
-        }}
-      />
-    </div>
+    <Stack direction="column">
+      <EmptyState
+        variant="call-to-action"
+        button={
+          <Button
+            data-testid={selectors.components.CallToActionCard.buttonV2('Add variable')}
+            icon="calculator-alt"
+            onClick={onAdd}
+            size="lg"
+          >
+            <Trans i18nKey="variables.empty-state.button-title">Add variable</Trans>
+          </Button>
+        }
+        message={t('variables.empty-state.title', 'There are no variables added yet')}
+      >
+        <p>
+          <Trans i18nKey="variables.empty-state.info-box-content">
+            Variables enable more interactive and dynamic dashboards. Instead of hard-coding things like server or
+            sensor names in your metric queries you can use variables in their place. Variables are shown as list boxes
+            at the top of the dashboard. These drop-down lists make it easy to change the data being displayed in your
+            dashboard.
+          </Trans>
+        </p>
+        <Trans i18nKey="variables.empty-state.info-box-content-2">
+          Check out the{' '}
+          <TextLink external href="https://grafana.com/docs/grafana/latest/variables/">
+            Templates and variables documentation
+          </TextLink>{' '}
+          for more information.
+        </Trans>
+      </EmptyState>
+    </Stack>
   );
 }
+
+const getStyles = () => ({
+  tableContainer: css({
+    overflow: 'scroll',
+    width: '100%',
+  }),
+});

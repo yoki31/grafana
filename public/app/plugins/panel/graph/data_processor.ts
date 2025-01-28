@@ -1,18 +1,10 @@
 import { find } from 'lodash';
+
+import { DataFrame, dateTime, Field, FieldType, getFieldDisplayName, getTimeField, TimeRange } from '@grafana/data';
+import { applyNullInsertThreshold } from '@grafana/data/src/transformations/transformers/nulls/nullInsertThreshold';
 import { colors } from '@grafana/ui';
-import {
-  DataFrame,
-  dateTime,
-  Field,
-  FieldType,
-  getColorForTheme,
-  getFieldDisplayName,
-  getTimeField,
-  TimeRange,
-} from '@grafana/data';
-import TimeSeries from 'app/core/time_series2';
 import config from 'app/core/config';
-import { applyNullInsertThreshold } from '@grafana/ui/src/components/GraphNG/nullInsertThreshold';
+import TimeSeries from 'app/core/time_series2';
 
 type Options = {
   dataList: DataFrame[];
@@ -38,7 +30,7 @@ export class DataProcessor {
         continue;
       }
 
-      series = applyNullInsertThreshold(series, timeField.name);
+      series = applyNullInsertThreshold({ frame: series, refFieldName: timeField.name });
       timeField = getTimeField(series).timeField!; // use updated length
 
       for (let j = 0; j < series.fields.length; j++) {
@@ -51,7 +43,7 @@ export class DataProcessor {
         const datapoints = [];
 
         for (let r = 0; r < series.length; r++) {
-          datapoints.push([field.values.get(r), dateTime(timeField.values.get(r)).valueOf()]);
+          datapoints.push([field.values[r], dateTime(timeField.values[r]).valueOf()]);
         }
 
         list.push(this.toTimeSeries(field, name, i, j, datapoints, list.length, range));
@@ -88,7 +80,7 @@ export class DataProcessor {
     const series = new TimeSeries({
       datapoints: datapoints || [],
       alias: alias,
-      color: getColorForTheme(color, config.theme),
+      color: config.theme2.visualization.getColorByName(color),
       unit: field.config ? field.config.unit : undefined,
       dataFrameIndex,
       fieldIndex,

@@ -1,15 +1,17 @@
 package azuremonitor
 
 import (
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
-	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
-	"github.com/grafana/grafana/pkg/tsdb/azuremonitor/azlog"
-	"github.com/grafana/grafana/pkg/tsdb/azuremonitor/deprecated"
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+
 	"github.com/grafana/grafana/pkg/tsdb/azuremonitor/types"
 )
 
@@ -23,37 +25,76 @@ func getTarget(original string) (target string, err error) {
 	return
 }
 
-type httpServiceProxy struct{}
+type httpServiceProxy struct {
+	logger log.Logger
+}
 
-func (s *httpServiceProxy) Do(rw http.ResponseWriter, req *http.Request, cli *http.Client) http.ResponseWriter {
+func (s *httpServiceProxy) writeErrorResponse(rw http.ResponseWriter, statusCode int, message string) error {
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(statusCode)
+
+	// Set error response to initial error message
+	errorBody := map[string]string{"error": message}
+
+	// Attempt to locate JSON portion in error message
+	re := regexp.MustCompile(`\{.*?\}`)
+	jsonPart := re.FindString(message)
+	if jsonPart != "" {
+		var jsonData map[string]interface{}
+		if unmarshalErr := json.Unmarshal([]byte(jsonPart), &jsonData); unmarshalErr != nil {
+			errorBody["error"] = fmt.Sprintf("Invalid JSON format in error message. Raw error: %s", message)
+			s.logger.Error("failed to unmarshal JSON error message", "error", unmarshalErr)
+		} else {
+			// Extract relevant fields for a formatted error message
+			errorType, _ := jsonData["error"].(string)
+			errorDescription, ok := jsonData["error_description"].(string)
+			if !ok {
+				s.logger.Error("unable to convert error_description to string", "rawError", jsonData["error_description"])
+				// Attempt to just format the error as a string
+				errorDescription = fmt.Sprintf("%v", jsonData["error_description"])
+			}
+			if errorType == "" {
+				errorType = "UnknownError"
+			}
+
+			errorBody["error"] = fmt.Sprintf("%s: %s", errorType, errorDescription)
+		}
+	}
+
+	jsonRes, _ := json.Marshal(errorBody)
+	_, err := rw.Write(jsonRes)
+	if err != nil {
+		return fmt.Errorf("unable to write HTTP response: %v", err)
+	}
+	return nil
+}
+
+func (s *httpServiceProxy) Do(rw http.ResponseWriter, req *http.Request, cli *http.Client) (http.ResponseWriter, error) {
 	res, err := cli.Do(req)
 	if err != nil {
-		rw.WriteHeader(http.StatusInternalServerError)
-		_, err = rw.Write([]byte(fmt.Sprintf("unexpected error %v", err)))
-		if err != nil {
-			azlog.Error("Unable to write HTTP response", "error", err)
-		}
-		return nil
+		return nil, s.writeErrorResponse(rw, http.StatusInternalServerError, fmt.Sprintf("unexpected error: %v", err))
 	}
+
 	defer func() {
 		if err := res.Body.Close(); err != nil {
-			azlog.Warn("Failed to close response body", "err", err)
+			s.logger.Warn("Failed to close response body", "err", err)
 		}
 	}()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		rw.WriteHeader(http.StatusInternalServerError)
 		_, err = rw.Write([]byte(fmt.Sprintf("unexpected error %v", err)))
 		if err != nil {
-			azlog.Error("Unable to write HTTP response", "error", err)
+			return nil, fmt.Errorf("unable to write HTTP response: %v", err)
 		}
-		return nil
+		return nil, err
 	}
+
 	rw.WriteHeader(res.StatusCode)
 	_, err = rw.Write(body)
 	if err != nil {
-		azlog.Error("Unable to write HTTP response", "error", err)
+		return nil, fmt.Errorf("unable to write HTTP response: %v", err)
 	}
 
 	for k, v := range res.Header {
@@ -62,16 +103,17 @@ func (s *httpServiceProxy) Do(rw http.ResponseWriter, req *http.Request, cli *ht
 			rw.Header().Add(k, v)
 		}
 	}
-	// Returning the response write for testing purposes
-	return rw
+
+	// Return the ResponseWriter for testing purposes
+	return rw, nil
 }
 
 func (s *Service) getDataSourceFromHTTPReq(req *http.Request) (types.DatasourceInfo, error) {
 	ctx := req.Context()
-	pluginContext := httpadapter.PluginConfigFromContext(ctx)
-	i, err := s.im.Get(pluginContext)
+	pluginContext := backend.PluginConfigFromContext(ctx)
+	i, err := s.im.Get(ctx, pluginContext)
 	if err != nil {
-		return types.DatasourceInfo{}, nil
+		return types.DatasourceInfo{}, err
 	}
 	ds, ok := i.(types.DatasourceInfo)
 	if !ok {
@@ -80,52 +122,60 @@ func (s *Service) getDataSourceFromHTTPReq(req *http.Request) (types.DatasourceI
 	return ds, nil
 }
 
-func writeResponse(rw http.ResponseWriter, code int, msg string) {
-	rw.WriteHeader(http.StatusBadRequest)
-	_, err := rw.Write([]byte(msg))
+func writeErrorResponse(rw http.ResponseWriter, code int, msg string) {
+	rw.WriteHeader(code)
+	errorBody := map[string]string{
+		"error": msg,
+	}
+	jsonRes, _ := json.Marshal(errorBody)
+	_, err := rw.Write(jsonRes)
 	if err != nil {
-		azlog.Error("Unable to write HTTP response", "error", err)
+		backend.Logger.Error("Unable to write HTTP response", "error", err)
 	}
 }
 
 func (s *Service) handleResourceReq(subDataSource string) func(rw http.ResponseWriter, req *http.Request) {
 	return func(rw http.ResponseWriter, req *http.Request) {
-		azlog.Debug("Received resource call", "url", req.URL.String(), "method", req.Method)
+		s.logger.Debug("Received resource call", "url", req.URL.String(), "method", req.Method)
 
 		newPath, err := getTarget(req.URL.Path)
 		if err != nil {
-			writeResponse(rw, http.StatusBadRequest, err.Error())
+			writeErrorResponse(rw, http.StatusBadRequest, err.Error())
 			return
 		}
 
 		dsInfo, err := s.getDataSourceFromHTTPReq(req)
 		if err != nil {
-			writeResponse(rw, http.StatusInternalServerError, fmt.Sprintf("unexpected error %v", err))
+			writeErrorResponse(rw, http.StatusInternalServerError, fmt.Sprintf("unexpected error %v", err))
 			return
 		}
 
 		service := dsInfo.Services[subDataSource]
 		serviceURL, err := url.Parse(service.URL)
 		if err != nil {
-			writeResponse(rw, http.StatusInternalServerError, fmt.Sprintf("unexpected error %v", err))
+			writeErrorResponse(rw, http.StatusInternalServerError, fmt.Sprintf("unexpected error %v", err))
 			return
 		}
 		req.URL.Path = newPath
 		req.URL.Host = serviceURL.Host
 		req.URL.Scheme = serviceURL.Scheme
 
-		s.executors[subDataSource].ResourceRequest(rw, req, service.HTTPClient)
+		_, err = s.executors[subDataSource].ResourceRequest(rw, req, service.HTTPClient)
+		if err != nil {
+			// The ResourceRequest function should handle writing the error response
+			// We log the error here to ensure it's captured
+			s.logger.Error("error in resource request", "error", err)
+			return
+		}
 	}
 }
 
 // newResourceMux provides route definitions shared with the frontend.
-// Check: /public/app/plugins/datasource/grafana-azure-monitor-datasource/utils/common.ts <routeNames>
+// Check: /public/app/plugins/datasource/azuremonitor/utils/common.ts <routeNames>
 func (s *Service) newResourceMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/azuremonitor/", s.handleResourceReq(azureMonitor))
 	mux.HandleFunc("/loganalytics/", s.handleResourceReq(azureLogAnalytics))
 	mux.HandleFunc("/resourcegraph/", s.handleResourceReq(azureResourceGraph))
-	// Remove with Grafana 9
-	mux.HandleFunc("/appinsights/", s.handleResourceReq(deprecated.AppInsights))
 	return mux
 }

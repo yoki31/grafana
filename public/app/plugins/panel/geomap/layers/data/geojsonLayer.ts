@@ -1,30 +1,33 @@
-import {
-  MapLayerRegistryItem,
-  MapLayerOptions,
-  PanelData,
-  GrafanaTheme2,
-  PluginState,
-  SelectableValue,
-} from '@grafana/data';
-import Map from 'ol/Map';
-import VectorLayer from 'ol/layer/Vector';
-import VectorSource from 'ol/source/Vector';
-import GeoJSON from 'ol/format/GeoJSON';
-import { unByKey } from 'ol/Observable';
-import { checkFeatureMatchesStyleRule } from '../../utils/checkFeatureMatchesStyleRule';
-import { ComparisonOperation, FeatureRuleConfig, FeatureStyleConfig } from '../../types';
-import { Style } from 'ol/style';
 import { FeatureLike } from 'ol/Feature';
-import { GeomapStyleRulesEditor } from '../../editor/GeomapStyleRulesEditor';
-import { defaultStyleConfig, StyleConfig, StyleConfigState } from '../../style/types';
-import { getStyleConfigState } from '../../style/utils';
-import { polyStyle } from '../../style/markers';
-import { StyleEditor } from './StyleEditor';
+import Map from 'ol/Map';
+import { unByKey } from 'ol/Observable';
+import GeoJSON from 'ol/format/GeoJSON';
+import VectorImage from 'ol/layer/VectorImage';
+import VectorSource from 'ol/source/Vector';
+import { Style } from 'ol/style';
 import { ReplaySubject } from 'rxjs';
 import { map as rxjsmap, first } from 'rxjs/operators';
+
+import { MapLayerRegistryItem, MapLayerOptions, GrafanaTheme2, EventBus } from '@grafana/data';
+import { ComparisonOperation } from '@grafana/schema';
+
+import { GeomapStyleRulesEditor } from '../../editor/GeomapStyleRulesEditor';
+import { StyleEditor } from '../../editor/StyleEditor';
+import { polyStyle } from '../../style/markers';
+import {
+  defaultStyleConfig,
+  GeoJSONLineStyles,
+  GeoJSONPointStyles,
+  GeoJSONPolyStyles,
+  StyleConfig,
+  StyleConfigState,
+  StyleConfigValues,
+} from '../../style/types';
+import { getStyleConfigState } from '../../style/utils';
+import { FeatureRuleConfig, FeatureStyleConfig } from '../../types';
+import { checkFeatureMatchesStyleRule } from '../../utils/checkFeatureMatchesStyleRule';
 import { getLayerPropertyInfo } from '../../utils/getFeatures';
-import { GrafanaDatasource } from 'app/plugins/datasource/grafana/datasource';
-import { getDataSourceSrv } from '@grafana/runtime';
+import { getPublicGeoJSONFiles } from '../../utils/utils';
 
 export interface GeoJSONMapperConfig {
   // URL for a geojson file
@@ -59,20 +62,17 @@ export const DEFAULT_STYLE_RULE: FeatureStyleConfig = {
   },
 };
 
-let publicGeoJSONFiles: Array<SelectableValue<string>> | undefined = undefined;
-
 export const geojsonLayer: MapLayerRegistryItem<GeoJSONMapperConfig> = {
   id: 'geojson',
   name: 'GeoJSON',
   description: 'Load static data from a geojson file',
   isBaseMap: false,
-  state: PluginState.beta,
 
   /**
    * Function that configures transformation and returns a transformer
    * @param options
    */
-  create: async (map: Map, options: MapLayerOptions<GeoJSONMapperConfig>, theme: GrafanaTheme2) => {
+  create: async (map: Map, options: MapLayerOptions<GeoJSONMapperConfig>, eventBus: EventBus, theme: GrafanaTheme2) => {
     const config = { ...defaultOptions, ...options.config };
 
     const source = new VectorSource({
@@ -84,7 +84,7 @@ export const geojsonLayer: MapLayerRegistryItem<GeoJSONMapperConfig> = {
 
     const key = source.on('change', () => {
       //one geojson loads
-      if (source.getState() == 'ready') {
+      if (source.getState() === 'ready') {
         unByKey(key);
         features.next(source.getFeatures());
       }
@@ -109,10 +109,16 @@ export const geojsonLayer: MapLayerRegistryItem<GeoJSONMapperConfig> = {
       });
     }
 
-    const vectorLayer = new VectorLayer({
+    const polyStyleStrings: string[] = Object.values(GeoJSONPolyStyles);
+    const pointStyleStrings: string[] = Object.values(GeoJSONPointStyles);
+    const lineStyleStrings: string[] = Object.values(GeoJSONLineStyles);
+    const vectorLayer = new VectorImage({
       source,
       style: (feature: FeatureLike) => {
-        const isPoint = feature.getGeometry()?.getType() === 'Point';
+        const featureType = feature.getGeometry()?.getType();
+        const isPoint = featureType === 'Point' || featureType === 'MultiPoint';
+        const isPolygon = featureType === 'Polygon' || featureType === 'MultiPolygon';
+        const isLine = featureType === 'LineString' || featureType === 'MultiLineString';
 
         for (const check of styles) {
           if (check.rule && !checkFeatureMatchesStyleRule(check.rule, feature)) {
@@ -131,6 +137,29 @@ export const geojsonLayer: MapLayerRegistryItem<GeoJSONMapperConfig> = {
               return check.state.maker(values);
             }
             return polyStyle(values);
+          }
+
+          // Support styling polygons from Feature properties
+          const featureProps = feature.getProperties();
+          if (isPolygon && Object.keys(featureProps).some((property) => polyStyleStrings.includes(property))) {
+            const values: StyleConfigValues = {
+              color: featureProps[GeoJSONPolyStyles.color] ?? check.state.base.color,
+              opacity: featureProps[GeoJSONPolyStyles.opacity] ?? check.state.base.opacity,
+              lineWidth: featureProps[GeoJSONPolyStyles.lineWidth] ?? check.state.base.lineWidth,
+            };
+            return polyStyle(values);
+          } else if (isLine && Object.keys(featureProps).some((property) => lineStyleStrings.includes(property))) {
+            const values: StyleConfigValues = {
+              color: featureProps[GeoJSONLineStyles.color] ?? check.state.base.color,
+              lineWidth: featureProps[GeoJSONLineStyles.lineWidth] ?? check.state.base.lineWidth,
+            };
+            return check.state.maker(values);
+          } else if (isPoint && Object.keys(featureProps).some((property) => pointStyleStrings.includes(property))) {
+            const values: StyleConfigValues = {
+              color: featureProps[GeoJSONPointStyles.color] ?? check.state.base.color,
+              size: featureProps[GeoJSONPointStyles.size] ?? check.state.base.size,
+            };
+            return check.state.maker(values);
           }
 
           // Lazy create the style object
@@ -152,9 +181,6 @@ export const geojsonLayer: MapLayerRegistryItem<GeoJSONMapperConfig> = {
 
     return {
       init: () => vectorLayer,
-      update: (data: PanelData) => {
-        console.log('todo... find values matching the ID and update');
-      },
       registerOptionsUI: (builder) => {
         // get properties for first feature to use as ui options
         const layerInfo = features.pipe(
@@ -162,16 +188,12 @@ export const geojsonLayer: MapLayerRegistryItem<GeoJSONMapperConfig> = {
           rxjsmap((v) => getLayerPropertyInfo(v))
         );
 
-        if (!publicGeoJSONFiles) {
-          initGeojsonFiles();
-        }
-
         builder
           .addSelect({
             path: 'config.src',
             name: 'GeoJSON URL',
             settings: {
-              options: publicGeoJSONFiles ?? [],
+              options: getPublicGeoJSONFiles() ?? [],
               allowCustomValue: true,
             },
             defaultValue: defaultOptions.src,
@@ -205,28 +227,3 @@ export const geojsonLayer: MapLayerRegistryItem<GeoJSONMapperConfig> = {
   },
   defaultOptions,
 };
-
-// This will find all geojson files in the maps and gazetteer folders
-async function initGeojsonFiles() {
-  if (publicGeoJSONFiles) {
-    return;
-  }
-  publicGeoJSONFiles = [];
-
-  const ds = (await getDataSourceSrv().get('-- Grafana --')) as GrafanaDatasource;
-  for (let folder of ['maps', 'gazetteer']) {
-    ds.listFiles(folder).subscribe({
-      next: (frame) => {
-        frame.forEach((item) => {
-          if (item.name.endsWith('.geojson')) {
-            const value = `public/${folder}/${item.name}`;
-            publicGeoJSONFiles!.push({
-              value,
-              label: value,
-            });
-          }
-        });
-      },
-    });
-  }
-}

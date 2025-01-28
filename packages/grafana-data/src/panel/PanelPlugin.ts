@@ -1,26 +1,29 @@
+import { set } from 'lodash';
+import { ComponentClass, ComponentType } from 'react';
+
+import { FieldConfigOptionsRegistry } from '../field/FieldConfigOptionsRegistry';
+import { StandardEditorContext } from '../field/standardFieldConfigEditorRegistry';
+import { FieldConfigProperty, FieldConfigSource } from '../types/fieldOverrides';
 import {
-  FieldConfigSource,
-  GrafanaPlugin,
+  PanelPluginMeta,
+  VisualizationSuggestionsSupplier,
+  PanelProps,
   PanelEditorProps,
   PanelMigrationHandler,
-  PanelPluginMeta,
-  PanelProps,
   PanelTypeChangedHandler,
-  FieldConfigProperty,
   PanelPluginDataSupport,
-  VisualizationSuggestionsSupplier,
-} from '../types';
+} from '../types/panel';
+import { GrafanaPlugin } from '../types/plugin';
 import { FieldConfigEditorBuilder, PanelOptionsEditorBuilder } from '../utils/OptionsUIBuilders';
-import { ComponentClass, ComponentType } from 'react';
-import { set } from 'lodash';
-import { deprecationWarning } from '../utils';
-import { FieldConfigOptionsRegistry, StandardEditorContext } from '../field';
+import { deprecationWarning } from '../utils/deprecationWarning';
+
 import { createFieldConfigRegistry } from './registryFactories';
 
 /** @beta */
 export type StandardOptionConfig = {
   defaultValue?: any;
   settings?: any;
+  hideFromDefaults?: boolean;
 };
 
 /** @beta */
@@ -91,7 +94,7 @@ export type PanelOptionsSupplier<TOptions> = (
 
 export class PanelPlugin<
   TOptions = any,
-  TFieldConfigOptions extends object = any
+  TFieldConfigOptions extends object = {},
 > extends GrafanaPlugin<PanelPluginMeta> {
   private _defaults?: TOptions;
   private _fieldConfigDefaults: FieldConfigSource<TFieldConfigOptions> = {
@@ -118,7 +121,7 @@ export class PanelPlugin<
   };
 
   /**
-   * Legacy angular ctrl.  If this exists it will be used instead of the panel
+   * Legacy angular ctrl. If this exists it will be used instead of the panel
    */
   angularPanelCtrl?: any;
 
@@ -260,7 +263,7 @@ export class PanelPlugin<
    * @internal
    */
   getPanelOptionsSupplier(): PanelOptionsSupplier<TOptions> {
-    return this.optionsSupplier ?? ((() => {}) as PanelOptionsSupplier<TOptions>);
+    return this.optionsSupplier ?? (() => {});
   }
 
   /**
@@ -372,5 +375,9 @@ export class PanelPlugin<
    */
   getSuggestionsSupplier(): VisualizationSuggestionsSupplier | undefined {
     return this.suggestionsSupplier;
+  }
+
+  hasPluginId(pluginId: string) {
+    return this.meta.id === pluginId;
   }
 }

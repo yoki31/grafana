@@ -1,11 +1,11 @@
+import { omit } from 'lodash';
 import { map } from 'rxjs/operators';
 
-import { DataTransformerID } from './ids';
-import { DataTransformerInfo } from '../../types/transformations';
+import { MutableDataFrame } from '../../dataframe/MutableDataFrame';
 import { DataFrame, Field } from '../../types/dataFrame';
-import { omit } from 'lodash';
-import { ArrayVector } from '../../vector/ArrayVector';
-import { MutableDataFrame } from '../../dataframe';
+import { DataTransformerInfo, TransformationApplicabilityLevels } from '../../types/transformations';
+
+import { DataTransformerID } from './ids';
 
 interface ValuePointer {
   key: string;
@@ -19,6 +19,14 @@ export const mergeTransformer: DataTransformerInfo<MergeTransformerOptions> = {
   name: 'Merge series/tables',
   description: 'Merges multiple series/tables into a single serie/table',
   defaultOptions: {},
+  isApplicable: (data: DataFrame[]) => {
+    return data.length > 1
+      ? TransformationApplicabilityLevels.Applicable
+      : TransformationApplicabilityLevels.NotApplicable;
+  },
+  isApplicableDescription: (data: DataFrame[]) => {
+    return `The merge transformation requires at least 2 data series to work. There is currently ${data.length} data series.`;
+  },
   operator: (options) => (source) =>
     source.pipe(
       map((dataFrames) => {
@@ -35,7 +43,10 @@ export const mergeTransformer: DataTransformerInfo<MergeTransformerOptions> = {
         const fieldNames = new Set<string>();
         const fieldIndexByName: Record<string, Record<number, number>> = {};
         const fieldNamesForKey: string[] = [];
-        const dataFrame = new MutableDataFrame();
+        const dataFrame = new MutableDataFrame({
+          refId: `${DataTransformerID.merge}-${data.map((frame) => frame.refId).join('-')}`,
+          fields: [],
+        });
 
         for (let frameIndex = 0; frameIndex < data.length; frameIndex++) {
           const frame = data[frameIndex];
@@ -65,7 +76,7 @@ export const mergeTransformer: DataTransformerInfo<MergeTransformerOptions> = {
           return dataFrames;
         }
 
-        const valuesByKey: Record<string, Array<Record<string, any>>> = {};
+        const valuesByKey: Record<string, Array<Record<string, unknown>>> = {};
         const valuesInOrder: ValuePointer[] = [];
         const keyFactory = createKeyFactory(data, fieldIndexByName, fieldNamesForKey);
         const valueMapper = createValueMapper(data, fieldNames, fieldIndexByName);
@@ -116,7 +127,7 @@ export const mergeTransformer: DataTransformerInfo<MergeTransformerOptions> = {
 const copyFieldStructure = (field: Field): Field => {
   return {
     ...omit(field, ['values', 'state', 'labels', 'config']),
-    values: new ArrayVector(),
+    values: [],
     config: {
       ...omit(field.config, 'displayName'),
     },
@@ -138,7 +149,7 @@ const createKeyFactory = (
 
   return (frameIndex: number, valueIndex: number): string => {
     return factoryIndex[frameIndex].reduce((key: string, fieldIndex: number) => {
-      return key + data[frameIndex].fields[fieldIndex].values.get(valueIndex);
+      return key + data[frameIndex].fields[fieldIndex].values[valueIndex];
     }, '');
   };
 };
@@ -149,7 +160,7 @@ const createValueMapper = (
   fieldIndexByName: Record<string, Record<number, number>>
 ) => {
   return (frameIndex: number, valueIndex: number) => {
-    const value: Record<string, any> = {};
+    const value: Record<string, unknown> = {};
     const fieldNames = Array.from(fieldByName);
 
     for (const fieldName of fieldNames) {
@@ -173,14 +184,14 @@ const createValueMapper = (
         continue;
       }
 
-      value[fieldName] = field.values.get(valueIndex);
+      value[fieldName] = field.values[valueIndex];
     }
 
     return value;
   };
 };
 
-const isMergable = (existing: Record<string, any>, value: Record<string, any>): boolean => {
+const isMergable = (existing: Record<string, unknown>, value: Record<string, unknown>): boolean => {
   let mergable = true;
 
   for (const prop in value) {
@@ -209,7 +220,7 @@ const fieldExistsInAllFrames = (
   return Object.keys(fieldIndexByName[field.name]).length === data.length;
 };
 
-const createPointer = (key: string, valuesByKey: Record<string, Array<Record<string, any>>>): ValuePointer => {
+const createPointer = (key: string, valuesByKey: Record<string, Array<Record<string, unknown>>>): ValuePointer => {
   return {
     key,
     index: valuesByKey[key].length - 1,

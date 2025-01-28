@@ -3,6 +3,7 @@
   "interval": "10s",
   "rules": [
     {
+      "for": "2m",
       "grafana_alert": {
         "title": "prom query with SSE - 2",
         "condition": "condition",
@@ -32,7 +33,7 @@
               "from": 18000,
               "to": 10800
             },
-            "datasourceUid": "-100",
+            "datasourceUid": "__expr__",
             "model": {
               "expression": "query",
               "hide": false,
@@ -50,7 +51,7 @@
               "from": 18000,
               "to": 10800
             },
-            "datasourceUid": "-100",
+            "datasourceUid": "__expr__",
             "model": {
               "expression": "$reduced > 10",
               "hide": false,
@@ -95,7 +96,7 @@
               "from": 18000,
               "to": 10800
             },
-            "datasourceUid": "-100",
+            "datasourceUid": "__expr__",
             "model": {
               "expression": "$A",
               "intervalMs": 2000,
@@ -108,7 +109,79 @@
           }
         ],
         "no_data_state": "NoData",
-        "exec_err_state": "Alerting"
+        "exec_err_state": "Alerting",
+        "notification_settings":{
+          "receiver":"Test-Receiver",
+          "group_by":["alertname","grafana_folder","test"],
+          "group_wait":"1s",
+          "group_interval":"5s",
+          "repeat_interval":"5m",
+          "mute_time_intervals":["test-mute"]
+        }
+      }
+    },
+    {
+      "grafana_alert": {
+        "title": "recording rule",
+        "data": [
+          {
+            "refId": "query",
+            "queryType": "",
+            "relativeTimeRange": {
+              "from": 18000,
+              "to": 10800
+            },
+            "datasourceUid": "000000002",
+            "model": {
+              "expr": "http_request_duration_microseconds_count",
+              "hide": false,
+              "interval": "",
+              "intervalMs": 1000,
+              "legendFormat": "",
+              "maxDataPoints": 100,
+              "refId": "query"
+            }
+          },
+          {
+            "refId": "reduced",
+            "queryType": "",
+            "relativeTimeRange": {
+              "from": 18000,
+              "to": 10800
+            },
+            "datasourceUid": "__expr__",
+            "model": {
+              "expression": "query",
+              "hide": false,
+              "intervalMs": 1000,
+              "maxDataPoints": 100,
+              "reducer": "mean",
+              "refId": "reduced",
+              "type": "reduce"
+            }
+          },
+          {
+            "refId": "condition",
+            "queryType": "",
+            "relativeTimeRange": {
+              "from": 18000,
+              "to": 10800
+            },
+            "datasourceUid": "__expr__",
+            "model": {
+              "expression": "$reduced > 10",
+              "hide": false,
+              "intervalMs": 1000,
+              "maxDataPoints": 100,
+              "refId": "condition",
+              "type": "math"
+            }
+          }
+        ],
+        "record": {
+          "metric": "test_metric",
+          "from": "condition"
+        }
       }
     }
   ]

@@ -1,165 +1,94 @@
-// eslint-disable-next-line lodash/import-scope
-import _ from 'lodash';
-import kbn from 'app/core/utils/kbn';
-import moment from 'moment'; // eslint-disable-line no-restricted-imports
-import jquery from 'jquery';
+import {
+  AppPlugin,
+  DataSourceApi,
+  DataSourceJsonData,
+  DataSourcePlugin,
+  DataSourcePluginMeta,
+  PluginLoadingStrategy,
+  PluginMeta,
+} from '@grafana/data';
+import { config } from '@grafana/runtime';
+import { DataQuery } from '@grafana/schema';
 
-// Experimental module exports
-import prismjs from 'prismjs';
-import slate from 'slate';
-// @ts-ignore
-import slateReact from '@grafana/slate-react';
-// @ts-ignore
-import slatePlain from 'slate-plain-serializer';
-import react from 'react';
-import reactDom from 'react-dom';
-import * as reactRedux from 'react-redux';
-import * as redux from 'redux';
+import { GenericDataSourcePlugin } from '../datasources/types';
 
-import config from 'app/core/config';
-import TimeSeries from 'app/core/time_series2';
-import TableModel from 'app/core/table_model';
-import { appEvents, contextSrv } from 'app/core/core';
-import * as flatten from 'app/core/utils/flatten';
-import * as ticks from 'app/core/utils/ticks';
-import { BackendSrv, getBackendSrv } from 'app/core/services/backend_srv';
-import impressionSrv from 'app/core/services/impression_srv';
 import builtInPlugins from './built_in_plugins';
-import * as d3 from 'd3';
-import * as emotion from '@emotion/css';
-import * as grafanaData from '@grafana/data';
-import * as grafanaUIraw from '@grafana/ui';
-import * as grafanaRuntime from '@grafana/runtime';
-import { GenericDataSourcePlugin } from '../datasources/settings/PluginSettings';
-import { locateWithCache, registerPluginInCache } from './pluginCacheBuster';
+import { addedComponentsRegistry, addedLinksRegistry, exposedComponentsRegistry } from './extensions/registry/setup';
+import { getPluginFromCache, registerPluginInCache } from './loader/cache';
+// SystemJS has to be imported before the sharedDependenciesMap
+import { SystemJS } from './loader/systemjs';
+// eslint-disable-next-line import/order
+import { sharedDependenciesMap } from './loader/sharedDependencies';
+import { decorateSystemJSFetch, decorateSystemJSResolve, decorateSystemJsOnload } from './loader/systemjsHooks';
+import { SystemJSWithLoaderHooks } from './loader/types';
+import { buildImportMap, resolveModulePath } from './loader/utils';
+import { importPluginModuleInSandbox } from './sandbox/sandbox_plugin_loader';
+import { shouldLoadPluginInFrontendSandbox } from './sandbox/sandbox_plugin_loader_registry';
+import { pluginsLogger } from './utils';
 
-// Help the 6.4 to 6.5 migration
-// The base classes were moved from @grafana/ui to @grafana/data
-// This exposes the same classes on both import paths
-const grafanaUI = grafanaUIraw as any;
-grafanaUI.PanelPlugin = grafanaData.PanelPlugin;
-grafanaUI.DataSourcePlugin = grafanaData.DataSourcePlugin;
-grafanaUI.AppPlugin = grafanaData.AppPlugin;
-grafanaUI.DataSourceApi = grafanaData.DataSourceApi;
+const imports = buildImportMap(sharedDependenciesMap);
 
-// rxjs
-import * as rxjs from 'rxjs';
-import * as rxjsOperators from 'rxjs/operators';
-// routing
-import * as reactRouter from 'react-router-dom';
+SystemJS.addImportMap({ imports });
 
-grafanaRuntime.SystemJS.registry.set('plugin-loader', grafanaRuntime.SystemJS.newModule({ locate: locateWithCache }));
+const systemJSPrototype: SystemJSWithLoaderHooks = SystemJS.constructor.prototype;
 
-grafanaRuntime.SystemJS.config({
-  baseURL: 'public',
-  defaultExtension: 'js',
-  packages: {
-    plugins: {
-      defaultExtension: 'js',
-    },
-  },
-  map: {
-    text: 'vendor/plugin-text/text.js',
-    css: 'vendor/plugin-css/css.js',
-  },
-  meta: {
-    '/*': {
-      esModule: true,
-      authorization: true,
-      loader: 'plugin-loader',
-    },
-  },
-});
+// This instructs SystemJS to load plugin assets using fetch and eval if it returns a truthy value, otherwise
+// it will load the plugin using a script tag. The logic that sets loadingStrategy comes from the backend.
+// See: pkg/services/pluginsintegration/pluginassets/pluginassets.go
+systemJSPrototype.shouldFetch = function (url) {
+  const pluginInfo = getPluginFromCache(url);
+  const jsTypeRegEx = /^[^#?]+\.(js)([?#].*)?$/;
 
-export function exposeToPlugin(name: string, component: any) {
-  grafanaRuntime.SystemJS.registerDynamic(name, [], true, (require: any, exports: any, module: { exports: any }) => {
-    module.exports = component;
+  if (!jsTypeRegEx.test(url)) {
+    return true;
+  }
+
+  return Boolean(pluginInfo?.loadingStrategy !== PluginLoadingStrategy.script);
+};
+
+const originalImport = systemJSPrototype.import;
+// Hook Systemjs import to support plugins that only have a default export.
+systemJSPrototype.import = function (...args: Parameters<typeof originalImport>) {
+  return originalImport.apply(this, args).then((module) => {
+    if (module && module.__useDefault) {
+      return module.default;
+    }
+    return module;
   });
-}
+};
 
-exposeToPlugin('@grafana/data', grafanaData);
-exposeToPlugin('@grafana/ui', grafanaUI);
-exposeToPlugin('@grafana/runtime', grafanaRuntime);
-exposeToPlugin('lodash', _);
-exposeToPlugin('moment', moment);
-exposeToPlugin('jquery', jquery);
-exposeToPlugin('d3', d3);
-exposeToPlugin('rxjs', rxjs);
-exposeToPlugin('rxjs/operators', rxjsOperators);
-exposeToPlugin('react-router-dom', reactRouter);
+const systemJSFetch = systemJSPrototype.fetch;
+systemJSPrototype.fetch = function (url: string, options?: Record<string, unknown>) {
+  return decorateSystemJSFetch(systemJSFetch, url, options);
+};
 
-// Experimental modules
-exposeToPlugin('prismjs', prismjs);
-exposeToPlugin('slate', slate);
-exposeToPlugin('@grafana/slate-react', slateReact);
-exposeToPlugin('slate-plain-serializer', slatePlain);
-exposeToPlugin('react', react);
-exposeToPlugin('react-dom', reactDom);
-exposeToPlugin('react-redux', reactRedux);
-exposeToPlugin('redux', redux);
-exposeToPlugin('emotion', emotion);
-exposeToPlugin('@emotion/css', emotion);
+const systemJSResolve = systemJSPrototype.resolve;
+systemJSPrototype.resolve = decorateSystemJSResolve.bind(systemJSPrototype, systemJSResolve);
 
-exposeToPlugin('app/features/dashboard/impression_store', {
-  impressions: impressionSrv,
-  __esModule: true,
-});
+// Older plugins load .css files which resolves to a CSS Module.
+// https://github.com/WICG/webcomponents/blob/gh-pages/proposals/css-modules-v1-explainer.md#importing-a-css-module
+// Any css files loaded via SystemJS have their styles applied onload.
+systemJSPrototype.onload = decorateSystemJsOnload;
 
-/**
- * NOTE: this is added temporarily while we explore a long term solution
- * If you use this export, only use the:
- *  get/delete/post/patch/request methods
- */
-exposeToPlugin('app/core/services/backend_srv', {
-  BackendSrv,
-  getBackendSrv,
-});
+type PluginImportInfo = {
+  path: string;
+  pluginId: string;
+  loadingStrategy: PluginLoadingStrategy;
+  version?: string;
+  isAngular?: boolean;
+  moduleHash?: string;
+};
 
-exposeToPlugin('app/core/utils/datemath', grafanaData.dateMath);
-exposeToPlugin('app/core/utils/flatten', flatten);
-exposeToPlugin('app/core/utils/kbn', kbn);
-exposeToPlugin('app/core/utils/ticks', ticks);
-exposeToPlugin('app/core/config', config);
-exposeToPlugin('app/core/time_series', TimeSeries);
-exposeToPlugin('app/core/time_series2', TimeSeries);
-exposeToPlugin('app/core/table_model', TableModel);
-exposeToPlugin('app/core/app_events', appEvents);
-exposeToPlugin('app/core/core', {
-  appEvents: appEvents,
-  contextSrv: contextSrv,
-  __esModule: true,
-});
-
-import 'vendor/flot/jquery.flot';
-import 'vendor/flot/jquery.flot.selection';
-import 'vendor/flot/jquery.flot.time';
-import 'vendor/flot/jquery.flot.stack';
-import 'vendor/flot/jquery.flot.stackpercent';
-import 'vendor/flot/jquery.flot.fillbelow';
-import 'vendor/flot/jquery.flot.crosshair';
-import 'vendor/flot/jquery.flot.dashes';
-import 'vendor/flot/jquery.flot.gauge';
-
-const flotDeps = [
-  'jquery.flot',
-  'jquery.flot.pie',
-  'jquery.flot.time',
-  'jquery.flot.fillbelow',
-  'jquery.flot.crosshair',
-  'jquery.flot.stack',
-  'jquery.flot.selection',
-  'jquery.flot.stackpercent',
-  'jquery.flot.events',
-  'jquery.flot.gauge',
-];
-
-for (const flotDep of flotDeps) {
-  exposeToPlugin(flotDep, { fakeDep: 1 });
-}
-
-export async function importPluginModule(path: string, version?: string): Promise<any> {
+export async function importPluginModule({
+  path,
+  pluginId,
+  loadingStrategy,
+  version,
+  isAngular,
+  moduleHash,
+}: PluginImportInfo): Promise<System.Module> {
   if (version) {
-    registerPluginInCache({ path, version });
+    registerPluginInCache({ path, version, loadingStrategy });
   }
 
   const builtIn = builtInPlugins[path];
@@ -171,22 +100,65 @@ export async function importPluginModule(path: string, version?: string): Promis
       return builtIn;
     }
   }
-  return grafanaRuntime.SystemJS.import(path);
+
+  const modulePath = resolveModulePath(path);
+
+  // inject integrity hash into SystemJS import map
+  if (config.featureToggles.pluginsSriChecks) {
+    const resolvedModule = System.resolve(modulePath);
+    const integrityMap = System.getImportMap().integrity;
+
+    if (moduleHash && integrityMap && !integrityMap[resolvedModule]) {
+      SystemJS.addImportMap({
+        integrity: {
+          [resolvedModule]: moduleHash,
+        },
+      });
+    }
+  }
+
+  // the sandboxing environment code cannot work in nodejs and requires a real browser
+  if (await shouldLoadPluginInFrontendSandbox({ isAngular, pluginId })) {
+    return importPluginModuleInSandbox({ pluginId });
+  }
+
+  return SystemJS.import(modulePath).catch((e) => {
+    let error = new Error('Could not load plugin: ' + e);
+    console.error(error);
+    pluginsLogger.logError(error, {
+      path,
+      pluginId,
+      pluginVersion: version ?? '',
+      expectedHash: moduleHash ?? '',
+      loadingStrategy: loadingStrategy.toString(),
+      sriChecksEnabled: (config.featureToggles.pluginsSriChecks ?? false).toString(),
+    });
+    throw error;
+  });
 }
 
-export function importDataSourcePlugin(meta: grafanaData.DataSourcePluginMeta): Promise<GenericDataSourcePlugin> {
-  return importPluginModule(meta.module, meta.info?.version).then((pluginExports) => {
+export function importDataSourcePlugin(meta: DataSourcePluginMeta): Promise<GenericDataSourcePlugin> {
+  const isAngular = meta.angular?.detected ?? meta.angularDetected;
+  const fallbackLoadingStrategy = meta.loadingStrategy ?? PluginLoadingStrategy.fetch;
+  return importPluginModule({
+    path: meta.module,
+    version: meta.info?.version,
+    isAngular,
+    loadingStrategy: fallbackLoadingStrategy,
+    pluginId: meta.id,
+    moduleHash: meta.moduleHash,
+  }).then((pluginExports) => {
     if (pluginExports.plugin) {
-      const dsPlugin = pluginExports.plugin as GenericDataSourcePlugin;
+      const dsPlugin: GenericDataSourcePlugin = pluginExports.plugin;
       dsPlugin.meta = meta;
       return dsPlugin;
     }
 
     if (pluginExports.Datasource) {
-      const dsPlugin = new grafanaData.DataSourcePlugin<
-        grafanaData.DataSourceApi<grafanaData.DataQuery, grafanaData.DataSourceJsonData>,
-        grafanaData.DataQuery,
-        grafanaData.DataSourceJsonData
+      const dsPlugin = new DataSourcePlugin<
+        DataSourceApi<DataQuery, DataSourceJsonData>,
+        DataQuery,
+        DataSourceJsonData
       >(pluginExports.Datasource);
       dsPlugin.setComponentsFromLegacyExports(pluginExports);
       dsPlugin.meta = meta;
@@ -197,12 +169,44 @@ export function importDataSourcePlugin(meta: grafanaData.DataSourcePluginMeta): 
   });
 }
 
-export function importAppPlugin(meta: grafanaData.PluginMeta): Promise<grafanaData.AppPlugin> {
-  return importPluginModule(meta.module, meta.info?.version).then((pluginExports) => {
-    const plugin = pluginExports.plugin ? (pluginExports.plugin as grafanaData.AppPlugin) : new grafanaData.AppPlugin();
-    plugin.init(meta);
-    plugin.meta = meta;
-    plugin.setComponentsFromLegacyExports(pluginExports);
-    return plugin;
+// Only successfully loaded plugins are cached
+const importedAppPlugins: Record<string, AppPlugin> = {};
+
+export async function importAppPlugin(meta: PluginMeta): Promise<AppPlugin> {
+  const pluginId = meta.id;
+
+  if (importedAppPlugins[pluginId]) {
+    return importedAppPlugins[pluginId];
+  }
+
+  const pluginExports = await importPluginModule({
+    path: meta.module,
+    version: meta.info?.version,
+    pluginId: meta.id,
+    isAngular: meta.angular?.detected ?? meta.angularDetected,
+    loadingStrategy: meta.loadingStrategy ?? PluginLoadingStrategy.fetch,
+    moduleHash: meta.moduleHash,
   });
+
+  const { plugin = new AppPlugin() } = pluginExports;
+  plugin.init(meta);
+  plugin.meta = meta;
+  plugin.setComponentsFromLegacyExports(pluginExports);
+
+  exposedComponentsRegistry.register({
+    pluginId,
+    configs: plugin.exposedComponentConfigs || [],
+  });
+  addedComponentsRegistry.register({
+    pluginId,
+    configs: plugin.addedComponentConfigs || [],
+  });
+  addedLinksRegistry.register({
+    pluginId,
+    configs: plugin.addedLinkConfigs || [],
+  });
+
+  importedAppPlugins[pluginId] = plugin;
+
+  return plugin;
 }

@@ -1,6 +1,7 @@
 import { PanelOptionsEditorBuilder } from '@grafana/data';
+import { ScaleDistribution, HeatmapCalculationMode, HeatmapCalculationOptions } from '@grafana/schema';
+import { ScaleDistributionEditor } from '@grafana/ui/src/options/builder';
 
-import { HeatmapCalculationMode, HeatmapCalculationOptions } from '../models.gen';
 import { AxisEditor } from './AxisEditor';
 
 export function addHeatmapCalculationOptions(
@@ -10,9 +11,23 @@ export function addHeatmapCalculationOptions(
   category?: string[]
 ) {
   builder.addCustomEditor({
-    id: 'xAxis',
-    path: `${prefix}xAxis`,
-    name: 'X Buckets',
+    id: 'xBuckets',
+    path: `${prefix}xBuckets`,
+    name: 'X Bucket',
+    editor: AxisEditor,
+    category,
+    defaultValue: {
+      mode: HeatmapCalculationMode.Size,
+    },
+    settings: {
+      allowInterval: true,
+    },
+  });
+
+  builder.addCustomEditor({
+    id: 'yBuckets',
+    path: `${prefix}yBuckets`,
+    name: 'Y Bucket',
     editor: AxisEditor,
     category,
     defaultValue: {
@@ -21,13 +36,11 @@ export function addHeatmapCalculationOptions(
   });
 
   builder.addCustomEditor({
-    id: 'yAxis',
-    path: `${prefix}yAxis`,
-    name: 'Y Buckets',
-    editor: AxisEditor,
+    id: 'yBuckets-scale',
+    path: `${prefix}yBuckets.scale`,
+    name: 'Y Bucket scale',
     category,
-    defaultValue: {
-      mode: HeatmapCalculationMode.Size,
-    },
+    editor: ScaleDistributionEditor,
+    defaultValue: { type: ScaleDistribution.Linear },
   });
 }

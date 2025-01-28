@@ -3,14 +3,14 @@ package provisioning
 import "context"
 
 type Calls struct {
-	RunInitProvisioners                 []interface{}
-	ProvisionDatasources                []interface{}
-	ProvisionPlugins                    []interface{}
-	ProvisionNotifications              []interface{}
-	ProvisionDashboards                 []interface{}
-	GetDashboardProvisionerResolvedPath []interface{}
-	GetAllowUIUpdatesFromConfig         []interface{}
-	Run                                 []interface{}
+	RunInitProvisioners                 []any
+	ProvisionDatasources                []any
+	ProvisionPlugins                    []any
+	ProvisionDashboards                 []any
+	ProvisionAlerting                   []any
+	GetDashboardProvisionerResolvedPath []any
+	GetAllowUIUpdatesFromConfig         []any
+	Run                                 []any
 }
 
 type ProvisioningServiceMock struct {
@@ -18,7 +18,6 @@ type ProvisioningServiceMock struct {
 	RunInitProvisionersFunc                 func(ctx context.Context) error
 	ProvisionDatasourcesFunc                func(ctx context.Context) error
 	ProvisionPluginsFunc                    func() error
-	ProvisionNotificationsFunc              func() error
 	ProvisionDashboardsFunc                 func() error
 	GetDashboardProvisionerResolvedPathFunc func(name string) string
 	GetAllowUIUpdatesFromConfigFunc         func(name string) bool
@@ -55,19 +54,16 @@ func (mock *ProvisioningServiceMock) ProvisionPlugins(ctx context.Context) error
 	return nil
 }
 
-func (mock *ProvisioningServiceMock) ProvisionNotifications(ctx context.Context) error {
-	mock.Calls.ProvisionNotifications = append(mock.Calls.ProvisionNotifications, nil)
-	if mock.ProvisionNotificationsFunc != nil {
-		return mock.ProvisionNotificationsFunc()
-	}
-	return nil
-}
-
 func (mock *ProvisioningServiceMock) ProvisionDashboards(ctx context.Context) error {
 	mock.Calls.ProvisionDashboards = append(mock.Calls.ProvisionDashboards, nil)
 	if mock.ProvisionDashboardsFunc != nil {
 		return mock.ProvisionDashboardsFunc()
 	}
+	return nil
+}
+
+func (mock *ProvisioningServiceMock) ProvisionAlerting(ctx context.Context) error {
+	mock.Calls.ProvisionAlerting = append(mock.Calls.ProvisionAlerting, nil)
 	return nil
 }
 

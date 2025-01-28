@@ -1,4 +1,5 @@
 import { SelectableValue } from '@grafana/data';
+import { IconName } from '@grafana/ui';
 
 export interface AlertRuleDTO {
   id: number;
@@ -25,7 +26,7 @@ export interface AlertRule {
   state: string;
   newStateDate?: string;
   stateText: string;
-  stateIcon: string;
+  stateIcon: IconName;
   stateClass: string;
   stateAge: string;
   url: string;
@@ -37,9 +38,7 @@ export interface AlertRule {
 
 export type GrafanaNotifierType =
   | 'discord'
-  | 'hipchat'
   | 'email'
-  | 'sensu'
   | 'sensugo'
   | 'googlechat'
   | 'threema'
@@ -54,9 +53,15 @@ export type GrafanaNotifierType =
   | 'victorops'
   | 'pushover'
   | 'LINE'
-  | 'kafka';
+  | 'kafka'
+  | 'wecom'
+  | 'webex'
+  | 'mqtt'
+  | 'oncall'
+  | 'sns';
 
 export type CloudNotifierType =
+  | 'oncall' // Only FE implementation for now
   | 'email'
   | 'pagerduty'
   | 'pushover'
@@ -64,13 +69,18 @@ export type CloudNotifierType =
   | 'opsgenie'
   | 'victorops'
   | 'webhook'
-  | 'wechat';
+  | 'wechat'
+  | 'webex'
+  | 'telegram'
+  | 'sns'
+  | 'discord'
+  | 'msteams';
 
 export type NotifierType = GrafanaNotifierType | CloudNotifierType;
-export interface NotifierDTO {
+export interface NotifierDTO<T = NotifierType> {
   name: string;
   description: string;
-  type: NotifierType;
+  type: T;
   heading: string;
   options: NotificationChannelOption[];
   info?: string;
@@ -102,7 +112,7 @@ export interface NotificationChannelDTO {
 }
 
 export type NotificationChannelSecureSettings = Record<string, string | number>;
-export type NotificationChannelSecureFields = Record<string, boolean>;
+export type NotificationChannelSecureFields = Record<string, boolean | ''>;
 
 export interface ChannelTypeSettings {
   [key: string]: any;
@@ -117,6 +127,7 @@ export interface NotificationChannelOption {
     | 'input'
     | 'select'
     | 'checkbox'
+    | 'radio'
     | 'textarea'
     | 'subform'
     | 'subform_array'
@@ -130,10 +141,12 @@ export interface NotificationChannelOption {
   required: boolean;
   secure: boolean;
   selectOptions?: Array<SelectableValue<string>> | null;
-  showWhen: { field: string; is: string };
+  defaultValue?: SelectableValue<string>;
+  showWhen: { field: string; is: string | boolean };
   validationRule: string;
   subformOptions?: NotificationChannelOption[];
   dependsOn: string;
+  setValueAs?: (value: string | boolean) => string | number | boolean | null;
 }
 
 export interface NotificationChannelState {
@@ -142,6 +155,38 @@ export interface NotificationChannelState {
   notificationChannel: any;
 }
 
+export interface NotifierStatus {
+  lastNotifyAttemptError?: null | string;
+  lastNotifyAttempt: string;
+  lastNotifyAttemptDuration: string;
+  name: string;
+  sendResolved?: boolean;
+}
+
+export interface NotifiersState {
+  [key: string]: NotifierStatus[]; // key is the notifier type
+}
+
+export interface ReceiverState {
+  active: boolean;
+  notifiers: NotifiersState;
+  errorCount: number; // errors by receiver
+}
+
+export interface ReceiversState {
+  [key: string]: ReceiverState;
+}
+
+export interface ContactPointsState {
+  receivers: ReceiversState;
+  errorCount: number;
+}
+
+export interface ReceiversStateDTO {
+  active: boolean;
+  integrations: NotifierStatus[];
+  name: string;
+}
 export interface AlertRulesState {
   items: AlertRule[];
   searchQuery: string;

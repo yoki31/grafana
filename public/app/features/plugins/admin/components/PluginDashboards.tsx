@@ -1,12 +1,11 @@
-import React, { PureComponent } from 'react';
-
 import { extend } from 'lodash';
+import { PureComponent } from 'react';
 
-import { PluginDashboard } from 'app/types';
+import { AppEvents, PluginMeta, DataSourceApi } from '@grafana/data';
 import { getBackendSrv } from '@grafana/runtime';
 import { appEvents } from 'app/core/core';
-import DashboardsTable from 'app/features/datasources/DashboardsTable';
-import { AppEvents, PluginMeta, DataSourceApi } from '@grafana/data';
+import DashboardsTable from 'app/features/datasources/components/DashboardsTable';
+import { PluginDashboard } from 'app/types';
 
 interface Props {
   plugin: PluginMeta;
@@ -31,7 +30,7 @@ export class PluginDashboards extends PureComponent<Props, State> {
     const pluginId = this.props.plugin.id;
     getBackendSrv()
       .get(`/api/plugins/${pluginId}/dashboards`)
-      .then((dashboards: any) => {
+      .then((dashboards) => {
         this.setState({ dashboards, loading: false });
       });
   }
@@ -60,21 +59,21 @@ export class PluginDashboards extends PureComponent<Props, State> {
   import = (dash: PluginDashboard, overwrite: boolean) => {
     const { plugin, datasource } = this.props;
 
-    const installCmd: any = {
+    const installCmd = {
       pluginId: plugin.id,
       path: dash.path,
       overwrite: overwrite,
-      inputs: [],
+      inputs: datasource
+        ? [
+            {
+              name: '*',
+              type: 'datasource',
+              pluginId: datasource.meta.id,
+              value: datasource.name,
+            },
+          ]
+        : [],
     };
-
-    if (datasource) {
-      installCmd.inputs.push({
-        name: '*',
-        type: 'datasource',
-        pluginId: datasource.meta.id,
-        value: datasource.name,
-      });
-    }
 
     return getBackendSrv()
       .post(`/api/dashboards/import`, installCmd)
@@ -103,10 +102,6 @@ export class PluginDashboards extends PureComponent<Props, State> {
       return <div>No dashboards are included with this plugin</div>;
     }
 
-    return (
-      <div className="gf-form-group">
-        <DashboardsTable dashboards={dashboards} onImport={this.import} onRemove={this.remove} />
-      </div>
-    );
+    return <DashboardsTable dashboards={dashboards} onImport={this.import} onRemove={this.remove} />;
   }
 }

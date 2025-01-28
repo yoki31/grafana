@@ -17,7 +17,7 @@ func (usm *UsageStatsMock) RegisterMetricsFunc(fn MetricsFunc) {
 }
 
 func (usm *UsageStatsMock) GetUsageReport(ctx context.Context) (Report, error) {
-	all := make(map[string]interface{})
+	all := make(map[string]any)
 	for _, fn := range usm.metricsFuncs {
 		fnMetrics, err := fn(ctx)
 		require.NoError(usm.T, err)
@@ -29,8 +29,6 @@ func (usm *UsageStatsMock) GetUsageReport(ctx context.Context) (Report, error) {
 	return Report{Metrics: all}, nil
 }
 
-func (usm *UsageStatsMock) ShouldBeReported(_ context.Context, _ string) bool {
-	return true
-}
-
 func (usm *UsageStatsMock) RegisterSendReportCallback(_ SendReportCallbackFunc) {}
+
+func (usm *UsageStatsMock) SetReadyToReport(_ context.Context) {}

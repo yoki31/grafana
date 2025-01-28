@@ -1,15 +1,18 @@
 import {
-  ArrayVector,
   DataFrame,
   Field,
   FieldType,
   getFieldDisplayName,
   GrafanaTheme2,
   outerJoinDataFrames,
+  TimeRange,
 } from '@grafana/data';
+import { maybeSortFrame } from '@grafana/data/src/transformations/transformers/joinDataFrames';
 import { findField } from 'app/features/dimensions';
+
 import { prepareGraphableFields } from '../timeseries/utils';
-import { CandlestickOptions, CandlestickFieldMap, VizDisplayMode } from './models.gen';
+
+import { Options, CandlestickFieldMap, VizDisplayMode } from './types';
 
 export interface FieldPickerInfo {
   /** property name */
@@ -93,8 +96,9 @@ function findFieldOrAuto(frame: DataFrame, info: FieldPickerInfo, options: Candl
 
 export function prepareCandlestickFields(
   series: DataFrame[] | undefined,
-  options: CandlestickOptions,
-  theme: GrafanaTheme2
+  options: Partial<Options>,
+  theme: GrafanaTheme2,
+  timeRange?: TimeRange
 ): CandlestickData | null {
   if (!series?.length) {
     return null;
@@ -102,15 +106,21 @@ export function prepareCandlestickFields(
 
   // All fields
   const fieldMap = options.fields ?? {};
-  const aligned = series.length === 1 ? series[0] : outerJoinDataFrames({ frames: series, enforceSort: true });
+  const aligned =
+    series.length === 1
+      ? maybeSortFrame(
+          series[0],
+          series[0].fields.findIndex((f) => f.type === FieldType.time)
+        )
+      : outerJoinDataFrames({ frames: series });
   if (!aligned?.length) {
     return null;
   }
 
   const data: CandlestickData = { aligned, frame: aligned, names: {} };
 
-  // Apply same filter as everythign else in timeseries
-  const timeSeriesFrames = prepareGraphableFields([aligned], theme);
+  // Apply same filter as everything else in timeseries
+  const timeSeriesFrames = prepareGraphableFields([aligned], theme, timeRange);
   if (!timeSeriesFrames) {
     return null;
   }
@@ -142,11 +152,11 @@ export function prepareCandlestickFields(
 
   // Use next open as 'close' value
   if (data.open && !data.close && !fieldMap.close) {
-    const values = data.open.values.toArray().slice(1);
+    const values = data.open.values.slice(1);
     values.push(values[values.length - 1]); // duplicate last value
     data.close = {
       ...data.open,
-      values: new ArrayVector(values),
+      values: values,
       name: 'Next open',
       state: undefined,
     };
@@ -157,12 +167,12 @@ export function prepareCandlestickFields(
 
   // Use previous close as 'open' value
   if (data.close && !data.open && !fieldMap.open) {
-    const values = data.close.values.toArray().slice();
+    const values = data.close.values.slice();
     values.unshift(values[0]); // duplicate first value
     values.length = frame.length;
     data.open = {
       ...data.close,
-      values: new ArrayVector(values),
+      values: values,
       name: 'Previous close',
       state: undefined,
     };

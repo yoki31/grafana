@@ -1,8 +1,19 @@
-import React, { useCallback } from 'react';
-import { GrafanaTheme2, SelectableValue, TransformerRegistryItem, TransformerUIProps } from '@grafana/data';
-import { prepareTimeSeriesTransformer, PrepareTimeSeriesOptions, timeSeriesFormat } from './prepareTimeSeries';
-import { InlineField, InlineFieldRow, Select, useStyles2 } from '@grafana/ui';
 import { css } from '@emotion/css';
+import { useCallback } from 'react';
+import * as React from 'react';
+
+import {
+  GrafanaTheme2,
+  SelectableValue,
+  TransformerRegistryItem,
+  TransformerUIProps,
+  TransformerCategory,
+} from '@grafana/data';
+import { InlineField, InlineFieldRow, Select, useStyles2 } from '@grafana/ui';
+
+import { getTransformationContent } from '../docs/getTransformationContent';
+
+import { prepareTimeSeriesTransformer, PrepareTimeSeriesOptions, timeSeriesFormat } from './prepareTimeSeries';
 
 const wideInfo = {
   label: 'Wide time series',
@@ -18,9 +29,9 @@ const wideInfo = {
   ),
 };
 
-const manyInfo = {
+const multiInfo = {
   label: 'Multi-frame time series',
-  value: timeSeriesFormat.TimeSeriesMany,
+  value: timeSeriesFormat.TimeSeriesMulti,
   description: 'Creates a new frame for each time/number pair',
   info: (
     <ul>
@@ -48,7 +59,7 @@ const longInfo = {
   ),
 };
 
-const formats: Array<SelectableValue<timeSeriesFormat>> = [wideInfo, manyInfo, longInfo];
+const formats: Array<SelectableValue<timeSeriesFormat>> = [wideInfo, multiInfo, longInfo];
 
 export function PrepareTimeSeriesEditor(props: TransformerUIProps<PrepareTimeSeriesOptions>): React.ReactElement {
   const { options, onChange } = props;
@@ -69,10 +80,21 @@ export function PrepareTimeSeriesEditor(props: TransformerUIProps<PrepareTimeSer
       <InlineFieldRow>
         <InlineField label="Format" labelWidth={12}>
           <Select
-            menuShouldPortal
             width={35}
             options={formats}
-            value={formats.find((v) => v.value === options.format) || formats[0]}
+            value={
+              formats.find((v) => {
+                // migrate previously selected timeSeriesMany to multi
+                if (
+                  v.value === timeSeriesFormat.TimeSeriesMulti &&
+                  options.format === timeSeriesFormat.TimeSeriesMany
+                ) {
+                  return true;
+                } else {
+                  return v.value === options.format;
+                }
+              }) || formats[0]
+            }
             onChange={onSelectFormat}
             className="flex-grow-1"
           />
@@ -88,9 +110,9 @@ export function PrepareTimeSeriesEditor(props: TransformerUIProps<PrepareTimeSer
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  info: css`
-    margin-left: 20px;
-  `,
+  info: css({
+    marginLeft: '20px',
+  }),
 });
 
 export const prepareTimeseriesTransformerRegistryItem: TransformerRegistryItem<PrepareTimeSeriesOptions> = {
@@ -99,11 +121,6 @@ export const prepareTimeseriesTransformerRegistryItem: TransformerRegistryItem<P
   transformation: prepareTimeSeriesTransformer,
   name: prepareTimeSeriesTransformer.name,
   description: prepareTimeSeriesTransformer.description,
-  help: `
-  ### Use cases
-
-  This takes query results and transforms them into a predictable timeseries format.
-  This transformer may be especially useful when using old panels that only expect the
-  many-frame timeseries format.
-  `,
+  categories: new Set([TransformerCategory.Reformat]),
+  help: getTransformationContent(prepareTimeSeriesTransformer.id).helperDocs,
 };

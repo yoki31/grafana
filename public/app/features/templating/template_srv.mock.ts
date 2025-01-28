@@ -1,6 +1,7 @@
-import { ScopedVars, VariableModel } from '@grafana/data';
-import { variableRegex } from '../variables/utils';
+import { ScopedVars, TimeRange, TypedVariableModel, VariableOption } from '@grafana/data';
 import { TemplateSrv } from '@grafana/runtime';
+
+import { variableRegex } from '../variables/utils';
 
 /**
  * Mock for TemplateSrv where you can just supply map of key and values and it will do the interpolation based on that.
@@ -12,16 +13,37 @@ import { TemplateSrv } from '@grafana/runtime';
  */
 export class TemplateSrvMock implements TemplateSrv {
   private regex = variableRegex;
-  constructor(private variables: Record<string, string>) {}
+  constructor(private variables: TypedVariableModel[]) {}
 
-  getVariables(): VariableModel[] {
-    return Object.keys(this.variables).map((key) => {
-      return {
-        type: 'custom',
-        name: key,
-        label: key,
+  getVariables(): TypedVariableModel[] {
+    if (!this.variables) {
+      return [];
+    }
+
+    return this.variables.reduce((acc: TypedVariableModel[], variable) => {
+      const commonProps = {
+        type: variable.type ?? 'custom',
+        name: variable.name ?? 'test',
+        label: variable.label ?? 'test',
       };
-    });
+      if (variable.type === 'datasource') {
+        acc.push({
+          ...commonProps,
+          current: {
+            text: variable.current?.text,
+            value: variable.current?.value,
+          } as VariableOption,
+          options: variable.options ?? [],
+          multi: variable.multi ?? false,
+          includeAll: variable.includeAll ?? false,
+        } as TypedVariableModel);
+      } else {
+        acc.push({
+          ...commonProps,
+        } as TypedVariableModel);
+      }
+      return acc as TypedVariableModel[];
+    }, []);
   }
 
   replace(target?: string, scopedVars?: ScopedVars, format?: string | Function): string {
@@ -32,8 +54,7 @@ export class TemplateSrvMock implements TemplateSrv {
     this.regex.lastIndex = 0;
 
     return target.replace(this.regex, (match, var1, var2, fmt2, var3, fieldPath, fmt3) => {
-      const variableName = var1 || var2 || var3;
-      return this.variables[variableName];
+      return var1 || var2 || var3;
     });
   }
 
@@ -54,5 +75,11 @@ export class TemplateSrvMock implements TemplateSrv {
     this.regex.lastIndex = 0;
     const match = this.regex.exec(target);
     return match !== null;
+  }
+
+  updateTimeRange(timeRange: TimeRange) {}
+
+  getAdhocFilters(dsName: string) {
+    return [{ key: 'key', operator: '=', value: 'a' }];
   }
 }

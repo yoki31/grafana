@@ -1,9 +1,11 @@
 import { Observable, of } from 'rxjs';
+
 import { AnnotationEvent } from '@grafana/data';
+
+import { DashboardModel } from '../../../dashboard/state/DashboardModel';
 
 import { DashboardQueryRunnerOptions, DashboardQueryRunnerWorker, DashboardQueryRunnerWorkerResult } from './types';
 import { emptyResult, getAnnotationsByPanelId, translateQueryResult } from './utils';
-import { DashboardModel } from '../../../dashboard/state';
 
 export class SnapshotWorker implements DashboardQueryRunnerWorker {
   canWork({ dashboard }: DashboardQueryRunnerOptions): boolean {
@@ -22,9 +24,9 @@ export class SnapshotWorker implements DashboardQueryRunnerWorker {
   private getAnnotationsFromSnapshot(dashboard: DashboardModel): AnnotationEvent[] {
     const dashAnnotations = dashboard?.annotations?.list?.filter((a) => a.enable);
     const snapshots = dashAnnotations.filter((a) => Boolean(a.snapshotData));
-    const annotations = snapshots.reduce(
+    const annotations = snapshots.reduce<AnnotationEvent[]>(
       (acc, curr) => acc.concat(translateQueryResult(curr, curr.snapshotData)),
-      [] as AnnotationEvent[]
+      []
     );
 
     return annotations;

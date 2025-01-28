@@ -1,13 +1,17 @@
-import React from 'react';
-import { debounce } from 'lodash';
 import { css } from '@emotion/css';
-import { GrafanaTheme, DataFrame, CSVConfig, readCSV } from '@grafana/data';
-import { Icon } from '../Icon/Icon';
-import { Themeable } from '../../types/theme';
-import { TextArea } from '../TextArea/TextArea';
-import { stylesFactory, withTheme } from '../../themes';
+import { debounce } from 'lodash';
+import { PureComponent } from 'react';
+import * as React from 'react';
 
-interface Props extends Themeable {
+import { DataFrame, CSVConfig, readCSV, GrafanaTheme2 } from '@grafana/data';
+
+import { stylesFactory, withTheme2 } from '../../themes';
+import { Themeable2 } from '../../types/theme';
+import { Trans } from '../../utils/i18n';
+import { Icon } from '../Icon/Icon';
+import { TextArea } from '../TextArea/TextArea';
+
+interface Props extends Themeable2 {
   config?: CSVConfig;
   text: string;
   width: string | number;
@@ -23,7 +27,7 @@ interface State {
 /**
  * Expects the container div to have size set and will fill it 100%
  */
-export class UnThemedTableInputCSV extends React.PureComponent<Props, State> {
+export class UnThemedTableInputCSV extends PureComponent<Props, State> {
   constructor(props: Props) {
     super(props);
 
@@ -34,7 +38,7 @@ export class UnThemedTableInputCSV extends React.PureComponent<Props, State> {
     };
   }
 
-  readCSV: any = debounce(() => {
+  readCSV = debounce(() => {
     const { config } = this.props;
     const { text } = this.state;
 
@@ -58,7 +62,7 @@ export class UnThemedTableInputCSV extends React.PureComponent<Props, State> {
     }
   }
 
-  onTextChange = (event: any) => {
+  onTextChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     this.setState({ text: event.target.value });
   };
 
@@ -78,10 +82,14 @@ export class UnThemedTableInputCSV extends React.PureComponent<Props, State> {
         {data && (
           <footer className={styles.footer}>
             {data.map((frame, index) => {
+              const rows = frame.length;
+              const columns = frame.fields.length;
               return (
                 <span key={index}>
-                  Rows:{frame.length}, Columns:{frame.fields.length} &nbsp;
-                  <Icon name="check-circle" />
+                  <Trans i18nKey="grafana-ui.table.csv-counts">
+                    Rows:{{ rows }}, Columns:{{ columns }} &nbsp;
+                    <Icon name="check-circle" />
+                  </Trans>
                 </span>
               );
             })}
@@ -92,26 +100,26 @@ export class UnThemedTableInputCSV extends React.PureComponent<Props, State> {
   }
 }
 
-export const TableInputCSV = withTheme(UnThemedTableInputCSV);
+export const TableInputCSV = withTheme2(UnThemedTableInputCSV);
 TableInputCSV.displayName = 'TableInputCSV';
 
-const getStyles = stylesFactory((theme: GrafanaTheme) => {
+const getStyles = stylesFactory((theme: GrafanaTheme2) => {
   return {
-    tableInputCsv: css`
-      position: relative;
-    `,
-    textarea: css`
-      height: 100%;
-      width: 100%;
-    `,
-    footer: css`
-      position: absolute;
-      bottom: 15px;
-      right: 15px;
-      border: 1px solid #222;
-      background: ${theme.palette.online};
-      padding: 1px ${theme.spacing.xs};
-      font-size: 80%;
-    `,
+    tableInputCsv: css({
+      position: 'relative',
+    }),
+    textarea: css({
+      height: '100%',
+      width: '100%',
+    }),
+    footer: css({
+      position: 'absolute',
+      bottom: '15px',
+      right: '15px',
+      border: '1px solid #222',
+      background: theme.colors.success.main,
+      padding: `1px ${theme.spacing(0.5)}`,
+      fontSize: '80%',
+    }),
   };
 });

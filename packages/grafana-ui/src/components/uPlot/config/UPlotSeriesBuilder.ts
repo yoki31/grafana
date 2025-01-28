@@ -1,3 +1,5 @@
+import uPlot, { Series } from 'uplot';
+
 import {
   colorManipulator,
   DataFrameFieldIndex,
@@ -7,7 +9,6 @@ import {
   GrafanaTheme2,
   ThresholdsConfig,
 } from '@grafana/data';
-import uPlot, { Series } from 'uplot';
 import {
   BarAlignment,
   BarConfig,
@@ -19,13 +20,16 @@ import {
   PointsConfig,
   VisibilityMode,
 } from '@grafana/schema';
+
 import { PlotConfigBuilder } from '../types';
+
 import { getHueGradientFn, getOpacityGradientFn, getScaleGradientFn } from './gradientFills';
 
 export interface SeriesProps extends LineConfig, BarConfig, FillConfig, PointsConfig {
   scaleKey: string;
   pxAlign?: boolean;
   gradientMode?: GraphGradientMode;
+  dynamicSeriesColor?: (seriesIdx: number) => string | undefined;
 
   facets?: uPlot.Series.Facet[];
 
@@ -76,19 +80,19 @@ export class UPlotSeriesBuilder extends PlotConfigBuilder<SeriesProps, Series> {
     // GraphDrawStyle.Points mode also needs this for fill/stroke sharing & re-use in series.points. see getColor() below.
     lineConfig.stroke = lineColor;
 
+    lineConfig.width = lineWidth;
+    if (lineStyle && lineStyle.fill !== 'solid') {
+      if (lineStyle.fill === 'dot') {
+        lineConfig.cap = 'round';
+      }
+      lineConfig.dash = lineStyle.dash ?? [10, 10];
+    }
+
     if (pathBuilder != null) {
       lineConfig.paths = pathBuilder;
-      lineConfig.width = lineWidth;
     } else if (drawStyle === GraphDrawStyle.Points) {
       lineConfig.paths = () => null;
     } else if (drawStyle != null) {
-      lineConfig.width = lineWidth;
-      if (lineStyle && lineStyle.fill !== 'solid') {
-        if (lineStyle.fill === 'dot') {
-          lineConfig.cap = 'round';
-        }
-        lineConfig.dash = lineStyle.dash ?? [10, 10];
-      }
       lineConfig.paths = (self: uPlot, seriesIdx: number, idx0: number, idx1: number) => {
         let pathsBuilder = mapDrawStyleToPathBuilder(
           drawStyle,
@@ -147,10 +151,29 @@ export class UPlotSeriesBuilder extends PlotConfigBuilder<SeriesProps, Series> {
   }
 
   private getLineColor(): Series.Stroke {
-    const { lineColor, gradientMode, colorMode, thresholds, theme, hardMin, hardMax, softMin, softMax } = this.props;
+    const {
+      lineColor,
+      gradientMode,
+      colorMode,
+      thresholds,
+      theme,
+      hardMin,
+      hardMax,
+      softMin,
+      softMax,
+      dynamicSeriesColor,
+    } = this.props;
+
+    if (gradientMode === GraphGradientMode.None && dynamicSeriesColor) {
+      return (plot: uPlot, seriesIdx: number) => dynamicSeriesColor(seriesIdx) ?? lineColor ?? FALLBACK_COLOR;
+    }
 
     if (gradientMode === GraphGradientMode.Scheme && colorMode?.id !== FieldColorModeId.Fixed) {
       return getScaleGradientFn(1, theme, colorMode, thresholds, hardMin, hardMax, softMin, softMax);
+    }
+
+    if (gradientMode === GraphGradientMode.Hue) {
+      return getHueGradientFn(lineColor ?? FALLBACK_COLOR, 1, theme);
     }
 
     return lineColor ?? FALLBACK_COLOR;
@@ -169,6 +192,7 @@ export class UPlotSeriesBuilder extends PlotConfigBuilder<SeriesProps, Series> {
       hardMax,
       softMin,
       softMax,
+      dynamicSeriesColor,
     } = this.props;
 
     if (fillColor) {
@@ -177,6 +201,14 @@ export class UPlotSeriesBuilder extends PlotConfigBuilder<SeriesProps, Series> {
 
     const mode = gradientMode ?? GraphGradientMode.None;
     const opacityPercent = (fillOpacity ?? 0) / 100;
+
+    if (mode === GraphGradientMode.None && dynamicSeriesColor && opacityPercent > 0) {
+      return (u: uPlot, seriesIdx: number) => {
+        // @ts-ignore
+        let lineColor = u.series[seriesIdx]._stroke; // cache
+        return colorManipulator.alpha(lineColor ?? '', opacityPercent);
+      };
+    }
 
     switch (mode) {
       case GraphGradientMode.Opacity:
@@ -211,9 +243,9 @@ let builders: PathBuilders | undefined = undefined;
 function mapDrawStyleToPathBuilder(
   style: GraphDrawStyle,
   lineInterpolation?: LineInterpolation,
-  barAlignment = 0,
+  barAlignment = BarAlignment.Center,
   barWidthFactor = 0.6,
-  barMaxWidth = Infinity
+  barMaxWidth = 200
 ): Series.PathBuilder {
   const pathBuilders = uPlot.paths;
 
@@ -234,7 +266,7 @@ function mapDrawStyleToPathBuilder(
     if (!builders[barsCfgKey]) {
       builders[barsCfgKey] = pathBuilders.bars!({
         size: [barWidthFactor, barMaxWidth],
-        align: barAlignment as BarAlignment,
+        align: barAlignment,
       });
     }
 

@@ -1,7 +1,5 @@
 import { Observable } from 'rxjs';
-import { QueryRunnerOptions } from 'app/features/query/state/PanelQueryRunner';
-import { DashboardQuery, SHARED_DASHBOARD_QUERY } from './types';
-import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
+
 import {
   DataQuery,
   DataQueryRequest,
@@ -10,7 +8,14 @@ import {
   getDefaultTimeRange,
   LoadingState,
   PanelData,
+  DataTopic,
 } from '@grafana/data';
+import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
+import { PanelModel } from 'app/features/dashboard/state/PanelModel';
+import { QueryRunnerOptions } from 'app/features/query/state/PanelQueryRunner';
+
+import { SHARED_DASHBOARD_QUERY } from './constants';
+import { DashboardQuery } from './types';
 
 export function isSharedDashboardQuery(datasource: string | DataSourceRef | DataSourceApi | null) {
   if (!datasource) {
@@ -29,7 +34,7 @@ export function isSharedDashboardQuery(datasource: string | DataSourceRef | Data
   return datasource.uid === SHARED_DASHBOARD_QUERY;
 }
 
-export function runSharedRequest(options: QueryRunnerOptions): Observable<PanelData> {
+export function runSharedRequest(options: QueryRunnerOptions, query: DashboardQuery): Observable<PanelData> {
   return new Observable<PanelData>((subscriber) => {
     const dashboard = getDashboardSrv().getCurrent();
     const listenToPanelId = getPanelIdFromQuery(options.queries);
@@ -39,7 +44,12 @@ export function runSharedRequest(options: QueryRunnerOptions): Observable<PanelD
       return undefined;
     }
 
-    const listenToPanel = dashboard?.getPanelById(listenToPanelId);
+    // Source panel might be contained in a collapsed row, in which
+    // case we need to create a PanelModel
+    let listenToPanel = dashboard?.getPanelById(listenToPanelId, true);
+    if (!(listenToPanel instanceof PanelModel)) {
+      listenToPanel = new PanelModel(listenToPanel);
+    }
 
     if (!listenToPanel) {
       subscriber.next(getQueryError('Unknown Panel: ' + listenToPanelId));
@@ -47,15 +57,31 @@ export function runSharedRequest(options: QueryRunnerOptions): Observable<PanelD
     }
 
     const listenToRunner = listenToPanel.getQueryRunner();
-    const subscription = listenToRunner.getData({ withTransforms: false, withFieldConfig: false }).subscribe({
-      next: (data: PanelData) => {
-        subscriber.next(data);
-      },
-    });
+    const subscription = listenToRunner
+      .getData({
+        withTransforms: Boolean(query?.withTransforms),
+        withFieldConfig: false,
+      })
+      .subscribe({
+        next: (data: PanelData) => {
+          // Use annotation data for series
+          if (query?.topic === DataTopic.Annotations) {
+            data = {
+              ...data,
+              series: data.annotations ?? [],
+              annotations: undefined, // remove annotations
+            };
+          }
+          subscriber.next(data);
+        },
+      });
 
     // If we are in fullscreen the other panel will not execute any queries
     // So we have to trigger it from here
-    if (!listenToPanel.isInView) {
+    if (
+      (!listenToPanel.isInView && listenToPanel.refreshWhenInView) ||
+      dashboard?.otherPanelInFullscreen(listenToPanel)
+    ) {
       const { datasource, targets } = listenToPanel;
       const modified = {
         ...options,
@@ -63,6 +89,8 @@ export function runSharedRequest(options: QueryRunnerOptions): Observable<PanelD
         panelId: listenToPanelId,
         queries: targets,
       };
+
+      listenToPanel.refreshWhenInView = false;
       listenToRunner.run(modified);
     }
 

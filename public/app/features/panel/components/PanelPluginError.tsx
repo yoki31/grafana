@@ -1,10 +1,10 @@
 // Libraries
-import React, { PureComponent, ReactNode } from 'react';
+import { PureComponent, ReactNode } from 'react';
 
 // Types
-import { AppNotificationSeverity } from 'app/types';
-import { Alert } from '@grafana/ui';
 import { PanelProps, PanelPlugin, PluginType, PanelPluginMeta } from '@grafana/data';
+import { Alert } from '@grafana/ui';
+import { AppNotificationSeverity } from 'app/types';
 
 interface Props {
   title: string;
@@ -32,7 +32,7 @@ class PanelPluginError extends PureComponent<Props> {
   }
 }
 
-export function getPanelPluginLoadError(meta: PanelPluginMeta, err: any): PanelPlugin {
+export function getPanelPluginLoadError(meta: PanelPluginMeta, err: unknown): PanelPlugin {
   const LoadError = class LoadError extends PureComponent<PanelProps> {
     render() {
       const text = (

@@ -1,5 +1,6 @@
-import React, { PureComponent } from 'react';
-import { CustomScrollbar } from '@grafana/ui';
+import { PureComponent } from 'react';
+import { PartialObserver, Unsubscribable } from 'rxjs';
+
 import {
   BusEvent,
   CircularVector,
@@ -8,7 +9,7 @@ import {
   DataSelectEvent,
   EventBus,
 } from '@grafana/data';
-import { PartialObserver, Unsubscribable } from 'rxjs';
+import { CustomScrollbar } from '@grafana/ui';
 
 interface Props {
   eventBus: EventBus;
@@ -51,7 +52,7 @@ export class EventBusLoggerPanel extends PureComponent<Props, State> {
 
   eventObserver: PartialObserver<BusEvent> = {
     next: (event: BusEvent) => {
-      const origin = event.origin as any;
+      const origin: any = event.origin;
       this.history.add({
         key: counter++,
         type: event.type,

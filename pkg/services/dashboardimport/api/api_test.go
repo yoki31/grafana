@@ -7,13 +7,17 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/grafana/grafana/pkg/api/routing"
 	"github.com/grafana/grafana/pkg/components/simplejson"
-	"github.com/grafana/grafana/pkg/models"
-	acmock "github.com/grafana/grafana/pkg/services/accesscontrol/mock"
+	"github.com/grafana/grafana/pkg/services/accesscontrol/actest"
+	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
 	"github.com/grafana/grafana/pkg/services/dashboardimport"
+	"github.com/grafana/grafana/pkg/services/dashboards"
+	"github.com/grafana/grafana/pkg/services/quota"
+	"github.com/grafana/grafana/pkg/services/user"
 	"github.com/grafana/grafana/pkg/web/webtest"
-	"github.com/stretchr/testify/require"
 )
 
 func TestImportDashboardAPI(t *testing.T) {
@@ -26,15 +30,7 @@ func TestImportDashboardAPI(t *testing.T) {
 			},
 		}
 
-		schemaLoaderServiceCalled := false
-		schemaLoaderService := &schemaLoaderServiceMock{
-			dashboardApplyDefaultsFunc: func(input *simplejson.Json) (*simplejson.Json, error) {
-				schemaLoaderServiceCalled = true
-				return input, nil
-			},
-		}
-
-		importDashboardAPI := New(service, quotaServiceFunc(quotaNotReached), schemaLoaderService, nil, acmock.New().WithDisabled())
+		importDashboardAPI := New(service, quotaServiceFunc(quotaNotReached), nil, actest.FakeAccessControl{ExpectedEvaluate: true})
 		routeRegister := routing.NewRouteRegister()
 		importDashboardAPI.RegisterAPIEndpoints(routeRegister)
 		s := webtest.NewServer(t, routeRegister)
@@ -58,8 +54,8 @@ func TestImportDashboardAPI(t *testing.T) {
 			jsonBytes, err := json.Marshal(cmd)
 			require.NoError(t, err)
 			req := s.NewPostRequest("/api/dashboards/import", bytes.NewReader(jsonBytes))
-			webtest.RequestWithSignedInUser(req, &models.SignedInUser{
-				UserId: 1,
+			webtest.RequestWithSignedInUser(req, &user.SignedInUser{
+				UserID: 1,
 			})
 			resp, err := s.SendJSON(req)
 			require.NoError(t, err)
@@ -74,8 +70,8 @@ func TestImportDashboardAPI(t *testing.T) {
 			jsonBytes, err := json.Marshal(cmd)
 			require.NoError(t, err)
 			req := s.NewPostRequest("/api/dashboards/import", bytes.NewReader(jsonBytes))
-			webtest.RequestWithSignedInUser(req, &models.SignedInUser{
-				UserId: 1,
+			webtest.RequestWithSignedInUser(req, &user.SignedInUser{
+				UserID: 1,
 			})
 			resp, err := s.SendJSON(req)
 			require.NoError(t, err)
@@ -91,14 +87,13 @@ func TestImportDashboardAPI(t *testing.T) {
 			jsonBytes, err := json.Marshal(cmd)
 			require.NoError(t, err)
 			req := s.NewPostRequest("/api/dashboards/import?trimdefaults=true", bytes.NewReader(jsonBytes))
-			webtest.RequestWithSignedInUser(req, &models.SignedInUser{
-				UserId: 1,
+			webtest.RequestWithSignedInUser(req, &user.SignedInUser{
+				UserID: 1,
 			})
 			resp, err := s.SendJSON(req)
 			require.NoError(t, err)
 			require.NoError(t, resp.Body.Close())
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			require.False(t, schemaLoaderServiceCalled)
 			require.True(t, importDashboardServiceCalled)
 		})
 	})
@@ -112,16 +107,7 @@ func TestImportDashboardAPI(t *testing.T) {
 			},
 		}
 
-		schemaLoaderServiceCalled := false
-		schemaLoaderService := &schemaLoaderServiceMock{
-			enabled: true,
-			dashboardApplyDefaultsFunc: func(input *simplejson.Json) (*simplejson.Json, error) {
-				schemaLoaderServiceCalled = true
-				return input, nil
-			},
-		}
-
-		importDashboardAPI := New(service, quotaServiceFunc(quotaNotReached), schemaLoaderService, nil, acmock.New().WithDisabled())
+		importDashboardAPI := New(service, quotaServiceFunc(quotaNotReached), nil, actest.FakeAccessControl{ExpectedEvaluate: true})
 		routeRegister := routing.NewRouteRegister()
 		importDashboardAPI.RegisterAPIEndpoints(routeRegister)
 		s := webtest.NewServer(t, routeRegister)
@@ -133,22 +119,23 @@ func TestImportDashboardAPI(t *testing.T) {
 			jsonBytes, err := json.Marshal(cmd)
 			require.NoError(t, err)
 			req := s.NewPostRequest("/api/dashboards/import?trimdefaults=true", bytes.NewReader(jsonBytes))
-			webtest.RequestWithSignedInUser(req, &models.SignedInUser{
-				UserId: 1,
+			webtest.RequestWithSignedInUser(req, &user.SignedInUser{
+				UserID: 1,
+				Permissions: map[int64]map[string][]string{
+					1: {dashboards.ActionDashboardsCreate: {}},
+				},
 			})
 			resp, err := s.SendJSON(req)
 			require.NoError(t, err)
 			require.NoError(t, resp.Body.Close())
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			require.True(t, schemaLoaderServiceCalled)
 			require.True(t, importDashboardServiceCalled)
 		})
 	})
 
 	t.Run("Quota reached", func(t *testing.T) {
 		service := &serviceMock{}
-		schemaLoaderService := &schemaLoaderServiceMock{}
-		importDashboardAPI := New(service, quotaServiceFunc(quotaReached), schemaLoaderService, nil, acmock.New().WithDisabled())
+		importDashboardAPI := New(service, quotaServiceFunc(quotaReached), nil, actest.FakeAccessControl{ExpectedEvaluate: true})
 
 		routeRegister := routing.NewRouteRegister()
 		importDashboardAPI.RegisterAPIEndpoints(routeRegister)
@@ -161,8 +148,8 @@ func TestImportDashboardAPI(t *testing.T) {
 			jsonBytes, err := json.Marshal(cmd)
 			require.NoError(t, err)
 			req := s.NewPostRequest("/api/dashboards/import", bytes.NewReader(jsonBytes))
-			webtest.RequestWithSignedInUser(req, &models.SignedInUser{
-				UserId: 1,
+			webtest.RequestWithSignedInUser(req, &user.SignedInUser{
+				UserID: 1,
 			})
 			resp, err := s.SendJSON(req)
 			require.NoError(t, err)
@@ -184,27 +171,10 @@ func (s *serviceMock) ImportDashboard(ctx context.Context, req *dashboardimport.
 	return nil, nil
 }
 
-type schemaLoaderServiceMock struct {
-	enabled                    bool
-	dashboardApplyDefaultsFunc func(input *simplejson.Json) (*simplejson.Json, error)
-}
-
-func (s *schemaLoaderServiceMock) IsDisabled() bool {
-	return !s.enabled
-}
-
-func (s *schemaLoaderServiceMock) DashboardApplyDefaults(input *simplejson.Json) (*simplejson.Json, error) {
-	if s.dashboardApplyDefaultsFunc != nil {
-		return s.dashboardApplyDefaultsFunc(input)
-	}
-
-	return input, nil
-}
-
-func quotaReached(c *models.ReqContext, target string) (bool, error) {
+func quotaReached(c *contextmodel.ReqContext, target quota.TargetSrv) (bool, error) {
 	return true, nil
 }
 
-func quotaNotReached(c *models.ReqContext, target string) (bool, error) {
+func quotaNotReached(c *contextmodel.ReqContext, target quota.TargetSrv) (bool, error) {
 	return false, nil
 }

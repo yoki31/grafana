@@ -1,8 +1,9 @@
-import { DataTransformerID } from './ids';
 import { toDataFrame } from '../../dataframe/processDataFrame';
 import { mockTransformationsRegistry } from '../../utils/tests/mockTransformationsRegistry';
-import { filterFramesByRefIdTransformer } from './filterByRefId';
 import { transformDataFrame } from '../transformDataFrame';
+
+import { filterFramesByRefIdTransformer } from './filterByRefId';
+import { DataTransformerID } from './ids';
 
 export const allSeries = [
   toDataFrame({
@@ -36,12 +37,26 @@ describe('filterByRefId transformer', () => {
     });
   });
 
-  describe('respects', () => {
-    it('inclusion', async () => {
+  describe('respects inclusion', () => {
+    it('pipe delimited literals', async () => {
       const cfg = {
         id: DataTransformerID.filterByRefId,
         options: {
           include: 'A|B',
+        },
+      };
+
+      await expect(transformDataFrame([cfg], allSeries)).toEmitValuesWith((received) => {
+        const filtered = received[0];
+        expect(filtered.map((f) => f.refId)).toEqual(['A', 'B']);
+      });
+    });
+
+    it('explicit regexp', async () => {
+      const cfg = {
+        id: DataTransformerID.filterByRefId,
+        options: {
+          include: '/A|B/',
         },
       };
 

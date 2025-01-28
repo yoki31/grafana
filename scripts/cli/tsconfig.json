@@ -1,10 +1,11 @@
 {
   "compilerOptions": {
+    "moduleResolution": "node",
     "module": "commonjs"
   },
   "extends": "../../tsconfig.json",
   "ts-node": {
     "transpileOnly": true,
-    "transpiler": "ts-node/transpilers/swc-experimental"
+    "swc": true
   }
 }

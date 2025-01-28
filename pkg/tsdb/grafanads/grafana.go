@@ -1,22 +1,24 @@
 package grafanads
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/grafana-plugin-sdk-go/experimental"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/services/datasources"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/services/searchV2"
-	"github.com/grafana/grafana/pkg/setting"
-	"github.com/grafana/grafana/pkg/tsdb/testdatasource"
+	"github.com/grafana/grafana/pkg/services/store"
+	testdatasource "github.com/grafana/grafana/pkg/tsdb/grafana-testdata-datasource"
 )
 
 // DatasourceName is the string constant used as the datasource name in requests
@@ -35,27 +37,31 @@ const DatasourceUID = "grafana"
 // This is important to do since otherwise we will only get a
 // not implemented error response from plugin at runtime.
 var (
-	_      backend.QueryDataHandler   = (*Service)(nil)
-	_      backend.CheckHealthHandler = (*Service)(nil)
-	logger                            = log.New("tsdb.grafana")
+	_                                       backend.QueryDataHandler   = (*Service)(nil)
+	_                                       backend.CheckHealthHandler = (*Service)(nil)
+	namespace                                                          = "grafana"
+	subsystem                                                          = "grafanads"
+	dashboardSearchNotServedRequestsCounter                            = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "dashboard_search_requests_not_served_total",
+			Help:      "A counter for dashboard search requests that could not be served due to an ongoing search engine indexing",
+		},
+		[]string{"reason"},
+	)
 )
 
-func ProvideService(cfg *setting.Cfg, search searchV2.SearchService) *Service {
-	return newService(cfg, search)
+func ProvideService(search searchV2.SearchService, store store.StorageService, features featuremgmt.FeatureToggles) *Service {
+	return newService(search, store, features)
 }
 
-func newService(cfg *setting.Cfg, search searchV2.SearchService) *Service {
+func newService(search searchV2.SearchService, store store.StorageService, features featuremgmt.FeatureToggles) *Service {
 	s := &Service{
-		staticRootPath: cfg.StaticRootPath,
-		roots: []string{
-			"testdata",
-			"img/icons",
-			"img/bg",
-			"gazetteer",
-			"maps",
-			"upload", // does not exist yet
-		},
-		search: search,
+		search:   search,
+		store:    store,
+		log:      log.New("grafanads"),
+		features: features,
 	}
 
 	return s
@@ -63,19 +69,19 @@ func newService(cfg *setting.Cfg, search searchV2.SearchService) *Service {
 
 // Service exists regardless of user settings
 type Service struct {
-	// path to the public folder
-	staticRootPath string
-	roots          []string
-	search         searchV2.SearchService
+	search   searchV2.SearchService
+	store    store.StorageService
+	log      log.Logger
+	features featuremgmt.FeatureToggles
 }
 
-func DataSourceModel(orgId int64) *models.DataSource {
-	return &models.DataSource{
-		Id:             DatasourceID,
-		Uid:            DatasourceUID,
+func DataSourceModel(orgId int64) *datasources.DataSource {
+	return &datasources.DataSource{
+		ID:             DatasourceID,
+		UID:            DatasourceUID,
 		Name:           DatasourceName,
 		Type:           "grafana",
-		OrgId:          orgId,
+		OrgID:          orgId,
 		JsonData:       simplejson.New(),
 		SecureJsonData: make(map[string][]byte),
 	}
@@ -89,10 +95,10 @@ func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) 
 		case queryTypeRandomWalk:
 			response.Responses[q.RefID] = s.doRandomWalk(q)
 		case queryTypeList:
-			response.Responses[q.RefID] = s.doListQuery(q)
+			response.Responses[q.RefID] = s.doListQuery(ctx, q)
 		case queryTypeRead:
-			response.Responses[q.RefID] = s.doReadQuery(q)
-		case queryTypeSearch:
+			response.Responses[q.RefID] = s.doReadQuery(ctx, q)
+		case queryTypeSearch, queryTypeSearchNext:
 			response.Responses[q.RefID] = s.doSearchQuery(ctx, req, q)
 		default:
 			response.Responses[q.RefID] = backend.DataResponse{
@@ -111,25 +117,7 @@ func (s *Service) CheckHealth(_ context.Context, _ *backend.CheckHealthRequest) 
 	}, nil
 }
 
-func (s *Service) publicPath(path string) (string, error) {
-	if strings.Contains(path, "..") {
-		return "", fmt.Errorf("invalid string")
-	}
-
-	ok := false
-	for _, root := range s.roots {
-		if strings.HasPrefix(path, root) {
-			ok = true
-			break
-		}
-	}
-	if !ok {
-		return "", fmt.Errorf("bad root path")
-	}
-	return filepath.Join(s.staticRootPath, path), nil
-}
-
-func (s *Service) doListQuery(query backend.DataQuery) backend.DataResponse {
+func (s *Service) doListQuery(ctx context.Context, query backend.DataQuery) backend.DataResponse {
 	q := &listQueryModel{}
 	response := backend.DataResponse{}
 	err := json.Unmarshal(query.JSON, &q)
@@ -138,40 +126,18 @@ func (s *Service) doListQuery(query backend.DataQuery) backend.DataResponse {
 		return response
 	}
 
-	if q.Path == "" {
-		count := len(s.roots)
-		names := data.NewFieldFromFieldType(data.FieldTypeString, count)
-		mtype := data.NewFieldFromFieldType(data.FieldTypeString, count)
-		names.Name = "name"
-		mtype.Name = "mediaType"
-		for i, f := range s.roots {
-			names.Set(i, f)
-			mtype.Set(i, "directory")
-		}
-		frame := data.NewFrame("", names, mtype)
-		frame.SetMeta(&data.FrameMeta{
-			Type: data.FrameTypeDirectoryListing,
-		})
-		response.Frames = data.Frames{frame}
-	} else {
-		path, err := s.publicPath(q.Path)
-		if err != nil {
-			response.Error = err
-			return response
-		}
-		frame, err := experimental.GetDirectoryFrame(path, false)
-		if err != nil {
-			response.Error = err
-			return response
-		}
-		response.Frames = data.Frames{frame}
+	path := store.RootPublicStatic + "/" + q.Path
+	maxFiles := int(query.MaxDataPoints)
+	listFrame, err := s.store.List(ctx, nil, path, maxFiles)
+	response.Error = err
+	if listFrame != nil {
+		response.Frames = data.Frames{listFrame.Frame}
 	}
-
 	return response
 }
 
-func (s *Service) doReadQuery(query backend.DataQuery) backend.DataResponse {
-	q := &listQueryModel{}
+func (s *Service) doReadQuery(ctx context.Context, query backend.DataQuery) backend.DataResponse {
+	q := &readQueryModel{}
 	response := backend.DataResponse{}
 	err := json.Unmarshal(query.JSON, &q)
 	if err != nil {
@@ -184,27 +150,14 @@ func (s *Service) doReadQuery(query backend.DataQuery) backend.DataResponse {
 		return response
 	}
 
-	path, err := s.publicPath(q.Path)
+	path := store.RootPublicStatic + "/" + q.Path
+	file, err := s.store.Read(ctx, nil, path)
 	if err != nil {
 		response.Error = err
 		return response
 	}
 
-	// Can ignore gosec G304 here, because we check the file pattern above
-	// nolint:gosec
-	fileReader, err := os.Open(path)
-	if err != nil {
-		response.Error = fmt.Errorf("failed to read file")
-		return response
-	}
-
-	defer func() {
-		if err := fileReader.Close(); err != nil {
-			logger.Warn("Failed to close file", "err", err, "path", path)
-		}
-	}()
-
-	frame, err := testdatasource.LoadCsvContent(fileReader, filepath.Base(path))
+	frame, err := testdatasource.LoadCsvContent(bytes.NewReader(file.Contents), filepath.Base(path))
 	if err != nil {
 		response.Error = err
 		return response
@@ -216,20 +169,44 @@ func (s *Service) doReadQuery(query backend.DataQuery) backend.DataResponse {
 func (s *Service) doRandomWalk(query backend.DataQuery) backend.DataResponse {
 	response := backend.DataResponse{}
 
-	model := simplejson.New()
+	model, err := testdatasource.GetJSONModel(json.RawMessage{})
+	if err != nil {
+		response.Error = err
+		return response
+	}
 	response.Frames = data.Frames{testdatasource.RandomWalk(query, model, 0)}
 
 	return response
 }
 
 func (s *Service) doSearchQuery(ctx context.Context, req *backend.QueryDataRequest, query backend.DataQuery) backend.DataResponse {
-	q := searchV2.DashboardQuery{}
-	err := json.Unmarshal(query.JSON, &q)
+	m := requestModel{}
+	err := json.Unmarshal(query.JSON, &m)
 	if err != nil {
 		return backend.DataResponse{
 			Error: err,
 		}
 	}
 
-	return *s.search.DoDashboardQuery(ctx, req.PluginContext.User, req.PluginContext.OrgID, q)
+	searchReadinessCheckResp := s.search.IsReady(ctx, req.PluginContext.OrgID)
+	if !searchReadinessCheckResp.IsReady {
+		dashboardSearchNotServedRequestsCounter.With(prometheus.Labels{
+			"reason": searchReadinessCheckResp.Reason,
+		}).Inc()
+
+		return backend.DataResponse{
+			Frames: data.Frames{
+				&data.Frame{
+					Name: "Loading",
+				},
+			},
+		}
+	}
+
+	return *s.search.DoDashboardQuery(ctx, req.PluginContext.User, req.PluginContext.OrgID, m.Search)
+}
+
+type requestModel struct {
+	QueryType string                  `json:"queryType"`
+	Search    searchV2.DashboardQuery `json:"search,omitempty"`
 }

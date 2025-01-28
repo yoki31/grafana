@@ -1,14 +1,13 @@
-import {
-  DataLink,
-  Field,
-  FieldOverrideContext,
-  SelectableValue,
-  SliderMarks,
-  ThresholdsConfig,
-  ValueMapping,
-} from '../../types';
+import { Action } from '../../types/action';
+import { Field } from '../../types/dataFrame';
+import { DataLink } from '../../types/dataLink';
+import { FieldOverrideContext } from '../../types/fieldOverrides';
+import { SelectableValue } from '../../types/select';
+import { SliderMarks } from '../../types/slider';
+import { ThresholdsConfig } from '../../types/thresholds';
+import { ValueMapping } from '../../types/valueMapping';
 
-export const identityOverrideProcessor = <T>(value: T, _context: FieldOverrideContext, _settings: any) => {
+export const identityOverrideProcessor = <T>(value: T) => {
   return value;
 };
 
@@ -21,7 +20,7 @@ export interface NumberFieldConfigSettings {
 }
 
 export const numberOverrideProcessor = (
-  value: any,
+  value: unknown,
   context: FieldOverrideContext,
   settings?: NumberFieldConfigSettings
 ) => {
@@ -29,11 +28,11 @@ export const numberOverrideProcessor = (
     return undefined;
   }
 
-  return parseFloat(value);
+  return parseFloat(String(value));
 };
 
 export const displayNameOverrideProcessor = (
-  value: any,
+  value: unknown,
   context: FieldOverrideContext,
   settings?: StringFieldConfigSettings
 ) => {
@@ -57,8 +56,17 @@ export const dataLinksOverrideProcessor = (
   value: any,
   _context: FieldOverrideContext,
   _settings?: DataLinksFieldConfigSettings
-) => {
-  return value as DataLink[];
+): DataLink[] => {
+  return value;
+};
+
+export const actionsOverrideProcessor = (
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  value: any,
+  _context: FieldOverrideContext,
+  _settings?: DataLinksFieldConfigSettings
+): Action[] => {
+  return value;
 };
 
 export interface ValueMappingFieldConfigSettings {}
@@ -67,8 +75,8 @@ export const valueMappingsOverrideProcessor = (
   value: any,
   _context: FieldOverrideContext,
   _settings?: ValueMappingFieldConfigSettings
-) => {
-  return value as ValueMapping[]; // !!!! likely not !!!!
+): ValueMapping[] => {
+  return value; // !!!! likely not !!!!
 };
 
 export interface SelectFieldConfigSettings<T> {
@@ -100,14 +108,14 @@ export interface StringFieldConfigSettings {
 }
 
 export const stringOverrideProcessor = (
-  value: any,
+  value: unknown,
   context: FieldOverrideContext,
   settings?: StringFieldConfigSettings
 ) => {
   if (value === null || value === undefined) {
     return value;
   }
-  if (settings && settings.expandTemplateVars && context.replaceVariables) {
+  if (settings && settings.expandTemplateVars && context.replaceVariables && typeof value === 'string') {
     return context.replaceVariables(value, context.field!.state!.scopedVars);
   }
   return `${value}`;
@@ -121,11 +129,13 @@ export const thresholdsOverrideProcessor = (
   value: any,
   _context: FieldOverrideContext,
   _settings?: ThresholdsFieldConfigSettings
-) => {
-  return value as ThresholdsConfig; // !!!! likely not !!!!
+): ThresholdsConfig => {
+  return value; // !!!! likely not !!!!
 };
 
-export interface UnitFieldConfigSettings {}
+export interface UnitFieldConfigSettings {
+  isClearable?: boolean;
+}
 
 export const unitOverrideProcessor = (
   value: boolean,
@@ -172,6 +182,12 @@ export interface StatsPickerConfigSettings {
   defaultStat?: string;
 }
 
+export enum FieldNamePickerBaseNameMode {
+  IncludeAll = 'all',
+  ExcludeBaseNames = 'exclude',
+  OnlyBaseNames = 'only',
+}
+
 export interface FieldNamePickerConfigSettings {
   /**
    * Function is a predicate, to test each element of the array.
@@ -184,13 +200,21 @@ export interface FieldNamePickerConfigSettings {
    */
   noFieldsMessage?: string;
 
-  /**addFieldNamePicker
+  /**
    * Sets the width to a pixel value.
    */
   width?: number;
 
   /**
+   * Exclude names that can match a collection of values
+   */
+  baseNameMode?: FieldNamePickerBaseNameMode;
+
+  /**
    * Placeholder text to display when nothing is selected.
    */
   placeholderText?: string;
+
+  /** When set to false, the value can not be removed */
+  isClearable?: boolean;
 }

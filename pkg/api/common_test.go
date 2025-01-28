@@ -11,55 +11,58 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	claims "github.com/grafana/authlib/types"
+
 	"github.com/grafana/grafana/pkg/api/response"
 	"github.com/grafana/grafana/pkg/api/routing"
-	"github.com/grafana/grafana/pkg/bus"
+	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/infra/fs"
-	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/infra/remotecache"
 	"github.com/grafana/grafana/pkg/infra/tracing"
-	"github.com/grafana/grafana/pkg/infra/usagestats"
-	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/models/usertoken"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
-	"github.com/grafana/grafana/pkg/services/accesscontrol/database"
-	acmiddleware "github.com/grafana/grafana/pkg/services/accesscontrol/middleware"
-	accesscontrolmock "github.com/grafana/grafana/pkg/services/accesscontrol/mock"
-	"github.com/grafana/grafana/pkg/services/accesscontrol/ossaccesscontrol"
-	"github.com/grafana/grafana/pkg/services/auth"
+	"github.com/grafana/grafana/pkg/services/accesscontrol/acimpl"
+	"github.com/grafana/grafana/pkg/services/annotations/annotationstest"
+	"github.com/grafana/grafana/pkg/services/auth/authtest"
+	"github.com/grafana/grafana/pkg/services/authn"
+	"github.com/grafana/grafana/pkg/services/authn/authntest"
 	"github.com/grafana/grafana/pkg/services/contexthandler"
-	"github.com/grafana/grafana/pkg/services/dashboards"
-	dashboardsstore "github.com/grafana/grafana/pkg/services/dashboards/database"
-	dashboardservice "github.com/grafana/grafana/pkg/services/dashboards/manager"
+	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
+	dashver "github.com/grafana/grafana/pkg/services/dashboardversion"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
-	"github.com/grafana/grafana/pkg/services/ldap"
-	"github.com/grafana/grafana/pkg/services/quota"
-	"github.com/grafana/grafana/pkg/services/rendering"
+	"github.com/grafana/grafana/pkg/services/licensing"
+	"github.com/grafana/grafana/pkg/services/login"
+	"github.com/grafana/grafana/pkg/services/login/authinfotest"
+	"github.com/grafana/grafana/pkg/services/org"
+	"github.com/grafana/grafana/pkg/services/quota/quotatest"
+	"github.com/grafana/grafana/pkg/services/search"
+	"github.com/grafana/grafana/pkg/services/search/model"
 	"github.com/grafana/grafana/pkg/services/searchusers"
-	"github.com/grafana/grafana/pkg/services/searchusers/filters"
-	"github.com/grafana/grafana/pkg/services/sqlstore"
-	"github.com/grafana/grafana/pkg/services/sqlstore/mockstore"
+	"github.com/grafana/grafana/pkg/services/user"
+	"github.com/grafana/grafana/pkg/services/user/usertest"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/grafana/grafana/pkg/web"
 	"github.com/grafana/grafana/pkg/web/webtest"
-	"github.com/stretchr/testify/require"
 )
 
-func loggedInUserScenario(t *testing.T, desc string, url string, routePattern string, fn scenarioFunc, sqlStore sqlstore.Store) {
-	loggedInUserScenarioWithRole(t, desc, "GET", url, routePattern, models.ROLE_EDITOR, fn, sqlStore)
+func loggedInUserScenario(t *testing.T, desc string, url string, routePattern string, fn scenarioFunc, sqlStore db.DB) {
+	loggedInUserScenarioWithRole(t, desc, "GET", url, routePattern, org.RoleEditor, fn, sqlStore)
 }
 
-func loggedInUserScenarioWithRole(t *testing.T, desc string, method string, url string, routePattern string, role models.RoleType, fn scenarioFunc, sqlStore sqlstore.Store) {
+func loggedInUserScenarioWithRole(t *testing.T, desc string, method string, url string, routePattern string, role org.RoleType, fn scenarioFunc, sqlStore db.DB) {
 	t.Run(fmt.Sprintf("%s %s", desc, url), func(t *testing.T) {
-		t.Cleanup(bus.ClearBusHandlers)
-
 		sc := setupScenarioContext(t, url)
 		sc.sqlStore = sqlStore
-		sc.defaultHandler = routing.Wrap(func(c *models.ReqContext) response.Response {
+		sc.userService = usertest.NewUserServiceFake()
+		sc.defaultHandler = routing.Wrap(func(c *contextmodel.ReqContext) response.Response {
 			sc.context = c
-			sc.context.UserId = testUserID
-			sc.context.OrgId = testOrgID
+			sc.context.UserID = testUserID
+			sc.context.OrgID = testOrgID
 			sc.context.Login = testUserLogin
 			sc.context.OrgRole = role
+			sc.context.IsAnonymous = false
 			if sc.handlerFunc != nil {
 				return sc.handlerFunc(sc.context)
 			}
@@ -79,10 +82,8 @@ func loggedInUserScenarioWithRole(t *testing.T, desc string, method string, url 
 
 func anonymousUserScenario(t *testing.T, desc string, method string, url string, routePattern string, fn scenarioFunc) {
 	t.Run(fmt.Sprintf("%s %s", desc, url), func(t *testing.T) {
-		defer bus.ClearBusHandlers()
-
 		sc := setupScenarioContext(t, url)
-		sc.defaultHandler = routing.Wrap(func(c *models.ReqContext) response.Response {
+		sc.defaultHandler = routing.Wrap(func(c *contextmodel.ReqContext) response.Response {
 			sc.context = c
 			if sc.handlerFunc != nil {
 				return sc.handlerFunc(sc.context)
@@ -155,18 +156,21 @@ func (sc *scenarioContext) fakeReqNoAssertionsWithCookie(method, url string, coo
 }
 
 type scenarioContext struct {
-	t                    *testing.T
-	cfg                  *setting.Cfg
-	m                    *web.Mux
-	context              *models.ReqContext
-	resp                 *httptest.ResponseRecorder
-	handlerFunc          handlerFunc
-	defaultHandler       web.Handler
-	req                  *http.Request
-	url                  string
-	userAuthTokenService *auth.FakeUserAuthTokenService
-	sqlStore             sqlstore.Store
-	authInfoService      *mockAuthInfoService
+	t                       *testing.T
+	cfg                     *setting.Cfg
+	m                       *web.Mux
+	context                 *contextmodel.ReqContext
+	resp                    *httptest.ResponseRecorder
+	handlerFunc             handlerFunc
+	defaultHandler          web.Handler
+	req                     *http.Request
+	url                     string
+	userAuthTokenService    *authtest.FakeUserAuthTokenService
+	sqlStore                db.DB
+	authInfoService         *authinfotest.FakeService
+	dashboardVersionService dashver.Service
+	userService             user.Service
+	ctxHdlr                 *contexthandler.ContextHandler
 }
 
 func (sc *scenarioContext) exec() {
@@ -174,7 +178,7 @@ func (sc *scenarioContext) exec() {
 }
 
 type scenarioFunc func(c *scenarioContext)
-type handlerFunc func(c *models.ReqContext) response.Response
+type handlerFunc func(c *contextmodel.ReqContext) response.Response
 
 func getContextHandler(t *testing.T, cfg *setting.Cfg) *contexthandler.ContextHandler {
 	t.Helper()
@@ -183,27 +187,22 @@ func getContextHandler(t *testing.T, cfg *setting.Cfg) *contexthandler.ContextHa
 		cfg = setting.NewCfg()
 	}
 
-	sqlStore := sqlstore.InitTestDB(t)
-	remoteCacheSvc := &remotecache.RemoteCache{}
-	cfg.RemoteCacheOptions = &setting.RemoteCacheOptions{
-		Name: "database",
-	}
-	userAuthTokenSvc := auth.NewFakeUserAuthTokenService()
-	renderSvc := &fakeRenderService{}
-	authJWTSvc := models.NewFakeJWTService()
-	tracer, err := tracing.InitializeTracerForTest()
-	require.NoError(t, err)
-	ctxHdlr := contexthandler.ProvideService(cfg, userAuthTokenSvc, authJWTSvc, remoteCacheSvc, renderSvc, sqlStore, tracer)
-
-	return ctxHdlr
+	return contexthandler.ProvideService(
+		cfg,
+		tracing.InitializeTracerForTest(),
+		&authntest.FakeService{ExpectedIdentity: &authn.Identity{ID: "0", Type: claims.TypeAnonymous, SessionToken: &usertoken.UserToken{}}},
+		featuremgmt.WithFeatures(),
+	)
 }
 
 func setupScenarioContext(t *testing.T, url string) *scenarioContext {
 	cfg := setting.NewCfg()
+	ctxHdlr := getContextHandler(t, cfg)
 	sc := &scenarioContext{
-		url: url,
-		t:   t,
-		cfg: cfg,
+		url:     url,
+		t:       t,
+		cfg:     cfg,
+		ctxHdlr: ctxHdlr,
 	}
 	viewsPath, err := filepath.Abs("../../public/views")
 	require.NoError(t, err)
@@ -213,237 +212,75 @@ func setupScenarioContext(t *testing.T, url string) *scenarioContext {
 
 	sc.m = web.New()
 	sc.m.UseMiddleware(web.Renderer(viewsPath, "[[", "]]"))
-	sc.m.Use(getContextHandler(t, cfg).Middleware)
+	sc.m.Use(ctxHdlr.Middleware)
 
 	return sc
 }
 
-type fakeRenderService struct {
-	rendering.Service
-}
+func setupScenarioContextSamlLogout(t *testing.T, url string) *scenarioContext {
+	cfg := setting.NewCfg()
+	//seed sections and keys
+	cfg.Raw.DeleteSection("DEFAULT")
+	saml, err := cfg.Raw.NewSection("auth.saml")
+	assert.NoError(t, err)
+	_, err = saml.NewKey("enabled", "true")
+	assert.NoError(t, err)
+	_, err = saml.NewKey("allow_idp_initiated", "false")
+	assert.NoError(t, err)
+	_, err = saml.NewKey("single_logout", "true")
+	assert.NoError(t, err)
 
-func (s *fakeRenderService) Init() error {
-	return nil
-}
-
-func setupAccessControlScenarioContext(t *testing.T, cfg *setting.Cfg, url string, permissions []*accesscontrol.Permission) (*scenarioContext, *HTTPServer) {
-	features := featuremgmt.WithFeatures(featuremgmt.FlagAccesscontrol)
-	cfg.IsFeatureToggleEnabled = features.IsEnabled
-	cfg.Quota.Enabled = false
-
-	mockStore := sqlstore.InitTestDB(t)
-	hs := &HTTPServer{
-		Cfg:                cfg,
-		Bus:                bus.GetBus(),
-		Live:               newTestLive(t),
-		Features:           features,
-		QuotaService:       &quota.QuotaService{Cfg: cfg},
-		RouteRegister:      routing.NewRouteRegister(),
-		AccessControl:      accesscontrolmock.New().WithPermissions(permissions),
-		searchUsersService: searchusers.ProvideUsersService(mockStore, filters.ProvideOSSSearchUserFilter()),
-		ldapGroups:         ldap.ProvideGroupsService(),
+	ctxHdlr := getContextHandler(t, cfg)
+	sc := &scenarioContext{
+		url:     url,
+		t:       t,
+		cfg:     cfg,
+		ctxHdlr: ctxHdlr,
 	}
+	viewsPath, err := filepath.Abs("../../public/views")
+	require.NoError(t, err)
+	exists, err := fs.Exists(viewsPath)
+	require.NoError(t, err)
+	require.Truef(t, exists, "Views should be in %q", viewsPath)
 
-	sc := setupScenarioContext(t, url)
+	sc.m = web.New()
+	sc.m.UseMiddleware(web.Renderer(viewsPath, "[[", "]]"))
+	sc.m.Use(ctxHdlr.Middleware)
 
-	hs.registerRoutes()
-	hs.RouteRegister.Register(sc.m.Router)
-
-	return sc, hs
+	return sc
 }
 
-type accessControlTestCase struct {
-	expectedCode int
-	desc         string
-	url          string
-	method       string
-	permissions  []*accesscontrol.Permission
+// FIXME: This user should not be anonymous
+func authedUserWithPermissions(userID, orgID int64, permissions []accesscontrol.Permission) *user.SignedInUser {
+	return &user.SignedInUser{UserID: userID, OrgID: orgID, OrgRole: org.RoleViewer, Permissions: map[int64]map[string][]string{orgID: accesscontrol.GroupScopesByActionContext(context.Background(), permissions)}}
 }
 
-// accessControlScenarioContext contains the setups for accesscontrol tests
-type accessControlScenarioContext struct {
-	// server we registered hs routes on.
-	server *web.Mux
-
-	// initCtx is used in a middleware to set the initial context
-	// of the request server side. Can be used to pretend sign in.
-	initCtx *models.ReqContext
-
-	// hs is a minimal HTTPServer for the accesscontrol tests to pass.
-	hs *HTTPServer
-
-	// acmock is an accesscontrol mock used to fake users rights.
-	acmock *accesscontrolmock.Mock
-
-	// db is a test database initialized with InitTestDB
-	db sqlstore.Store
-
-	// cfg is the setting provider
-	cfg *setting.Cfg
-
-	dashboardsStore dashboards.Store
+// FIXME: This user should not be anonymous
+func userWithPermissions(orgID int64, permissions []accesscontrol.Permission) *user.SignedInUser {
+	return &user.SignedInUser{IsAnonymous: true, OrgID: orgID, OrgRole: org.RoleViewer, Permissions: map[int64]map[string][]string{orgID: accesscontrol.GroupScopesByActionContext(context.Background(), permissions)}}
 }
 
-func setAccessControlPermissions(acmock *accesscontrolmock.Mock, perms []*accesscontrol.Permission, org int64) {
-	acmock.GetUserPermissionsFunc =
-		func(_ context.Context, u *models.SignedInUser, _ accesscontrol.Options) ([]*accesscontrol.Permission, error) {
-			if u.OrgId == org {
-				return perms, nil
-			}
-			return nil, nil
-		}
-}
-
-// setInitCtxSignedInUser sets a copy of the user in initCtx
-func setInitCtxSignedInUser(initCtx *models.ReqContext, user models.SignedInUser) {
-	initCtx.IsSignedIn = true
-	initCtx.SignedInUser = &user
-}
-
-func setInitCtxSignedInViewer(initCtx *models.ReqContext) {
-	initCtx.IsSignedIn = true
-	initCtx.SignedInUser = &models.SignedInUser{UserId: testUserID, OrgId: 1, OrgRole: models.ROLE_VIEWER, Login: testUserLogin}
-}
-
-func setInitCtxSignedInEditor(initCtx *models.ReqContext) {
-	initCtx.IsSignedIn = true
-	initCtx.SignedInUser = &models.SignedInUser{UserId: testUserID, OrgId: 1, OrgRole: models.ROLE_EDITOR, Login: testUserLogin}
-}
-
-func setInitCtxSignedInOrgAdmin(initCtx *models.ReqContext) {
-	initCtx.IsSignedIn = true
-	initCtx.SignedInUser = &models.SignedInUser{UserId: testUserID, OrgId: 1, OrgRole: models.ROLE_ADMIN, Login: testUserLogin}
-}
-
-func setupSimpleHTTPServer(features *featuremgmt.FeatureManager) *HTTPServer {
+func setupSimpleHTTPServer(features featuremgmt.FeatureToggles) *HTTPServer {
 	if features == nil {
 		features = featuremgmt.WithFeatures()
 	}
-	cfg := setting.NewCfg()
-	cfg.IsFeatureToggleEnabled = features.IsEnabled
+	// nolint:staticcheck
+	cfg := setting.NewCfgWithFeatures(features.IsEnabledGlobally)
 
 	return &HTTPServer{
-		Cfg:           cfg,
-		Features:      features,
-		Bus:           bus.GetBus(),
-		AccessControl: accesscontrolmock.New().WithDisabled(),
+		Cfg:             cfg,
+		Features:        features,
+		License:         &licensing.OSSLicensingService{},
+		AccessControl:   acimpl.ProvideAccessControl(featuremgmt.WithFeatures()),
+		annotationsRepo: annotationstest.NewFakeAnnotationsRepo(),
+		authInfoService: &authinfotest.FakeService{
+			ExpectedLabels: map[int64]string{int64(1): login.GetAuthProviderLabel(login.LDAPAuthModule)},
+		},
+		tracer: tracing.InitializeTracerForTest(),
 	}
 }
 
-func setupHTTPServer(t *testing.T, useFakeAccessControl bool, enableAccessControl bool) accessControlScenarioContext {
-	// Use a new conf
-	features := featuremgmt.WithFeatures("accesscontrol", enableAccessControl)
-	cfg := setting.NewCfg()
-	cfg.IsFeatureToggleEnabled = features.IsEnabled
-
-	return setupHTTPServerWithCfg(t, useFakeAccessControl, enableAccessControl, cfg)
-}
-
-func setupHTTPServerWithMockDb(t *testing.T, useFakeAccessControl bool, enableAccessControl bool) accessControlScenarioContext {
-	// Use a new conf
-	features := featuremgmt.WithFeatures("accesscontrol", enableAccessControl)
-	cfg := setting.NewCfg()
-	cfg.IsFeatureToggleEnabled = features.IsEnabled
-
-	db := sqlstore.InitTestDB(t)
-	db.Cfg = cfg
-
-	return setupHTTPServerWithCfgDb(t, useFakeAccessControl, enableAccessControl, cfg, db, mockstore.NewSQLStoreMock())
-}
-
-func setupHTTPServerWithCfg(t *testing.T, useFakeAccessControl, enableAccessControl bool, cfg *setting.Cfg) accessControlScenarioContext {
-	db := sqlstore.InitTestDB(t)
-	db.Cfg = cfg
-	return setupHTTPServerWithCfgDb(t, useFakeAccessControl, enableAccessControl, cfg, db, db)
-}
-
-func setupHTTPServerWithCfgDb(t *testing.T, useFakeAccessControl, enableAccessControl bool, cfg *setting.Cfg, db *sqlstore.SQLStore, store sqlstore.Store) accessControlScenarioContext {
-	t.Helper()
-
-	features := featuremgmt.WithFeatures("accesscontrol", enableAccessControl)
-	cfg.IsFeatureToggleEnabled = features.IsEnabled
-
-	var acmock *accesscontrolmock.Mock
-
-	dashboardsStore := dashboardsstore.ProvideDashboardStore(db)
-
-	routeRegister := routing.NewRouteRegister()
-
-	// Create minimal HTTP Server
-	hs := &HTTPServer{
-		Cfg:                cfg,
-		Features:           features,
-		Bus:                bus.GetBus(),
-		Live:               newTestLive(t),
-		QuotaService:       &quota.QuotaService{Cfg: cfg},
-		RouteRegister:      routeRegister,
-		SQLStore:           store,
-		searchUsersService: searchusers.ProvideUsersService(db, filters.ProvideOSSSearchUserFilter()),
-		dashboardService:   dashboardservice.ProvideDashboardService(cfg, dashboardsStore, nil, features, accesscontrolmock.NewPermissionsServicesMock()),
-	}
-
-	// Defining the accesscontrol service has to be done before registering routes
-	if useFakeAccessControl {
-		acmock = accesscontrolmock.New()
-		if !enableAccessControl {
-			acmock = acmock.WithDisabled()
-		}
-		hs.AccessControl = acmock
-		teamPermissionService, err := ossaccesscontrol.ProvideTeamPermissions(cfg, routeRegister, db, acmock, database.ProvideService(db))
-		require.NoError(t, err)
-		hs.teamPermissionsService = teamPermissionService
-	} else {
-		ac := ossaccesscontrol.ProvideService(hs.Features, &usagestats.UsageStatsMock{T: t},
-			database.ProvideService(db), routing.NewRouteRegister())
-		hs.AccessControl = ac
-		// Perform role registration
-		err := hs.declareFixedRoles()
-		require.NoError(t, err)
-		err = ac.RegisterFixedRoles()
-		require.NoError(t, err)
-		teamPermissionService, err := ossaccesscontrol.ProvideTeamPermissions(cfg, routeRegister, db, ac, database.ProvideService(db))
-		require.NoError(t, err)
-		hs.teamPermissionsService = teamPermissionService
-	}
-
-	// Instantiate a new Server
-	m := web.New()
-
-	// middleware to set the test initial context
-	initCtx := &models.ReqContext{}
-	m.Use(func(c *web.Context) {
-		initCtx.Context = c
-		initCtx.Logger = log.New("api-test")
-		c.Map(initCtx)
-	})
-
-	m.Use(acmiddleware.LoadPermissionsMiddleware(hs.AccessControl))
-
-	// Register all routes
-	hs.registerRoutes()
-	hs.RouteRegister.Register(m.Router)
-
-	return accessControlScenarioContext{
-		server:          m,
-		initCtx:         initCtx,
-		hs:              hs,
-		acmock:          acmock,
-		db:              db,
-		cfg:             cfg,
-		dashboardsStore: dashboardsStore,
-	}
-}
-
-func callAPI(server *web.Mux, method, path string, body io.Reader, t *testing.T) *httptest.ResponseRecorder {
-	req, err := http.NewRequest(method, path, body)
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, req)
-	return recorder
-}
-
-func mockRequestBody(v interface{}) io.ReadCloser {
+func mockRequestBody(v any) io.ReadCloser {
 	b, _ := json.Marshal(v)
 	return io.NopCloser(bytes.NewReader(b))
 }
@@ -461,17 +298,40 @@ func SetupAPITestServer(t *testing.T, opts ...APITestServerOption) *webtest.Serv
 
 	hs := &HTTPServer{
 		RouteRegister:      routing.NewRouteRegister(),
-		Cfg:                setting.NewCfg(),
-		AccessControl:      accesscontrolmock.New().WithDisabled(),
+		License:            &licensing.OSSLicensingService{},
 		Features:           featuremgmt.WithFeatures(),
+		QuotaService:       quotatest.New(false, nil),
 		searchUsersService: &searchusers.OSSService{},
+		tracer:             tracing.InitializeTracerForTest(),
 	}
 
 	for _, opt := range opts {
 		opt(hs)
 	}
 
+	if hs.Cfg == nil {
+		hs.Cfg = setting.NewCfg()
+	}
+
+	if hs.AccessControl == nil {
+		hs.AccessControl = acimpl.ProvideAccessControl(featuremgmt.WithFeatures())
+	}
+
 	hs.registerRoutes()
+
 	s := webtest.NewServer(t, hs.RouteRegister)
+
+	viewsPath, err := filepath.Abs("../../public/views")
+	require.NoError(t, err)
+	s.Mux.UseMiddleware(web.Renderer(viewsPath, "[[", "]]"))
+
 	return s
 }
+
+type mockSearchService struct{ ExpectedResult model.HitList }
+
+func (mss *mockSearchService) SearchHandler(_ context.Context, q *search.Query) (model.HitList, error) {
+	return mss.ExpectedResult, nil
+}
+
+func (mss *mockSearchService) SortOptions() []model.SortOption { return nil }

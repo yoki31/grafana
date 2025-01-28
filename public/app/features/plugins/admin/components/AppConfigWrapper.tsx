@@ -1,12 +1,11 @@
 // Libraries
-import React, { PureComponent } from 'react';
+import { css } from '@emotion/css';
 import { cloneDeep, extend } from 'lodash';
+import { PureComponent } from 'react';
 
-import { Button } from '@grafana/ui';
 import { PluginMeta, AppPlugin, deprecationWarning } from '@grafana/data';
 import { AngularComponent, getAngularLoader, getBackendSrv } from '@grafana/runtime';
-
-import { css } from '@emotion/css';
+import { Button } from '@grafana/ui';
 
 interface Props {
   app: AppPlugin;
@@ -120,11 +119,11 @@ export class AppConfigCtrlWrapper extends PureComponent<Props, State> {
       });
   };
 
-  setPreUpdateHook = (callback: () => any) => {
+  setPreUpdateHook = (callback: () => Promise<void>) => {
     this.preUpdateHook = callback;
   };
 
-  setPostUpdateHook = (callback: () => any) => {
+  setPostUpdateHook = (callback: () => Promise<void>) => {
     this.postUpdateHook = callback;
   };
 

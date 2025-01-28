@@ -1,12 +1,16 @@
-import React, { PureComponent } from 'react';
-import { dateTimeFormat } from '@grafana/data';
-import { Form, Legend } from '@grafana/ui';
+import { PureComponent } from 'react';
 import { connect, ConnectedProps } from 'react-redux';
-import { ImportDashboardForm } from './ImportDashboardForm';
+
+import { dateTimeFormat } from '@grafana/data';
+import { locationService, reportInteraction } from '@grafana/runtime';
+import { Box, Legend } from '@grafana/ui';
+import { Form } from 'app/core/components/Form/Form';
+import { StoreState } from 'app/types';
+
 import { clearLoadedDashboard, importDashboard } from '../state/actions';
 import { DashboardSource, ImportDashboardDTO } from '../state/reducers';
-import { StoreState } from 'app/types';
-import { locationService, reportInteraction } from '@grafana/runtime';
+
+import { ImportDashboardForm } from './ImportDashboardForm';
 
 const IMPORT_FINISHED_EVENT_NAME = 'dashboard_import_imported';
 
@@ -18,7 +22,7 @@ const mapStateToProps = (state: StoreState) => {
     meta: state.importDashboard.meta,
     source: state.importDashboard.source,
     inputs: state.importDashboard.inputs,
-    folder: searchObj.folderId ? { id: Number(searchObj.folderId) } : { id: 0 },
+    folder: searchObj.folderUid ? { uid: String(searchObj.folderUid) } : { uid: '' },
   };
 };
 
@@ -61,7 +65,7 @@ class ImportDashboardOverviewUnConnected extends PureComponent<Props, State> {
     return (
       <>
         {source === DashboardSource.Gcom && (
-          <div style={{ marginBottom: '24px' }}>
+          <Box marginBottom={3}>
             <div>
               <Legend>
                 Importing dashboard from{' '}
@@ -87,7 +91,7 @@ class ImportDashboardOverviewUnConnected extends PureComponent<Props, State> {
                 </tr>
               </tbody>
             </table>
-          </div>
+          </Box>
         )}
         <Form
           onSubmit={this.onSubmit}
@@ -108,7 +112,7 @@ class ImportDashboardOverviewUnConnected extends PureComponent<Props, State> {
               onUidReset={this.onUidReset}
               onSubmit={this.onSubmit}
               watch={watch}
-              initialFolderId={folder.id}
+              initialFolderUid={folder.uid}
             />
           )}
         </Form>

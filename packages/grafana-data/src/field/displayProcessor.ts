@@ -2,16 +2,19 @@
 import { toString, toNumber as _toNumber, isEmpty, isBoolean, isArray, join } from 'lodash';
 
 // Types
-import { Field, FieldType } from '../types/dataFrame';
-import { DisplayProcessor, DisplayValue } from '../types/displayValue';
-import { getValueFormat, isBooleanUnit } from '../valueFormats/valueFormats';
-import { getValueMappingResult } from '../utils/valueMappings';
-import { dateTime, dateTimeParse } from '../datetime';
-import { KeyValue, TimeZone } from '../types';
-import { getScaleCalculator } from './scale';
-import { GrafanaTheme2 } from '../themes/types';
-import { anyToNumber } from '../utils/anyToNumber';
 import { getFieldTypeFromValue } from '../dataframe/processDataFrame';
+import { toUtc } from '../datetime/moment_wrapper';
+import { dateTimeParse } from '../datetime/parser';
+import { GrafanaTheme2 } from '../themes/types';
+import { KeyValue } from '../types/data';
+import { Field, FieldType } from '../types/dataFrame';
+import { DecimalCount, DisplayProcessor, DisplayValue } from '../types/displayValue';
+import { TimeZone } from '../types/time';
+import { anyToNumber } from '../utils/anyToNumber';
+import { getValueMappingResult } from '../utils/valueMappings';
+import { FormattedValue, getValueFormat, isBooleanUnit } from '../valueFormats/valueFormats';
+
+import { getScaleCalculator } from './scale';
 
 interface DisplayProcessorOptions {
   field: Partial<Field>;
@@ -43,6 +46,7 @@ export function getDisplayProcessor(options?: DisplayProcessorOptions): DisplayP
 
   const field = options.field as Field;
   const config = field.config ?? {};
+  const { palette } = options.theme.visualization;
 
   let unit = config.unit;
   let hasDateUnit = unit && (timeFormats[unit] || unit.startsWith('time:'));
@@ -52,8 +56,8 @@ export function getDisplayProcessor(options?: DisplayProcessorOptions): DisplayP
     unit = `dateTimeAsSystem`;
     hasDateUnit = true;
     if (field.values && field.values.length > 1) {
-      let start = field.values.get(0);
-      let end = field.values.get(field.values.length - 1);
+      let start = field.values[0];
+      let end = field.values[field.values.length - 1];
       if (typeof start === 'string') {
         start = dateTimeParse(start).unix();
         end = dateTimeParse(end).unix();
@@ -61,23 +65,32 @@ export function getDisplayProcessor(options?: DisplayProcessorOptions): DisplayP
         start /= 1e3;
         end /= 1e3;
       }
-      showMs = end - start < 60; //show ms when minute or less
+      showMs = Math.abs(end - start) < 60; //show ms when minute or less
     }
   } else if (field.type === FieldType.boolean) {
     if (!isBooleanUnit(unit)) {
       unit = 'bool';
     }
+  } else if (!unit && field.type === FieldType.string) {
+    unit = 'string';
   }
+
+  const hasCurrencyUnit = unit?.startsWith('currency');
+  const hasBoolUnit = isBooleanUnit(unit);
+  const isNumType = field.type === FieldType.number;
+  const isLocaleFormat = unit === 'locale';
+  const canTrimTrailingDecimalZeros =
+    !hasDateUnit && !hasCurrencyUnit && !hasBoolUnit && !isLocaleFormat && isNumType && config.decimals == null;
 
   const formatFunc = getValueFormat(unit || 'none');
   const scaleFunc = getScaleCalculator(field, options.theme);
 
-  return (value: any) => {
+  return (value: unknown, adjacentDecimals?: DecimalCount) => {
     const { mappings } = config;
     const isStringUnit = unit === 'string';
 
     if (hasDateUnit && typeof value === 'string') {
-      value = dateTime(value).valueOf();
+      value = toUtc(value).valueOf();
     }
 
     let numeric = isStringUnit ? NaN : anyToNumber(value);
@@ -104,11 +117,46 @@ export function getDisplayProcessor(options?: DisplayProcessorOptions): DisplayP
           icon = mappingResult.icon;
         }
       }
+    } else if (field.type === FieldType.enum) {
+      // Apply enum display handling if field is enum type and no mappings are specified
+      if (value == null) {
+        return {
+          text: '',
+          numeric: NaN,
+        };
+      }
+
+      const enumIndex = +value;
+      if (config && config.type && config.type.enum) {
+        const { text: enumText, color: enumColor } = config.type.enum;
+
+        text = enumText ? enumText[enumIndex] : `${value}`;
+        // If no color specified in enum field config we will fallback to iterating through the theme palette
+        color = enumColor ? enumColor[enumIndex] : undefined;
+
+        if (color == null) {
+          const namedColor = palette[enumIndex % palette.length];
+          color = options.theme.visualization.getColorByName(namedColor);
+        }
+      }
     }
 
-    if (!isNaN(numeric)) {
+    if (!Number.isNaN(numeric)) {
       if (text == null && !isBoolean(value)) {
-        const v = formatFunc(numeric, config.decimals, null, options.timeZone, showMs);
+        let v: FormattedValue;
+
+        if (canTrimTrailingDecimalZeros && adjacentDecimals != null) {
+          v = formatFunc(numeric, adjacentDecimals, null, options.timeZone, showMs);
+
+          // if no explicit decimals config, we strip trailing zeros e.g. 60.00 -> 60
+          // this is needed because we may have determined the minimum determined `adjacentDecimals` for y tick increments based on
+          // e.g. 'seconds' field unit (0.15s, 0.20s, 0.25s), but then formatFunc decided to return milli or nanos (150, 200, 250)
+          // so we end up with excess precision: 150.00, 200.00, 250.00
+          v.text = +v.text + '';
+        } else {
+          v = formatFunc(numeric, config.decimals, null, options.timeZone, showMs);
+        }
+
         text = v.text;
         suffix = v.suffix;
         prefix = v.prefix;
@@ -163,12 +211,12 @@ export function getDisplayProcessor(options?: DisplayProcessorOptions): DisplayP
   };
 }
 
-function toStringProcessor(value: any): DisplayValue {
+function toStringProcessor(value: unknown): DisplayValue {
   return { text: toString(value), numeric: anyToNumber(value) };
 }
 
 export function getRawDisplayProcessor(): DisplayProcessor {
-  return (value: any) => ({
+  return (value: unknown) => ({
     text: getFieldTypeFromValue(value) === 'other' ? `${JSON.stringify(value, getCircularReplacer())}` : `${value}`,
     numeric: null as unknown as number,
   });
@@ -176,7 +224,7 @@ export function getRawDisplayProcessor(): DisplayProcessor {
 
 const getCircularReplacer = () => {
   const seen = new WeakSet();
-  return (_key: any, value: object | null) => {
+  return (_key: string, value: object | null) => {
     if (typeof value === 'object' && value !== null) {
       if (seen.has(value)) {
         return;

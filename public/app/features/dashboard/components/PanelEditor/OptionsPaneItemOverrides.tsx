@@ -1,7 +1,8 @@
-import React from 'react';
-import { Tooltip, useStyles2 } from '@grafana/ui';
+import { css } from '@emotion/css';
+
 import { GrafanaTheme2 } from '@grafana/data';
-import { css, CSSObject } from '@emotion/css';
+import { Tooltip, useStyles2 } from '@grafana/ui';
+
 import { OptionPaneItemOverrideInfo } from './types';
 
 export interface Props {
@@ -23,12 +24,11 @@ export function OptionsPaneItemOverrides({ overrides }: Props) {
 }
 
 const getStyles = (theme: GrafanaTheme2) => {
-  const common: CSSObject = {
+  const common = {
     width: 8,
     height: 8,
-    borderRadius: '50%',
+    borderRadius: theme.shape.radius.circle,
     marginLeft: theme.spacing(1),
-    position: 'relative',
     top: '-1px',
   };
 
@@ -38,10 +38,12 @@ const getStyles = (theme: GrafanaTheme2) => {
     }),
     rule: css({
       ...common,
+      position: 'relative',
       backgroundColor: theme.colors.primary.main,
     }),
     data: css({
       ...common,
+      position: 'relative',
       backgroundColor: theme.colors.warning.main,
     }),
   };

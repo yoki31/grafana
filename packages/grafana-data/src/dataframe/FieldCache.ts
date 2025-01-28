@@ -1,4 +1,6 @@
-import { Field, DataFrame, FieldType, guessFieldTypeForField } from '../index';
+import { DataFrame, Field, FieldType } from '../types/dataFrame';
+
+import { guessFieldTypeForField } from './processDataFrame';
 
 export interface FieldWithIndex extends Field {
   index: number;
@@ -59,7 +61,7 @@ export class FieldCache {
 
   getFirstFieldOfType(type: FieldType, includeHidden = false): FieldWithIndex | undefined {
     const fields = this.fieldByType[type];
-    const firstField = fields.find((field) => includeHidden || !field.config.custom?.hidden);
+    const firstField = fields?.find((field) => includeHidden || !field.config.custom?.hidden);
     return firstField;
   }
 

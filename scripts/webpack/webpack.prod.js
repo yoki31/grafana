@@ -1,12 +1,29 @@
 'use strict';
 
-const { merge } = require('webpack-merge');
-const TerserPlugin = require('terser-webpack-plugin');
-const common = require('./webpack.common.js');
-const path = require('path');
-const HtmlWebpackPlugin = require('html-webpack-plugin');
-const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const browserslist = require('browserslist');
 const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
+const { EsbuildPlugin } = require('esbuild-loader');
+const { resolveToEsbuildTarget } = require('esbuild-plugin-browserslist');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const path = require('path');
+const { EnvironmentPlugin } = require('webpack');
+const WebpackAssetsManifest = require('webpack-assets-manifest');
+const { WebpackManifestPlugin } = require('webpack-manifest-plugin');
+const { merge } = require('webpack-merge');
+
+const getEnvConfig = require('./env-util.js');
+const common = require('./webpack.common.js');
+const esbuildTargets = resolveToEsbuildTarget(browserslist(), { printUnknownTargets: false });
+
+// esbuild-loader 3.0.0+ requires format to be set to prevent it
+// from defaulting to 'iife' which breaks monaco/loader once minified.
+const esbuildOptions = {
+  target: esbuildTargets,
+  format: undefined,
+  jsx: 'automatic',
+};
+
+const envConfig = getEnvConfig();
 
 module.exports = (env = {}) =>
   merge(common, {
@@ -23,32 +40,21 @@ module.exports = (env = {}) =>
       rules: [
         {
           test: /\.tsx?$/,
-          exclude: /node_modules/,
-          use: [
-            {
-              loader: 'babel-loader',
-              options: {
-                cacheDirectory: true,
-                cacheCompression: false,
-              },
-            },
-          ],
+          use: {
+            loader: 'esbuild-loader',
+            options: esbuildOptions,
+          },
         },
         require('./sass.rule.js')({
           sourceMap: false,
-          preserveUrl: false,
+          preserveUrl: true,
         }),
       ],
     },
     optimization: {
       nodeEnv: 'production',
       minimize: parseInt(env.noMinify, 10) !== 1,
-      minimizer: [
-        new TerserPlugin({
-          parallel: false,
-        }),
-        new CssMinimizerPlugin(),
-      ],
+      minimizer: [new EsbuildPlugin(esbuildOptions), new CssMinimizerPlugin()],
     },
 
     // enable persistent cache for faster builds
@@ -62,21 +68,20 @@ module.exports = (env = {}) =>
 
     plugins: [
       new MiniCssExtractPlugin({
-        filename: 'grafana.[name].[fullhash].css',
+        filename: 'grafana.[name].[contenthash].css',
       }),
-      new HtmlWebpackPlugin({
-        filename: path.resolve(__dirname, '../../public/views/error.html'),
-        template: path.resolve(__dirname, '../../public/views/error-template.html'),
-        inject: false,
-        excludeChunks: ['dark', 'light'],
-        chunksSortMode: 'none',
+      /**
+       * I know we have two manifest plugins here.
+       * WebpackManifestPlugin was only used in prod before and does not support integrity hashes
+       */
+      new WebpackAssetsManifest({
+        entrypoints: true,
+        integrity: true,
+        publicPath: true,
       }),
-      new HtmlWebpackPlugin({
-        filename: path.resolve(__dirname, '../../public/views/index.html'),
-        template: path.resolve(__dirname, '../../public/views/index-template.html'),
-        inject: false,
-        excludeChunks: ['manifest', 'dark', 'light'],
-        chunksSortMode: 'none',
+      new WebpackManifestPlugin({
+        fileName: path.join(process.cwd(), 'manifest.json'),
+        filter: (file) => !file.name.endsWith('.map'),
       }),
       function () {
         this.hooks.done.tap('Done', function (stats) {
@@ -86,5 +91,6 @@ module.exports = (env = {}) =>
           }
         });
       },
+      new EnvironmentPlugin(envConfig),
     ],
   });

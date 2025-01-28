@@ -1,14 +1,16 @@
 import { cloneDeep } from 'lodash';
 
-import { TextBoxVariableModel } from '../types';
-import { initialTextBoxVariableModelState, textBoxVariableReducer } from './reducer';
+import { TextBoxVariableModel } from '@grafana/data';
+
 import { dispatch } from '../../../store/store';
-import { setOptionAsCurrent } from '../state/actions';
 import { VariableAdapter } from '../adapters';
-import { TextBoxVariablePicker } from './TextBoxVariablePicker';
-import { TextBoxVariableEditor } from './TextBoxVariableEditor';
-import { setTextBoxVariableOptionsFromUrl, updateTextBoxVariableOptions } from './actions';
+import { setOptionAsCurrent } from '../state/actions';
 import { toKeyedVariableIdentifier } from '../utils';
+
+import { TextBoxVariableEditor } from './TextBoxVariableEditor';
+import { TextBoxVariablePicker } from './TextBoxVariablePicker';
+import { setTextBoxVariableOptionsFromUrl, updateTextBoxVariableOptions } from './actions';
+import { initialTextBoxVariableModelState, textBoxVariableReducer } from './reducer';
 
 export const createTextBoxVariableAdapter = (): VariableAdapter<TextBoxVariableModel> => {
   return {

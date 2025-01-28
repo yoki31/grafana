@@ -1,5 +1,6 @@
+import { FieldDTO } from '@grafana/data';
+
 import { TraceResponse } from './types';
-import { ArrayVector, FieldDTO } from '@grafana/data';
 
 export const testResponse: TraceResponse = {
   traceID: '3fa414edcef6ad90',
@@ -50,7 +51,7 @@ export const testResponse: TraceResponse = {
 };
 
 function toVectors(fields: FieldDTO[]) {
-  return fields.map((f) => ({ ...f, values: new ArrayVector<any>(f.values as any[]) }));
+  return fields.map((f) => ({ ...f, values: f.values }));
 }
 
 export const testResponseDataFrameFields = toVectors([
@@ -75,6 +76,7 @@ export const testResponseDataFrameFields = toVectors([
   { name: 'startTime', values: [1605873894680.409, 1605873894680.587] },
   { name: 'duration', values: [1049.141, 1.847] },
   { name: 'logs', values: [[], []] },
+  { name: 'references', values: [[], []] },
   {
     name: 'tags',
     values: [
@@ -107,13 +109,13 @@ export const testResponseEdgesFields = toEdgesFrame([
   ['3fa414edcef6ad90'],
 ]);
 
-export function toNodesFrame(values: any[]) {
+export function toNodesFrame(values: unknown[][]) {
   return toVectors([
     { name: 'id', values: values[0] },
     { name: 'title', values: values[1] },
-    { name: 'subTitle', values: values[2] },
-    { name: 'mainStat', values: values[3] },
-    { name: 'secondaryStat', values: values[4] },
+    { name: 'subtitle', values: values[2] },
+    { name: 'mainstat', values: values[3] },
+    { name: 'secondarystat', values: values[4] },
     {
       name: 'color',
       config: {
@@ -126,7 +128,7 @@ export function toNodesFrame(values: any[]) {
   ]);
 }
 
-export function toEdgesFrame(values: any[]) {
+export function toEdgesFrame(values: unknown[][]) {
   return toVectors([
     { name: 'id', values: values[0] },
     { name: 'target', values: values[1] },

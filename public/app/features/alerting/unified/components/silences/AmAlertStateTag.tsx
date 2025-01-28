@@ -1,5 +1,5 @@
 import { AlertState } from 'app/plugins/datasource/alertmanager/types';
-import React, { FC } from 'react';
+
 import { State, StateTag } from '../StateTag';
 
 const alertStateToState: Record<AlertState, State> = {
@@ -12,4 +12,4 @@ interface Props {
   state: AlertState;
 }
 
-export const AmAlertStateTag: FC<Props> = ({ state }) => <StateTag state={alertStateToState[state]}>{state}</StateTag>;
+export const AmAlertStateTag = ({ state }: Props) => <StateTag state={alertStateToState[state]}>{state}</StateTag>;

@@ -1,6 +1,7 @@
-import { DataQuery } from '@grafana/data';
 import { isExpressionReference } from '@grafana/runtime/src/utils/DataSourceWithBackend';
-import { ExpressionQuery, ExpressionQueryType } from './types';
+import { DataQuery } from '@grafana/schema';
+
+import { ExpressionQuery, ExpressionQueryType, ReducerType } from './types';
 
 export const isExpressionQuery = (dataQuery?: DataQuery): dataQuery is ExpressionQuery => {
   if (!dataQuery) {
@@ -18,3 +19,20 @@ export const isExpressionQuery = (dataQuery?: DataQuery): dataQuery is Expressio
   }
   return Object.values(ExpressionQueryType).includes(expression.type);
 };
+
+export function isReducerType(value: string): value is ReducerType {
+  return [
+    'avg',
+    'min',
+    'max',
+    'sum',
+    'count',
+    'last',
+    'median',
+    'diff',
+    'diff_abs',
+    'percent_diff',
+    'percent_diff_abs',
+    'count_non_null',
+  ].includes(value);
+}

@@ -1,65 +1,63 @@
-import React, { useState } from 'react';
 import { css } from '@emotion/css';
-import AutoSizer from 'react-virtualized-auto-sizer';
-import { Button, CodeEditor, HorizontalGroup, useStyles2 } from '@grafana/ui';
-import { dashboardWatcher } from 'app/features/live/dashboard/dashboardWatcher';
-import { getDashboardSrv } from '../../services/DashboardSrv';
-import { DashboardModel } from '../../state/DashboardModel';
+import { useState } from 'react';
+
 import { GrafanaTheme2 } from '@grafana/data';
+import { Button, CodeEditor, useStyles2 } from '@grafana/ui';
+import { Page } from 'app/core/components/Page/Page';
+import { Trans } from 'app/core/internationalization';
+import { dashboardWatcher } from 'app/features/live/dashboard/dashboardWatcher';
 
-interface Props {
-  dashboard: DashboardModel;
-}
+import { getDashboardSrv } from '../../services/DashboardSrv';
 
-export const JsonEditorSettings: React.FC<Props> = ({ dashboard }) => {
-  const [dashboardJson, setDashboardJson] = useState<string>(JSON.stringify(dashboard.getSaveModelClone(), null, 2));
-  const onBlur = (value: string) => {
-    setDashboardJson(value);
+import { SettingsPageProps } from './types';
+
+export function JsonEditorSettings({ dashboard, sectionNav }: SettingsPageProps) {
+  const dashboardSaveModel = dashboard.getSaveModelClone();
+  const [dashboardJson, setDashboardJson] = useState<string>(JSON.stringify(dashboardSaveModel, null, 2));
+  const pageNav = sectionNav.node.parentItem;
+
+  const onClick = async () => {
+    await getDashboardSrv().saveJSONDashboard(dashboardJson);
+    dashboardWatcher.reloadPage();
   };
-  const onClick = () => {
-    getDashboardSrv()
-      .saveJSONDashboard(dashboardJson)
-      .then(() => {
-        dashboardWatcher.reloadPage();
-      });
-  };
+
   const styles = useStyles2(getStyles);
 
   return (
-    <div>
-      <h3 className="dashboard-settings__header">JSON Model</h3>
-      <div className="dashboard-settings__subheader">
-        The JSON model below is the data structure that defines the dashboard. This includes dashboard settings, panel
-        settings, layout, queries, and so on.
+    <Page navModel={sectionNav} pageNav={pageNav}>
+      <div className={styles.wrapper}>
+        <Trans i18nKey="dashboard-settings.json-editor.subtitle">
+          The JSON model below is the data structure that defines the dashboard. This includes dashboard settings, panel
+          settings, layout, queries, and so on.
+        </Trans>
+        <CodeEditor
+          value={dashboardJson}
+          language="json"
+          showMiniMap={true}
+          showLineNumbers={true}
+          onBlur={setDashboardJson}
+          containerStyles={styles.codeEditor}
+        />
+        {dashboard.meta.canSave && (
+          <div>
+            <Button type="submit" onClick={onClick}>
+              <Trans i18nKey="dashboard-settings.json-editor.save-button">Save changes</Trans>
+            </Button>
+          </div>
+        )}
       </div>
-
-      <div className={styles.editWrapper}>
-        <AutoSizer>
-          {({ width, height }) => (
-            <CodeEditor
-              value={dashboardJson}
-              language="json"
-              width={width}
-              height={height}
-              showMiniMap={true}
-              showLineNumbers={true}
-              onBlur={onBlur}
-            />
-          )}
-        </AutoSizer>
-      </div>
-      {dashboard.meta.canSave && (
-        <HorizontalGroup>
-          <Button onClick={onClick}>Save changes</Button>
-        </HorizontalGroup>
-      )}
-    </div>
+    </Page>
   );
-};
+}
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  editWrapper: css`
-    height: calc(100vh - 250px);
-    margin-bottom: 10px;
-  `,
+  wrapper: css({
+    display: 'flex',
+    height: '100%',
+    flexDirection: 'column',
+    gap: theme.spacing(2),
+  }),
+  codeEditor: css({
+    flexGrow: 1,
+  }),
 });

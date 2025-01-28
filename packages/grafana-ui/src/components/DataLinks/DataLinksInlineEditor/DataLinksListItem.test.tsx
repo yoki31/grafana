@@ -1,5 +1,6 @@
-import React from 'react';
+import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import { render, screen } from '@testing-library/react';
+
 import { DataLinksListItem, DataLinksListItemProps } from './DataLinksListItem';
 
 const baseLink = {
@@ -17,10 +18,23 @@ function setupTestContext(options: Partial<DataLinksListItemProps>) {
     onChange: jest.fn(),
     onEdit: jest.fn(),
     onRemove: jest.fn(),
+    itemKey: 'itemKey',
   };
 
+  const onDragEnd = jest.fn();
+
   const props = { ...defaults, ...options };
-  const { rerender } = render(<DataLinksListItem {...props} />);
+  const { rerender } = render(
+    <DragDropContext onDragEnd={onDragEnd}>
+      <Droppable droppableId="sortable-links" direction="vertical">
+        {(provided) => (
+          <div ref={provided.innerRef} {...provided.droppableProps}>
+            <DataLinksListItem {...props} />
+          </div>
+        )}
+      </Droppable>
+    </DragDropContext>
+  );
 
   return { rerender, props };
 }
@@ -49,6 +63,17 @@ describe('DataLinksListItem', () => {
       expect(screen.getByText(/http:\/\/localhost\:3000/i)).toBeInTheDocument();
       expect(screen.getByTitle(/http:\/\/localhost\:3000/i)).toBeInTheDocument();
     });
+
+    it('that is a explore compact url, then the title should be a warning', () => {
+      const link = {
+        ...baseLink,
+        url: 'http://localhost:3000/explore?orgId=1&left=[%22now-1h%22,%22now%22,%22gdev-loki%22,{%22expr%22:%22{place=%22luna%22}%22,%22refId%22:%22A%22}]',
+      };
+      setupTestContext({ link });
+
+      expect(screen.getByText(/http:\/\/localhost\:3000/i)).toBeInTheDocument();
+      expect(screen.getByText(/Explore data link may not work in the future. Please edit./i)).toBeInTheDocument();
+    });
   });
 
   describe('when link is missing title', () => {
@@ -72,7 +97,6 @@ describe('DataLinksListItem', () => {
       setupTestContext({ link });
 
       expect(screen.getByText(/data link url not provided/i)).toBeInTheDocument();
-      expect(screen.getByTitle('')).toBeInTheDocument();
     });
   });
 
@@ -97,7 +121,6 @@ describe('DataLinksListItem', () => {
       setupTestContext({ link });
 
       expect(screen.getByText(/data link url not provided/i)).toBeInTheDocument();
-      expect(screen.getByTitle('')).toBeInTheDocument();
     });
   });
 });

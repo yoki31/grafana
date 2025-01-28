@@ -1,3 +1,5 @@
+import { omitBy, pickBy, isNil, isNumber, isString } from 'lodash';
+
 import {
   ConfigOverrideRule,
   DynamicConfigValue,
@@ -10,6 +12,7 @@ import {
   FieldType,
   NullValueMode,
   PanelTypeChangedHandler,
+  ReducerID,
   Threshold,
   ThresholdsMode,
 } from '@grafana/data';
@@ -20,7 +23,7 @@ import {
   GraphDrawStyle,
   GraphFieldConfig,
   GraphGradientMode,
-  GraphTresholdsStyleMode,
+  GraphThresholdsStyleMode,
   LineInterpolation,
   LineStyle,
   VisibilityMode,
@@ -28,10 +31,21 @@ import {
   StackingMode,
   SortOrder,
   GraphTransform,
+  AnnotationQuery,
+  ComparisonOperation,
 } from '@grafana/schema';
-import { TimeSeriesOptions } from './types';
-import { omitBy, pickBy, isNil, isNumber, isString } from 'lodash';
+import { TimeRegionConfig } from 'app/core/utils/timeRegions';
+import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
+import { getTimeSrv } from 'app/features/dashboard/services/TimeSrv';
+import { DashboardAnnotationsDataLayer } from 'app/features/dashboard-scene/scene/DashboardAnnotationsDataLayer';
+import { DashboardScene } from 'app/features/dashboard-scene/scene/DashboardScene';
+import { dashboardSceneGraph } from 'app/features/dashboard-scene/utils/dashboardSceneGraph';
+import { GrafanaQuery, GrafanaQueryType } from 'app/plugins/datasource/grafana/types';
+
 import { defaultGraphConfig } from './config';
+import { Options } from './panelcfg.gen';
+
+let dashboardRefreshDebouncer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * This is called when the panel changes from another panel
@@ -44,10 +58,16 @@ export const graphPanelChangedHandler: PanelTypeChangedHandler = (
 ) => {
   // Changing from angular/flot panel to react/uPlot
   if (prevPluginId === 'graph' && prevOptions.angular) {
-    const { fieldConfig, options } = flotToGraphOptions({
+    const { fieldConfig, options, annotations } = graphToTimeseriesOptions({
       ...prevOptions.angular,
       fieldConfig: prevFieldConfig,
+      panel: panel,
     });
+
+    if (annotations?.length > 0) {
+      addAnnotationsToDashboard(annotations);
+    }
+
     panel.fieldConfig = fieldConfig; // Mutates the incoming panel
     panel.alert = prevOptions.angular.alert;
     return options;
@@ -59,7 +79,13 @@ export const graphPanelChangedHandler: PanelTypeChangedHandler = (
   return {};
 };
 
-export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSource; options: TimeSeriesOptions } {
+export function graphToTimeseriesOptions(angular: any): {
+  fieldConfig: FieldConfigSource;
+  options: Options;
+  annotations: AnnotationQuery[];
+} {
+  let annotations: AnnotationQuery[] = [];
+
   const overrides: ConfigOverrideRule[] = angular.fieldConfig?.overrides ?? [];
   const yaxes = angular.yaxes ?? [];
   let y1 = getFieldConfigFromOldAxis(yaxes[0]);
@@ -117,7 +143,7 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
       if (!seriesOverride.alias) {
         continue; // the matcher config
       }
-      const aliasIsRegex = seriesOverride.alias.startsWith('/') && seriesOverride.alias.endsWith('/');
+      const aliasIsRegex = /^([/~@;%#'])(.*?)\1([gimsuy]*)$/.test(seriesOverride.alias);
       const rule: ConfigOverrideRule = {
         matcher: {
           id: aliasIsRegex ? FieldMatcherID.byRegexp : FieldMatcherID.byName,
@@ -190,10 +216,17 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
             }
             break;
           case 'lines':
-            rule.properties.push({
-              id: 'custom.lineWidth',
-              value: 0, // don't show lines
-            });
+            if (v) {
+              rule.properties.push({
+                id: 'custom.drawStyle',
+                value: 'line',
+              });
+            } else {
+              rule.properties.push({
+                id: 'custom.lineWidth',
+                value: 0,
+              });
+            }
             break;
           case 'linewidth':
             rule.properties.push({
@@ -231,7 +264,7 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
           case 'stack':
             rule.properties.push({
               id: 'custom.stacking',
-              value: { mode: StackingMode.Normal, group: v },
+              value: getStackingFromOverrides(v),
             });
             break;
           case 'color':
@@ -265,7 +298,7 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
     }
   }
 
-  const graph = y1.custom ?? ({} as GraphFieldConfig);
+  const graph: GraphFieldConfig = y1.custom ?? {};
   graph.drawStyle = angular.bars ? GraphDrawStyle.Bars : angular.lines ? GraphDrawStyle.Line : GraphDrawStyle.Points;
 
   if (angular.points) {
@@ -294,7 +327,7 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
     graph.fillOpacity = angular.fillGradient * 10; // fill is 0-10
   }
 
-  graph.spanNulls = angular.nullPointMode === NullValueMode.Null;
+  graph.spanNulls = angular.nullPointMode === NullValueMode.Ignore;
 
   if (angular.steppedLine) {
     graph.lineInterpolation = LineInterpolation.StepAfter;
@@ -306,17 +339,31 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
 
   if (angular.stack) {
     graph.stacking = {
-      mode: StackingMode.Normal,
+      mode: angular.percentage ? StackingMode.Percent : StackingMode.Normal,
       group: defaultGraphConfig.stacking!.group,
     };
+
+    if (angular.percentage) {
+      if (angular.yaxis) {
+        delete y1.min;
+        delete y1.max;
+
+        // TimeSeries currently uses 0-1 for percent, so allowing zero leaves only top and bottom ticks.
+        // removing it feels better. probably should fix in TimeSeries, but let's kick it down the road
+        if (y1.decimals === 0) {
+          delete y1.decimals;
+        }
+      }
+    }
   }
 
   y1.custom = omitBy(graph, isNil);
-  y1.nullValueMode = angular.nullPointMode as NullValueMode;
+  y1.nullValueMode = angular.nullPointMode;
 
-  const options: TimeSeriesOptions = {
+  const options: Options = {
     legend: {
       displayMode: LegendDisplayMode.List,
+      showLegend: true,
       placement: 'bottom',
       calcs: [],
     },
@@ -332,7 +379,7 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
     if (legendConfig.show) {
       options.legend.displayMode = legendConfig.alignAsTable ? LegendDisplayMode.Table : LegendDisplayMode.List;
     } else {
-      options.legend.displayMode = LegendDisplayMode.Hidden;
+      options.legend.showLegend = false;
     }
 
     if (legendConfig.rightSide) {
@@ -343,6 +390,67 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
       const enabledLegendValues = pickBy(angular.legend);
       options.legend.calcs = getReducersFromLegend(enabledLegendValues);
     }
+
+    if (angular.legend.sideWidth) {
+      options.legend.width = angular.legend.sideWidth;
+    }
+
+    if (legendConfig.hideZero) {
+      overrides.push(getLegendHideFromOverride(ReducerID.allIsZero));
+    }
+
+    if (legendConfig.hideEmpty) {
+      overrides.push(getLegendHideFromOverride(ReducerID.allIsNull));
+    }
+  }
+
+  // timeRegions migration
+  if (angular.timeRegions?.length) {
+    let regions = angular.timeRegions.map((old: GraphTimeRegionConfig, idx: number) => ({
+      name: `T${idx}`,
+      color: old.colorMode !== 'custom' ? old.colorMode : old.fillColor,
+      line: old.line,
+      fill: old.fill,
+      fromDayOfWeek: old.fromDayOfWeek,
+      toDayOfWeek: old.toDayOfWeek,
+      from: old.from,
+      to: old.to,
+    }));
+
+    regions.forEach((region: GraphTimeRegionConfig, idx: number) => {
+      const anno: AnnotationQuery<GrafanaQuery> = {
+        datasource: {
+          type: 'datasource',
+          uid: 'grafana',
+        },
+        enable: true,
+        hide: true, // don't show the toggle at the top of the dashboard
+        filter: {
+          exclude: false,
+          ids: [angular.panel.id],
+        },
+        iconColor: region.fillColor ?? (region as any).color,
+        name: `Time region for panel ${angular.panel.title}${idx > 0 ? ` ${idx}` : ''}`,
+        target: {
+          queryType: GrafanaQueryType.TimeRegions,
+          refId: 'Anno',
+          timeRegion: {
+            fromDayOfWeek: region.fromDayOfWeek,
+            toDayOfWeek: region.toDayOfWeek,
+            from: region.from,
+            to: region.to,
+            timezone: 'utc', // graph panel was always UTC
+          },
+        },
+      };
+
+      if (region.fill) {
+        annotations.push(anno);
+      } else if (region.line) {
+        anno.iconColor = region.lineColor ?? 'white';
+        annotations.push(anno);
+      }
+    });
   }
 
   const tooltipConfig = angular.tooltip;
@@ -405,7 +513,7 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
             value: threshold.value,
             color: 'transparent',
           });
-          // if next is a lt we need to use it's color
+          // if next is a lt we need to use its color
         } else if (next && next.op === 'lt') {
           steps.push({
             value: threshold.value,
@@ -428,9 +536,9 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
       });
     }
 
-    let displayMode = area ? GraphTresholdsStyleMode.Area : GraphTresholdsStyleMode.Line;
+    let displayMode = area ? GraphThresholdsStyleMode.Area : GraphThresholdsStyleMode.Line;
     if (line && area) {
-      displayMode = GraphTresholdsStyleMode.LineAndArea;
+      displayMode = GraphThresholdsStyleMode.LineAndArea;
     }
 
     // TODO move into standard ThresholdConfig ?
@@ -462,7 +570,16 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
       overrides,
     },
     options,
+    annotations,
   };
+}
+
+interface GraphTimeRegionConfig extends TimeRegionConfig {
+  colorMode: string;
+  fill: boolean;
+  fillColor: string;
+  line: boolean;
+  lineColor: string;
 }
 
 function getThresholdColor(threshold: AngularThreshold): string {
@@ -513,7 +630,7 @@ function getFieldConfigFromOldAxis(obj: any): FieldConfig<GraphFieldConfig> {
     graph.axisLabel = obj.label;
   }
   if (obj.logBase) {
-    const log = obj.logBase as number;
+    const log: number = obj.logBase;
     if (log === 2 || log === 10) {
       graph.scaleDistribution = {
         type: ScaleDistribution.Log,
@@ -539,8 +656,7 @@ function fillY2DynamicValues(
   props: DynamicConfigValue[]
 ) {
   // The standard properties
-  for (const key of Object.keys(y2)) {
-    const value = (y2 as any)[key];
+  for (const [key, value] of Object.entries(y2)) {
     if (key !== 'custom' && value !== (y1 as any)[key]) {
       props.push({
         id: key,
@@ -549,11 +665,15 @@ function fillY2DynamicValues(
     }
   }
 
+  props.push({
+    id: `custom.axisPlacement`,
+    value: AxisPlacement.Right,
+  });
+
   // Add any custom property
   const y1G = y1.custom ?? {};
   const y2G = y2.custom ?? {};
-  for (const key of Object.keys(y2G)) {
-    const value = (y2G as any)[key];
+  for (const [key, value] of Object.entries(y2G)) {
     if (value !== (y1G as any)[key]) {
       props.push({
         id: `custom.${key}`,
@@ -563,7 +683,7 @@ function fillY2DynamicValues(
   }
 }
 
-function validNumber(val: any): number | undefined {
+function validNumber(val: unknown): number | undefined {
   if (isNumber(val)) {
     return val;
   }
@@ -576,9 +696,9 @@ function validNumber(val: any): number | undefined {
   return undefined;
 }
 
-function getReducersFromLegend(obj: Record<string, any>): string[] {
+function getReducersFromLegend(obj: Record<string, unknown>): string[] {
   const ids: string[] = [];
-  for (const key of Object.keys(obj)) {
+  for (const key in obj) {
     const r = fieldReducers.getIfExists(key);
     if (r) {
       ids.push(r.id);
@@ -605,5 +725,73 @@ function migrateHideFrom(panel: {
       });
       return fr;
     });
+  }
+}
+
+function getLegendHideFromOverride(reducer: ReducerID.allIsZero | ReducerID.allIsNull) {
+  return {
+    matcher: {
+      id: FieldMatcherID.byValue,
+      options: {
+        reducer: reducer,
+        op: ComparisonOperation.GTE,
+        value: 0,
+      },
+    },
+    properties: [
+      {
+        id: 'custom.hideFrom',
+        value: {
+          tooltip: true,
+          viz: false,
+          legend: true,
+        },
+      },
+    ],
+  };
+}
+
+function getStackingFromOverrides(value: Boolean | string) {
+  const defaultGroupName = defaultGraphConfig.stacking?.group;
+  return {
+    mode: value ? StackingMode.Normal : StackingMode.None,
+    group: isString(value) ? value : defaultGroupName,
+  };
+}
+
+function addAnnotationsToDashboard(annotations: AnnotationQuery[]) {
+  const scene = window.__grafanaSceneContext;
+
+  if (scene instanceof DashboardScene) {
+    const dataLayers = dashboardSceneGraph.getDataLayers(scene);
+    const annotationLayers = [...dataLayers.state.annotationLayers];
+
+    for (let annotation of annotations) {
+      const newAnnotation = new DashboardAnnotationsDataLayer({
+        key: `annotations-${annotation.name}`,
+        query: annotation,
+        name: annotation.name,
+        isEnabled: annotation.enable,
+        isHidden: annotation.hide,
+      });
+
+      annotationLayers.push(newAnnotation);
+    }
+
+    dataLayers.setState({ annotationLayers });
+    return;
+  }
+
+  const dashboard = getDashboardSrv().getCurrent();
+  if (dashboard) {
+    dashboard.annotations.list = [...dashboard.annotations.list, ...annotations];
+
+    // Trigger a full dashboard refresh when annotations change
+    if (dashboardRefreshDebouncer == null) {
+      dashboardRefreshDebouncer = setTimeout(() => {
+        dashboardRefreshDebouncer = null;
+        getTimeSrv().refreshTimeModel();
+      });
+    }
   }
 }

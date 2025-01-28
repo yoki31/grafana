@@ -1,56 +1,117 @@
-import React, { FC } from 'react';
-import RcTimePicker from 'rc-time-picker';
 import { css, cx } from '@emotion/css';
-import { dateTime, DateTime, dateTimeAsMoment, GrafanaTheme } from '@grafana/data';
-import { Icon, useStyles } from '../../index';
-import { stylesFactory } from '../../themes';
+import { Moment } from 'moment';
+import RcPicker, { PickerProps } from 'rc-picker';
+import generateConfig from 'rc-picker/lib/generate/moment';
+import locale from 'rc-picker/lib/locale/en_US';
+
+import { dateTime, DateTime, dateTimeAsMoment, GrafanaTheme2, isDateTimeInput } from '@grafana/data';
+
+import { useStyles2 } from '../../themes/ThemeContext';
+import { getFocusStyles } from '../../themes/mixins';
 import { inputSizes } from '../Forms/commonStyles';
 import { FormInputSize } from '../Forms/types';
-import { focusCss } from '../../themes/mixins';
+import { Icon } from '../Icon/Icon';
+import 'rc-picker/assets/index.css';
 
-export interface Props {
-  onChange: (value: DateTime) => void;
+interface BaseProps {
+  onChange: (value: DateTime) => void | ((value?: DateTime) => void);
   value?: DateTime;
   showHour?: boolean;
   showSeconds?: boolean;
-  minuteStep?: number;
+  minuteStep?: PickerProps['minuteStep'];
   size?: FormInputSize;
   disabled?: boolean;
+  disabledHours?: () => number[];
+  disabledMinutes?: () => number[];
+  disabledSeconds?: () => number[];
+  placeholder?: string;
+  allowEmpty?: boolean;
 }
 
-export const TimeOfDayPicker: FC<Props> = ({
+interface AllowEmptyProps extends BaseProps {
+  allowEmpty: true;
+  onChange: (value?: DateTime) => void;
+}
+
+interface NoAllowEmptyProps extends BaseProps {
+  allowEmpty?: false;
+  onChange: (value: DateTime) => void;
+}
+
+export type Props = AllowEmptyProps | NoAllowEmptyProps;
+
+export const POPUP_CLASS_NAME = 'time-of-day-picker-panel';
+
+export const TimeOfDayPicker = ({
   minuteStep = 1,
   showHour = true,
   showSeconds = false,
-  onChange,
   value,
   size = 'auto',
   disabled,
-}) => {
-  const styles = useStyles(getStyles);
+  disabledHours,
+  disabledMinutes,
+  disabledSeconds,
+  placeholder,
+  // note: we can't destructure allowEmpty/onChange here
+  // in order to discriminate the types properly later in the onChange handler
+  ...restProps
+}: Props) => {
+  const styles = useStyles2(getStyles);
+  const allowClear = restProps.allowEmpty ?? false;
 
   return (
-    <RcTimePicker
+    <RcPicker<Moment>
+      generateConfig={generateConfig}
+      locale={locale}
+      allowClear={
+        allowClear && {
+          clearIcon: <Icon name="times" className={styles.clearIcon} />,
+        }
+      }
       className={cx(inputSizes()[size], styles.input)}
-      popupClassName={styles.picker}
-      defaultValue={dateTimeAsMoment()}
-      onChange={(value: any) => onChange(dateTime(value))}
-      allowEmpty={false}
-      showSecond={showSeconds}
-      value={dateTimeAsMoment(value)}
-      showHour={showHour}
-      minuteStep={minuteStep}
-      inputIcon={<Caret wrapperStyle={styles.caretWrapper} />}
+      classNames={{
+        popup: cx(styles.picker, POPUP_CLASS_NAME),
+      }}
+      defaultValue={restProps.allowEmpty ? undefined : dateTimeAsMoment()}
       disabled={disabled}
+      disabledTime={() => ({
+        disabledHours,
+        disabledMinutes,
+        disabledSeconds,
+      })}
+      format={generateFormat(showHour, showSeconds)}
+      minuteStep={minuteStep}
+      onChange={(value) => {
+        if (isDateTimeInput(value)) {
+          if (restProps.allowEmpty) {
+            return restProps.onChange(value ? dateTime(value) : undefined);
+          } else {
+            return restProps.onChange(dateTime(value));
+          }
+        }
+      }}
+      picker="time"
+      placeholder={placeholder}
+      showNow={false}
+      needConfirm={false}
+      suffixIcon={<Caret wrapperStyle={styles.caretWrapper} />}
+      value={value ? dateTimeAsMoment(value) : value}
     />
   );
 };
+
+function generateFormat(showHour = true, showSeconds = false) {
+  const maybeHour = showHour ? 'HH:' : '';
+  const maybeSecond = showSeconds ? ':ss' : '';
+  return maybeHour + 'mm' + maybeSecond;
+}
 
 interface CaretProps {
   wrapperStyle?: string;
 }
 
-const Caret: FC<CaretProps> = ({ wrapperStyle = '' }) => {
+const Caret = ({ wrapperStyle = '' }: CaretProps) => {
   return (
     <div className={wrapperStyle}>
       <Icon name="angle-down" />
@@ -58,83 +119,124 @@ const Caret: FC<CaretProps> = ({ wrapperStyle = '' }) => {
   );
 };
 
-const getStyles = stylesFactory((theme: GrafanaTheme) => {
-  const bgColor = theme.colors.formInputBg;
-  const menuShadowColor = theme.colors.dropdownShadow;
-  const optionBgHover = theme.colors.dropdownOptionHoverBg;
-  const borderRadius = theme.border.radius.sm;
-  const borderColor = theme.colors.formInputBorder;
+const getStyles = (theme: GrafanaTheme2) => {
+  const bgColor = theme.components.input.background;
+  const optionBgHover = theme.colors.action.hover;
+  const borderRadius = theme.shape.radius.default;
+  const borderColor = theme.components.input.borderColor;
+
   return {
-    caretWrapper: css`
-      position: absolute;
-      right: 8px;
-      top: 50%;
-      transform: translateY(-50%);
-      display: inline-block;
-      text-align: right;
-      color: ${theme.colors.textWeak};
-    `,
-    picker: css`
-      .rc-time-picker-panel-select {
-        font-size: 14px;
-        background-color: ${bgColor};
-        border-color: ${borderColor};
-        li {
-          outline-width: 2px;
-          &.rc-time-picker-panel-select-option-selected {
-            background-color: inherit;
-            border: 1px solid ${theme.palette.orange};
-            border-radius: ${borderRadius};
-          }
+    caretWrapper: css({
+      position: 'relative',
+      top: '50%',
+      transform: 'translateY(-50%)',
+      display: 'inline-block',
+      color: theme.colors.text.secondary,
+    }),
+    clearIcon: css({
+      color: theme.colors.text.secondary,
 
-          &:hover {
-            background: ${optionBgHover};
-          }
-        }
-      }
+      '&:hover': {
+        color: theme.colors.text.maxContrast,
+      },
+    }),
+    picker: css({
+      '&.rc-picker-dropdown': {
+        boxShadow: 'none',
+        zIndex: theme.zIndex.portal,
+      },
+      '.rc-picker-time-panel-column': {
+        fontSize: theme.typography.htmlFontSize,
+        backgroundColor: bgColor,
+        color: theme.colors.text.secondary,
+        padding: 'unset',
+        overflowY: 'auto',
+        scrollbarWidth: 'thin',
+        width: theme.spacing(8),
+        li: {
+          paddingRight: theme.spacing(2),
+          width: 'auto',
+          '&.rc-picker-time-panel-cell-selected': {
+            backgroundColor: 'inherit',
+            border: `1px solid ${theme.colors.action.selectedBorder}`,
+            borderRadius,
+            color: theme.colors.text.primary,
+          },
 
-      .rc-time-picker-panel-inner {
-        box-shadow: 0px 4px 4px ${menuShadowColor};
-        background-color: ${bgColor};
-        border-color: ${borderColor};
-        border-radius: ${borderRadius};
-        margin-top: 3px;
+          '&:hover': {
+            background: optionBgHover,
+            color: theme.colors.text.primary,
+          },
 
-        .rc-time-picker-panel-input-wrap {
-          margin-right: 2px;
+          '&.rc-picker-time-panel-cell-disabled': {
+            color: theme.colors.action.disabledText,
+          },
+        },
 
-          &,
-          .rc-time-picker-panel-input {
-            background-color: ${bgColor};
-            padding-top: 2px;
-          }
-        }
+        '.rc-picker-time-panel-cell-inner': {
+          color: 'inherit',
+        },
 
-        .rc-time-picker-panel-combobox {
-          display: flex;
-        }
-      }
-    `,
-    input: css`
-      .rc-time-picker-input {
-        background-color: ${bgColor};
-        border-radius: ${borderRadius};
-        border-color: ${borderColor};
-        height: ${theme.spacing.formInputHeight}px;
+        '&:not(:last-of-type)': {
+          borderRight: `1px solid ${borderColor}`,
+        },
+      },
 
-        &:focus {
-          ${focusCss(theme)}
-        }
+      '.rc-picker-panel': {
+        boxShadow: theme.shadows.z3,
+        backgroundColor: bgColor,
+        borderColor,
+        borderRadius,
+        overflow: 'hidden',
+      },
+    }),
+    input: css({
+      '&.rc-picker-focused': {
+        border: 'none',
 
-        &:disabled {
-          background-color: ${theme.colors.formInputBgDisabled};
-          color: ${theme.colors.formInputDisabledText};
-          border: 1px solid ${theme.colors.formInputBgDisabled};
-          &:focus {
-            box-shadow: none;
-          }
-        }
-      }
-    `,
+        '.rc-picker-input': getFocusStyles(theme),
+      },
+
+      '&.rc-picker-disabled': {
+        '.rc-picker-input': {
+          backgroundColor: theme.colors.action.disabledBackground,
+          color: theme.colors.action.disabledText,
+          border: `1px solid ${theme.colors.action.disabledBackground}`,
+          '&:focus': {
+            boxShadow: 'none',
+          },
+        },
+      },
+
+      '.rc-picker-input': {
+        backgroundColor: bgColor,
+        borderRadius,
+        borderColor,
+        borderStyle: 'solid',
+        borderWidth: '1px',
+        color: theme.colors.text.primary,
+        height: theme.spacing(4),
+        padding: theme.spacing(0, 1),
+
+        input: {
+          color: 'unset',
+          backgroundColor: 'unset',
+          '&:focus': {
+            outline: 'none',
+          },
+
+          '&::placeholder': {
+            color: theme.colors.text.disabled,
+          },
+        },
+      },
+
+      '.rc-picker-clear': {
+        alignItems: 'center',
+        display: 'flex',
+        insetInlineEnd: 'unset',
+        position: 'relative',
+      },
+    }),
   };
-});
+};

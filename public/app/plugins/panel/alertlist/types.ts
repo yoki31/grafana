@@ -1,5 +1,3 @@
-import { Alert } from 'app/types/unified-alerting';
-
 export enum SortOrder {
   AlphaAsc = 1,
   AlphaDesc,
@@ -16,6 +14,11 @@ export enum ShowOption {
 export enum GroupMode {
   Default = 'default',
   Custom = 'custom',
+}
+
+export enum ViewMode {
+  List = 'list',
+  Stat = 'stat',
 }
 
 export interface AlertListOptions {
@@ -35,12 +38,13 @@ export interface AlertListOptions {
     pending: boolean;
   };
   folderId: number;
+  showInactiveAlerts: boolean;
 }
 
-interface StateFilter {
+export interface StateFilter {
   firing: boolean;
   pending: boolean;
-  inactive: boolean;
+  inactive?: boolean; // backwards compat
   noData: boolean;
   normal: boolean;
   error: boolean;
@@ -58,6 +62,6 @@ export interface UnifiedAlertListOptions {
   stateFilter: StateFilter;
   alertInstanceLabelFilter: string;
   datasource: string;
+  viewMode: ViewMode;
+  showInactiveAlerts: boolean;
 }
-
-export type GroupedRules = Map<string, Alert[]>;

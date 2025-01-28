@@ -1,16 +1,18 @@
 import { dateTime } from '@grafana/data';
+import { AlertRuleDTO, AlertRulesState, NotificationChannelState, NotifierDTO } from 'app/types';
+
+import { reducerTester } from '../../../../test/core/redux/reducerTester';
+
 import {
   alertRulesReducer,
   initialChannelState,
   initialState,
   loadAlertRules,
   loadedAlertRules,
+  notificationChannelLoaded,
   notificationChannelReducer,
   setSearchQuery,
-  notificationChannelLoaded,
 } from './reducers';
-import { AlertRuleDTO, AlertRulesState, NotificationChannelState, NotifierDTO } from 'app/types';
-import { reducerTester } from '../../../../test/core/redux/reducerTester';
 
 describe('Alert rules', () => {
   const realDateNow = Date.now.bind(global.Date);

@@ -1,16 +1,19 @@
-import { AlertmanagerAlert } from 'app/plugins/datasource/alertmanager/types';
-import React, { FC } from 'react';
-import { getAlertTableStyles } from '../../styles/table';
-import { useStyles2 } from '@grafana/ui';
-import { SilencedAlertsTableRow } from './SilencedAlertsTableRow';
-import { GrafanaTheme2 } from '@grafana/data';
 import { css, cx } from '@emotion/css';
+
+import { GrafanaTheme2 } from '@grafana/data';
+import { useStyles2 } from '@grafana/ui';
+import { Trans } from 'app/core/internationalization';
+import { AlertmanagerAlert } from 'app/plugins/datasource/alertmanager/types';
+
+import { getAlertTableStyles } from '../../styles/table';
+
+import { SilencedAlertsTableRow } from './SilencedAlertsTableRow';
 
 interface Props {
   silencedAlerts: AlertmanagerAlert[];
 }
 
-const SilencedAlertsTable: FC<Props> = ({ silencedAlerts }) => {
+const SilencedAlertsTable = ({ silencedAlerts }: Props) => {
   const tableStyles = useStyles2(getAlertTableStyles);
   const styles = useStyles2(getStyles);
 
@@ -25,10 +28,14 @@ const SilencedAlertsTable: FC<Props> = ({ silencedAlerts }) => {
         </colgroup>
         <thead>
           <tr>
-            <th></th>
-            <th>State</th>
-            <th></th>
-            <th>Alert name</th>
+            <th />
+            <th>
+              <Trans i18nKey="silences-table.header.state">State</Trans>
+            </th>
+            <th />
+            <th>
+              <Trans i18nKey="silences-table.header.alert-name">Alert name</Trans>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -50,15 +57,15 @@ const SilencedAlertsTable: FC<Props> = ({ silencedAlerts }) => {
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  tableMargin: css`
-    margin-bottom: ${theme.spacing(1)};
-  `,
-  colState: css`
-    width: 110px;
-  `,
-  colName: css`
-    width: 65%;
-  `,
+  tableMargin: css({
+    marginBottom: theme.spacing(1),
+  }),
+  colState: css({
+    width: '110px',
+  }),
+  colName: css({
+    width: '65%',
+  }),
 });
 
 export default SilencedAlertsTable;

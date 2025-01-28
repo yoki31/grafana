@@ -1,9 +1,8 @@
-import { Story, Meta } from '@storybook/react';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
-import { Cascader } from '@grafana/ui';
-import { CascaderOption, CascaderProps } from './Cascader';
+import { StoryFn, Meta } from '@storybook/react';
+import { useState } from 'react';
+
+import { Cascader, CascaderOption } from './Cascader';
 import mdx from './Cascader.mdx';
-import React from 'react';
 
 const onSelect = (val: string) => console.log(val);
 const options = [
@@ -31,10 +30,9 @@ const options = [
   },
 ];
 
-export default {
+const meta: Meta<typeof Cascader> = {
   title: 'Forms/Cascader',
   component: Cascader,
-  decorators: [withCenteredStory],
   parameters: {
     docs: {
       page: mdx,
@@ -59,9 +57,9 @@ export default {
   argTypes: {
     width: { control: { type: 'range', min: 0, max: 70 } },
   },
-} as Meta;
+};
 
-const Template: Story<CascaderProps> = (args) => <Cascader {...args} />;
+const Template: StoryFn<typeof Cascader> = (args) => <Cascader {...args} />;
 
 export const Simple = Template.bind({});
 Simple.args = {
@@ -87,7 +85,7 @@ WithDisplayAllSelectedLevels.args = {
 };
 
 export const WithOptionsStateUpdate = () => {
-  const [updatedOptions, setOptions] = React.useState<CascaderOption[]>([
+  const [updatedOptions, setOptions] = useState<CascaderOption[]>([
     {
       label: 'Initial state option',
       value: 'initial',
@@ -98,3 +96,5 @@ export const WithOptionsStateUpdate = () => {
 
   return <Cascader options={updatedOptions} onSelect={onSelect} />;
 };
+
+export default meta;

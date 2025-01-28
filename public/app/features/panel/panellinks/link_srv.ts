@@ -1,7 +1,5 @@
 import { chain } from 'lodash';
-import { getTimeSrv } from 'app/features/dashboard/services/TimeSrv';
-import { getTemplateSrv } from '@grafana/runtime';
-import { getConfig } from 'app/core/config';
+
 import {
   DataFrame,
   DataLink,
@@ -21,7 +19,9 @@ import {
   VariableSuggestion,
   VariableSuggestionsScope,
 } from '@grafana/data';
-import { getVariablesUrlParams } from '../../variables/getAllVariableValuesForUrl';
+import { getTemplateSrv } from '@grafana/runtime';
+import { DashboardLink, VariableFormatID } from '@grafana/schema';
+import { getConfig } from 'app/core/config';
 
 const timeRangeVars = [
   {
@@ -82,7 +82,7 @@ export const getPanelLinksVariableSuggestions = (): VariableSuggestion[] => [
   ...getTemplateSrv()
     .getVariables()
     .map((variable) => ({
-      value: variable.name as string,
+      value: variable.name,
       label: variable.name,
       origin: VariableOrigin.Template,
     })),
@@ -242,39 +242,39 @@ export const getCalculationValueDataLinksVariableSuggestions = (dataFrames: Data
 
 export interface LinkService {
   getDataLinkUIModel: <T>(link: DataLink, replaceVariables: InterpolateFunction | undefined, origin: T) => LinkModel<T>;
-  getAnchorInfo: (link: any) => any;
-  getLinkUrl: (link: any) => string;
+  getAnchorInfo: (link: DashboardLink) => {
+    href: string;
+    title: string;
+    tooltip: string;
+  };
+  getLinkUrl: (link: DashboardLink) => string;
 }
 
 export class LinkSrv implements LinkService {
-  getLinkUrl(link: any) {
-    let url = locationUtil.assureBaseUrl(getTemplateSrv().replace(link.url || ''));
+  getLinkUrl(link: DashboardLink) {
     let params: { [key: string]: any } = {};
 
     if (link.keepTime) {
-      const range = getTimeSrv().timeRangeForUrl();
-      params['from'] = range.from;
-      params['to'] = range.to;
+      params[`\$${DataLinkBuiltInVars.keepTime}`] = true;
     }
 
     if (link.includeVars) {
-      params = {
-        ...params,
-        ...getVariablesUrlParams(),
-      };
+      params[`\$${DataLinkBuiltInVars.includeVars}`] = true;
     }
 
-    url = urlUtil.appendQueryToUrl(url, urlUtil.toUrlParams(params));
+    let url = locationUtil.assureBaseUrl(urlUtil.appendQueryToUrl(link.url || '', urlUtil.toUrlParams(params)));
+    url = getTemplateSrv().replace(url);
+
     return getConfig().disableSanitizeHtml ? url : textUtil.sanitizeUrl(url);
   }
 
-  getAnchorInfo(link: any) {
+  getAnchorInfo(link: DashboardLink) {
     const templateSrv = getTemplateSrv();
-    const info: any = {};
-    info.href = this.getLinkUrl(link);
-    info.title = templateSrv.replace(link.title || '');
-    info.tooltip = templateSrv.replace(link.tooltip || '');
-    return info;
+    return {
+      href: this.getLinkUrl(link),
+      title: templateSrv.replace(link.title || ''),
+      tooltip: templateSrv.replace(link.tooltip || ''),
+    };
   }
 
   /**
@@ -297,12 +297,12 @@ export class LinkSrv implements LinkService {
     const info: LinkModel<T> = {
       href: locationUtil.assureBaseUrl(href.replace(/\n/g, '')),
       title: link.title ?? '',
-      target: link.targetBlank ? '_blank' : undefined,
+      target: link.targetBlank !== undefined ? (link.targetBlank ? '_blank' : '_self') : undefined,
       origin,
     };
 
     if (replaceVariables) {
-      info.href = replaceVariables(info.href);
+      info.href = replaceVariables(info.href, undefined, VariableFormatID.UriEncode);
       info.title = replaceVariables(link.title);
     }
 

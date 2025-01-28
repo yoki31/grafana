@@ -1,16 +1,14 @@
 package featuremgmt
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
+	"sort"
 
-	"github.com/grafana/grafana/pkg/infra/log"
-
-	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/setting"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"golang.org/x/exp/maps"
+
+	"github.com/grafana/grafana/pkg/infra/log"
+	"github.com/grafana/grafana/pkg/setting"
 )
 
 var (
@@ -22,13 +20,15 @@ var (
 	}, []string{"name"})
 )
 
-func ProvideManagerService(cfg *setting.Cfg, licensing models.Licensing) (*FeatureManager, error) {
+func ProvideManagerService(cfg *setting.Cfg) (*FeatureManager, error) {
 	mgmt := &FeatureManager{
-		isDevMod:  setting.Env != setting.Prod,
-		licensing: licensing,
-		flags:     make(map[string]*FeatureFlag, 30),
-		enabled:   make(map[string]bool),
-		log:       log.New("featuremgmt"),
+		isDevMod: cfg.Env != setting.Prod,
+		flags:    make(map[string]*FeatureFlag, 30),
+		enabled:  make(map[string]bool),
+		startup:  make(map[string]bool),
+		warnings: make(map[string]string),
+		Settings: cfg.FeatureManagement,
+		log:      log.New("featuremgmt"),
 	}
 
 	// Register the standard flags
@@ -40,33 +40,38 @@ func ProvideManagerService(cfg *setting.Cfg, licensing models.Licensing) (*Featu
 		return mgmt, err
 	}
 	for key, val := range flags {
-		flag, ok := mgmt.flags[key]
+		_, ok := mgmt.flags[key]
 		if !ok {
-			flag = &FeatureFlag{
-				Name:  key,
-				State: FeatureStateUnknown,
+			switch key {
+			// renamed the flag so it supports more panels
+			case "autoMigrateGraphPanels":
+				key = FlagAutoMigrateOldPanels
+			default:
+				mgmt.flags[key] = &FeatureFlag{
+					Name:  key,
+					Stage: FeatureStageUnknown,
+				}
+				mgmt.warnings[key] = "unknown flag in config"
 			}
-			mgmt.flags[key] = flag
 		}
-		flag.Expression = fmt.Sprintf("%t", val) // true | false
-	}
-
-	// Load config settings
-	configfile := filepath.Join(cfg.HomePath, "conf", "features.yaml")
-	if _, err := os.Stat(configfile); err == nil {
-		mgmt.log.Info("[experimental] loading features from config file", "path", configfile)
-		mgmt.config = configfile
-		err = mgmt.readFile()
-		if err != nil {
-			return mgmt, err
-		}
+		mgmt.startup[key] = val
 	}
 
 	// update the values
 	mgmt.update()
 
+	// Log the enabled feature toggles at startup
+	enabled := sort.StringSlice(maps.Keys(mgmt.enabled))
+	logctx := make([]any, len(enabled)*2)
+	for i, k := range enabled {
+		logctx[(i * 2)] = k
+		logctx[(i*2)+1] = true
+	}
+	mgmt.log.Info("FeatureToggles", logctx...)
+
 	// Minimum approach to avoid circular dependency
-	cfg.IsFeatureToggleEnabled = mgmt.IsEnabled
+	// nolint:staticcheck
+	cfg.IsFeatureToggleEnabled = mgmt.IsEnabledGlobally
 	return mgmt, nil
 }
 

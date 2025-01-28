@@ -1,8 +1,25 @@
-import { getPreloadedState, getRootReducer, RootReducerType } from './helpers';
-import { variableAdapters } from '../adapters';
-import { createQueryVariableAdapter } from '../query/adapter';
-import { createConstantVariableAdapter } from '../constant/adapter';
+import { DataSourceRef, LoadingState } from '@grafana/data/src';
+import { setDataSourceSrv } from '@grafana/runtime/src';
+import { DashboardModel } from 'app/features/dashboard/state/DashboardModel';
+
 import { reduxTester } from '../../../../test/core/redux/reduxTester';
+import { toAsyncOfResult } from '../../query/state/DashboardQueryRunner/testHelpers';
+import { variableAdapters } from '../adapters';
+import { createAdHocVariableAdapter } from '../adhoc/adapter';
+import { createConstantVariableAdapter } from '../constant/adapter';
+import { createDataSourceVariableAdapter } from '../datasource/adapter';
+import { createDataSourceOptions } from '../datasource/reducer';
+import { cleanEditorState } from '../editor/reducer';
+import { cleanPickerState } from '../pickers/OptionsPicker/reducer';
+import { setVariableQueryRunner, VariableQueryRunner } from '../query/VariableQueryRunner';
+import { createQueryVariableAdapter } from '../query/adapter';
+import { adHocBuilder, constantBuilder, datasourceBuilder, queryBuilder } from '../shared/testing/builders';
+import { TransactionStatus, VariableModel } from '../types';
+import { toVariablePayload } from '../utils';
+
+import { initVariablesTransaction } from './actions';
+import { getPreloadedState, getRootReducer, RootReducerType } from './helpers';
+import { toKeyedAction } from './keyedVariablesReducer';
 import {
   addVariable,
   changeVariableProp,
@@ -11,27 +28,13 @@ import {
   variableStateFetching,
   variableStateNotStarted,
 } from './sharedReducer';
-import { adHocBuilder, constantBuilder, datasourceBuilder, queryBuilder } from '../shared/testing/builders';
-import { cleanEditorState } from '../editor/reducer';
 import {
   initialTransactionState,
   variablesClearTransaction,
   variablesCompleteTransaction,
   variablesInitTransaction,
 } from './transactionReducer';
-import { cleanPickerState } from '../pickers/OptionsPicker/reducer';
 import { cleanVariables } from './variablesReducer';
-import { createAdHocVariableAdapter } from '../adhoc/adapter';
-import { createDataSourceVariableAdapter } from '../datasource/adapter';
-import { DataSourceRef, LoadingState } from '@grafana/data/src';
-import { setDataSourceSrv } from '@grafana/runtime/src';
-import { TransactionStatus, VariableModel } from '../types';
-import { toAsyncOfResult } from '../../query/state/DashboardQueryRunner/testHelpers';
-import { setVariableQueryRunner } from '../query/VariableQueryRunner';
-import { createDataSourceOptions } from '../datasource/reducer';
-import { initVariablesTransaction } from './actions';
-import { toKeyedAction } from './keyedVariablesReducer';
-import { toVariablePayload } from '../utils';
 
 variableAdapters.setInit(() => [
   createQueryVariableAdapter(),
@@ -46,20 +49,21 @@ function getTestContext(variables?: VariableModel[]) {
   const templating = { list: variables ?? [constant] };
   const getInstanceSettingsMock = jest.fn().mockReturnValue(undefined);
   setDataSourceSrv({
+    registerRuntimeDataSource: jest.fn(),
     get: jest.fn().mockResolvedValue({}),
     getList: jest.fn().mockReturnValue([]),
     getInstanceSettings: getInstanceSettingsMock,
     reload: jest.fn(),
   });
-  const variableQueryRunner: any = {
+  const variableQueryRunner = {
     cancelRequest: jest.fn(),
     queueRequest: jest.fn(),
     getResponse: () => toAsyncOfResult({ state: LoadingState.Done, identifier: { type: 'query', id: 'query' } }),
     destroy: jest.fn(),
-  };
+  } as unknown as VariableQueryRunner;
   setVariableQueryRunner(variableQueryRunner);
 
-  const dashboard: any = { title: 'Some dash', uid: key, templating };
+  const dashboard = { title: 'Some dash', uid: key, templating } as DashboardModel;
 
   return { constant, getInstanceSettingsMock, templating, key, dashboard };
 }

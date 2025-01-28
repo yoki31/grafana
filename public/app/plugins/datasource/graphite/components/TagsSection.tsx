@@ -1,16 +1,19 @@
-import React, { useCallback, useMemo } from 'react';
-import { GraphiteSegment } from '../types';
-import { GraphiteTag } from '../graphite_query';
-import { GraphiteQueryEditorState } from '../state/store';
-import { getTagsAsSegmentsSelectables } from '../state/providers';
-import { Button, SegmentAsync, useStyles2 } from '@grafana/ui';
-import { actions } from '../state/actions';
-import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
-import { TagEditor } from './TagEditor';
 import { debounce } from 'lodash';
+import { useCallback, useMemo } from 'react';
+
+import { GrafanaTheme2 } from '@grafana/data';
+import { Button, SegmentAsync, useStyles2 } from '@grafana/ui';
+
+import { GraphiteTag } from '../graphite_query';
+import { actions } from '../state/actions';
 import { useDispatch } from '../state/context';
+import { getTagsAsSegmentsSelectables } from '../state/providers';
+import { GraphiteQueryEditorState } from '../state/store';
+import { GraphiteSegment } from '../types';
+
 import { PlayButton } from './PlayButton';
+import { TagEditor } from './TagEditor';
 
 type Props = {
   tags: GraphiteTag[];
@@ -41,7 +44,7 @@ export function TagsSection({ tags, state }: Props) {
   );
 
   return (
-    <>
+    <div>
       {tags.map((tag, index) => {
         return <TagEditor key={index} tagIndex={index} tag={tag} state={state} />;
       })}
@@ -57,14 +60,14 @@ export function TagsSection({ tags, state }: Props) {
         />
       )}
       {state.paused && <PlayButton />}
-    </>
+    </div>
   );
 }
 
 function getStyles(theme: GrafanaTheme2) {
   return {
-    button: css`
-      margin-right: ${theme.spacing(0.5)};
-    `,
+    button: css({
+      marginRight: theme.spacing(0.5),
+    }),
   };
 }

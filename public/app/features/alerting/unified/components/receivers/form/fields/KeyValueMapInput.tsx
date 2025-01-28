@@ -1,7 +1,9 @@
-import React, { FC, useEffect, useState } from 'react';
-import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
+import { useEffect, useState } from 'react';
+
+import { GrafanaTheme2 } from '@grafana/data';
 import { Button, Input, useStyles2 } from '@grafana/ui';
+
 import { ActionIcon } from '../../../rules/ActionIcon';
 
 interface Props {
@@ -10,7 +12,7 @@ interface Props {
   onChange: (value: Record<string, string>) => void;
 }
 
-export const KeyValueMapInput: FC<Props> = ({ value, onChange, readOnly = false }) => {
+export const KeyValueMapInput = ({ value, onChange, readOnly = false }: Props) => {
   const styles = useStyles2(getStyles);
   const [pairs, setPairs] = useState(recordToPairs(value));
   useEffect(() => setPairs(recordToPairs(value)), [value]);
@@ -45,7 +47,7 @@ export const KeyValueMapInput: FC<Props> = ({ value, onChange, readOnly = false 
             <tr>
               <th>Name</th>
               <th>Value</th>
-              {!readOnly && <th></th>}
+              {!readOnly && <th />}
             </tr>
           </thead>
           <tbody>
@@ -92,14 +94,14 @@ export const KeyValueMapInput: FC<Props> = ({ value, onChange, readOnly = false 
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  addButton: css`
-    margin-top: ${theme.spacing(1)};
-  `,
-  table: css`
-    tbody td {
-      padding: 0 ${theme.spacing(1)} ${theme.spacing(1)} 0;
-    }
-  `,
+  addButton: css({
+    marginTop: theme.spacing(1),
+  }),
+  table: css({
+    'tbody td': {
+      padding: `0 ${theme.spacing(1)} ${theme.spacing(1)} 0`,
+    },
+  }),
 });
 
 const pairsToRecord = (pairs: Array<[string, string]>): Record<string, string> => {

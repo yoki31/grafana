@@ -1,21 +1,23 @@
-import React from 'react';
 import { css } from '@emotion/css';
-import { ReactMonacoEditorLazy } from './ReactMonacoEditorLazy';
 import type * as monacoType from 'monaco-editor/esm/vs/editor/editor.api';
-import { selectors } from '@grafana/e2e-selectors';
+import { PureComponent } from 'react';
+
 import { GrafanaTheme2, monacoLanguageRegistry } from '@grafana/data';
+import { selectors } from '@grafana/e2e-selectors';
 
 import { withTheme2 } from '../../themes';
 import { Themeable2 } from '../../types';
 
-import { CodeEditorProps, Monaco, MonacoEditor as MonacoEditorType, MonacoOptions } from './types';
+import { ReactMonacoEditorLazy } from './ReactMonacoEditorLazy';
 import { registerSuggestions } from './suggestions';
+import { CodeEditorProps, Monaco, MonacoEditor as MonacoEditorType, MonacoOptions } from './types';
 
 type Props = CodeEditorProps & Themeable2;
 
-class UnthemedCodeEditor extends React.PureComponent<Props> {
+class UnthemedCodeEditor extends PureComponent<Props> {
   completionCancel?: monacoType.IDisposable;
   monaco?: Monaco;
+  modelId?: string;
 
   constructor(props: Props) {
     super(props);
@@ -25,6 +27,8 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
     if (this.completionCancel) {
       this.completionCancel.dispose();
     }
+
+    this.props.onEditorWillUnmount?.();
   }
 
   componentDidUpdate(oldProps: Props) {
@@ -43,8 +47,8 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
         return;
       }
 
-      if (getSuggestions) {
-        this.completionCancel = registerSuggestions(this.monaco, language, getSuggestions);
+      if (getSuggestions && this.modelId) {
+        this.completionCancel = registerSuggestions(this.monaco, language, getSuggestions, this.modelId);
       }
     }
 
@@ -75,6 +79,13 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
     }
   };
 
+  onFocus = () => {
+    const { onFocus } = this.props;
+    if (onFocus) {
+      onFocus(this.getEditorValue());
+    }
+  };
+
   onSave = () => {
     const { onSave } = this.props;
     if (onSave) {
@@ -84,36 +95,51 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
 
   handleBeforeMount = (monaco: Monaco) => {
     this.monaco = monaco;
-    const { language, getSuggestions, onBeforeEditorMount } = this.props;
 
-    if (getSuggestions) {
-      this.completionCancel = registerSuggestions(monaco, language, getSuggestions);
-    }
+    const { onBeforeEditorMount } = this.props;
 
     onBeforeEditorMount?.(monaco);
   };
 
   handleOnMount = (editor: MonacoEditorType, monaco: Monaco) => {
-    const { onEditorDidMount } = this.props;
+    const { getSuggestions, language, onChange, onEditorDidMount } = this.props;
+
+    this.modelId = editor.getModel()?.id;
     this.getEditorValue = () => editor.getValue();
 
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, this.onSave);
-    const languagePromise = this.loadCustomLanguage();
+    if (getSuggestions && this.modelId) {
+      this.completionCancel = registerSuggestions(monaco, language, getSuggestions, this.modelId);
+    }
+
+    // Save when pressing Ctrl+S or Cmd+S
+    editor.onKeyDown((e: monacoType.IKeyboardEvent) => {
+      if (e.keyCode === monaco.KeyCode.KeyS && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        this.onSave();
+      }
+    });
+
+    if (onChange) {
+      editor.getModel()?.onDidChangeContent(() => onChange(editor.getValue()));
+    }
 
     if (onEditorDidMount) {
-      languagePromise.then(() => onEditorDidMount(editor, monaco));
+      onEditorDidMount(editor, monaco);
     }
   };
 
   render() {
-    const { theme, language, width, height, showMiniMap, showLineNumbers, readOnly, monacoOptions } = this.props;
+    const { theme, language, width, height, showMiniMap, showLineNumbers, readOnly, wordWrap, monacoOptions } =
+      this.props;
+    const { alwaysConsumeMouseWheel, ...restMonacoOptions } = monacoOptions ?? {};
+
     const value = this.props.value ?? '';
     const longText = value.length > 100;
 
-    const styles = getStyles(theme);
+    const containerStyles = this.props.containerStyles ?? getStyles(theme).container;
 
     const options: MonacoOptions = {
-      wordWrap: 'off',
+      wordWrap: wordWrap ? 'on' : 'off',
       tabSize: 2,
       codeLens: false,
       contextmenu: false,
@@ -132,6 +158,10 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
         bottom: 0.5 * theme.spacing.gridSize,
       },
       fixedOverflowWidgets: true, // Ensures suggestions menu is drawn on top
+
+      scrollbar: {
+        alwaysConsumeMouseWheel: alwaysConsumeMouseWheel ?? false,
+      },
     };
 
     if (!showLineNumbers) {
@@ -142,7 +172,12 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
     }
 
     return (
-      <div className={styles.container} onBlur={this.onBlur} aria-label={selectors.components.CodeEditor.container}>
+      <div
+        className={containerStyles}
+        onFocus={this.onFocus}
+        onBlur={this.onBlur}
+        data-testid={selectors.components.CodeEditor.container}
+      >
         <ReactMonacoEditorLazy
           width={width}
           height={height}
@@ -150,10 +185,11 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
           value={value}
           options={{
             ...options,
-            ...(monacoOptions ?? {}),
+            ...(restMonacoOptions ?? {}),
           }}
           beforeMount={this.handleBeforeMount}
           onMount={this.handleOnMount}
+          keepCurrentModel={true}
         />
       </div>
     );
@@ -164,9 +200,9 @@ export const CodeEditor = withTheme2(UnthemedCodeEditor);
 
 const getStyles = (theme: GrafanaTheme2) => {
   return {
-    container: css`
-      border-radius: ${theme.shape.borderRadius()};
-      border: 1px solid ${theme.components.input.borderColor};
-    `,
+    container: css({
+      borderRadius: theme.shape.radius.default,
+      border: `1px solid ${theme.components.input.borderColor}`,
+    }),
   };
 };
