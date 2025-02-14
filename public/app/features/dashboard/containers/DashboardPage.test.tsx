@@ -1,30 +1,40 @@
-import React from 'react';
-import { Provider } from 'react-redux';
-import { render, screen } from '@testing-library/react';
-import { Props, UnthemedDashboardPage } from './DashboardPage';
-import { Props as LazyLoaderProps } from '../dashgrid/LazyLoader';
-import { Router } from 'react-router-dom';
-import { locationService, setDataSourceSrv } from '@grafana/runtime';
-import { DashboardModel } from '../state';
-import { configureStore } from '../../../store/configureStore';
+import { screen, waitFor } from '@testing-library/react';
+import { KBarProvider } from 'kbar';
+import { Component } from 'react';
+import { useEffectOnce } from 'react-use';
 import { mockToolkitActionCreator } from 'test/core/redux/mocks';
-import { DashboardInitPhase, DashboardRoutes } from 'app/types';
-import { notifyApp } from 'app/core/actions';
-import { selectors } from '@grafana/e2e-selectors';
-import { getRouteComponentProps } from 'app/core/navigation/__mocks__/routeProps';
+import { render } from 'test/test-utils';
+
 import { createTheme } from '@grafana/data';
-import { AutoSizerProps } from 'react-virtualized-auto-sizer';
-import { setDashboardSrv } from '../services/DashboardSrv';
+import { selectors } from '@grafana/e2e-selectors';
+import { config, setDataSourceSrv } from '@grafana/runtime';
+import { Dashboard } from '@grafana/schema';
+import { notifyApp } from 'app/core/actions';
+import { AppChrome } from 'app/core/components/AppChrome/AppChrome';
+import { getRouteComponentProps } from 'app/core/navigation/__mocks__/routeProps';
+import { RouteDescriptor } from 'app/core/navigation/types';
+import { HOME_NAV_ID } from 'app/core/reducers/navModel';
+import { DashboardInitPhase, DashboardMeta, DashboardRoutes } from 'app/types';
+
+import { Props as LazyLoaderProps } from '../dashgrid/LazyLoader';
+import { DashboardSrv, setDashboardSrv } from '../services/DashboardSrv';
+import { DashboardModel } from '../state/DashboardModel';
+import { createDashboardModelFixture } from '../state/__fixtures__/dashboardFixtures';
+
+import { Props, UnthemedDashboardPage } from './DashboardPage';
 
 jest.mock('app/features/dashboard/dashgrid/LazyLoader', () => {
-  const LazyLoader = ({ children }: Pick<LazyLoaderProps, 'children'>) => {
+  const LazyLoader = ({ children, onLoad }: Pick<LazyLoaderProps, 'children' | 'onLoad'>) => {
+    useEffectOnce(() => {
+      onLoad?.();
+    });
     return <>{typeof children === 'function' ? children({ isInView: true }) : children}</>;
   };
   return { LazyLoader };
 });
 
 jest.mock('app/features/dashboard/components/DashboardSettings/GeneralSettings', () => {
-  class GeneralSettings extends React.Component<{}, {}> {
+  class GeneralSettings extends Component<{}, {}> {
     render() {
       return <>general settings</>;
     }
@@ -45,29 +55,18 @@ jest.mock('app/core/core', () => ({
       return { unsubscribe: () => {} };
     },
   },
+  contextSrv: {
+    user: { orgId: 1 },
+  },
 }));
 
-jest.mock('react-virtualized-auto-sizer', () => {
-  // The size of the children need to be small enough to be outside the view.
-  // So it does not trigger the query to be run by the PanelQueryRunner.
-  return ({ children }: AutoSizerProps) => children({ height: 1, width: 1 });
-});
+jest.mock('@grafana/runtime', () => ({
+  ...jest.requireActual('@grafana/runtime'),
+  getPluginLinkExtensions: jest.fn().mockReturnValue({ extensions: [] }),
+  usePluginLinks: jest.fn().mockReturnValue({ links: [] }),
+}));
 
-// the mock below gets rid of this warning from recompose:
-// Warning: React.createFactory() is deprecated and will be removed in a future major release. Consider using JSX or use React.createElement() directly instead.
-jest.mock('@jaegertracing/jaeger-ui-components', () => ({}));
-
-interface ScenarioContext {
-  dashboard?: DashboardModel | null;
-  container?: HTMLElement;
-  mount: (propOverrides?: Partial<Props>) => void;
-  unmount: () => void;
-  props: Props;
-  rerender: (propOverrides?: Partial<Props>) => void;
-  setup: (fn: () => void) => void;
-}
-
-function getTestDashboard(overrides?: any, metaOverrides?: any): DashboardModel {
+function getTestDashboard(overrides?: Partial<Dashboard>, metaOverrides?: Partial<DashboardMeta>): DashboardModel {
   const data = Object.assign(
     {
       title: 'My dashboard',
@@ -83,112 +82,129 @@ function getTestDashboard(overrides?: any, metaOverrides?: any): DashboardModel 
     overrides
   );
 
-  const meta = Object.assign({ canSave: true, canEdit: true }, metaOverrides);
-  return new DashboardModel(data, meta);
+  return createDashboardModelFixture(data, metaOverrides);
 }
 
-function dashboardPageScenario(description: string, scenarioFn: (ctx: ScenarioContext) => void) {
-  describe(description, () => {
-    let setupFn: () => void;
+const mockInitDashboard = jest.fn();
+const mockCleanUpDashboardAndVariables = jest.fn();
 
-    const ctx: ScenarioContext = {
-      setup: (fn) => {
-        setupFn = fn;
+function setup(propOverrides?: Partial<Props>) {
+  config.bootData.navTree = [
+    { text: 'Dashboards', id: 'dashboards/browse' },
+    { text: 'Home', id: HOME_NAV_ID },
+    {
+      text: 'Help',
+      id: 'help',
+    },
+  ];
+
+  const props: Props = {
+    ...getRouteComponentProps({
+      route: { routeName: DashboardRoutes.Normal } as RouteDescriptor,
+    }),
+    params: { slug: 'my-dash', uid: '11' },
+    navIndex: {
+      'dashboards/browse': {
+        text: 'Dashboards',
+        id: 'dashboards/browse',
+        parentItem: { text: 'Home', id: HOME_NAV_ID },
       },
-      mount: (propOverrides?: Partial<Props>) => {
-        const store = configureStore();
-        const props: Props = {
-          ...getRouteComponentProps({
-            match: { params: { slug: 'my-dash', uid: '11' } } as any,
-            route: { routeName: DashboardRoutes.Normal } as any,
-          }),
-          initPhase: DashboardInitPhase.NotStarted,
-          initError: null,
-          initDashboard: jest.fn(),
-          notifyApp: mockToolkitActionCreator(notifyApp),
-          cleanUpDashboardAndVariables: jest.fn(),
-          cancelVariables: jest.fn(),
-          templateVarsChangedInUrl: jest.fn(),
-          dashboard: null,
-          theme: createTheme(),
-        };
+      [HOME_NAV_ID]: { text: 'Home', id: HOME_NAV_ID },
+    },
+    initPhase: DashboardInitPhase.NotStarted,
+    initError: null,
+    initDashboard: mockInitDashboard,
+    notifyApp: mockToolkitActionCreator(notifyApp),
+    cleanUpDashboardAndVariables: mockCleanUpDashboardAndVariables,
+    cancelVariables: jest.fn(),
+    templateVarsChangedInUrl: jest.fn(),
+    dashboard: null,
+    theme: createTheme(),
+  };
 
-        Object.assign(props, propOverrides);
+  Object.assign(props, propOverrides);
 
-        ctx.props = props;
-        ctx.dashboard = props.dashboard;
+  const { unmount, rerender } = render(<UnthemedDashboardPage {...props} />);
 
-        const { container, rerender, unmount } = render(
-          <Provider store={store}>
-            <Router history={locationService.getHistory()}>
-              <UnthemedDashboardPage {...props} />
-            </Router>
-          </Provider>
-        );
+  const wrappedRerender = (newProps: Partial<Props>) => {
+    Object.assign(props, newProps);
+    return rerender(<UnthemedDashboardPage {...props} />);
+  };
 
-        ctx.container = container;
-
-        ctx.rerender = (newProps?: Partial<Props>) => {
-          Object.assign(props, newProps);
-
-          rerender(
-            <Provider store={store}>
-              <Router history={locationService.getHistory()}>
-                <UnthemedDashboardPage {...props} />
-              </Router>
-            </Provider>
-          );
-        };
-
-        ctx.unmount = unmount;
-      },
-      props: {} as Props,
-      rerender: () => {},
-      unmount: () => {},
-    };
-
-    beforeEach(() => {
-      setupFn();
-    });
-
-    scenarioFn(ctx);
-  });
+  return { rerender: wrappedRerender, unmount };
 }
 
 describe('DashboardPage', () => {
-  dashboardPageScenario('Given initial state', (ctx) => {
-    ctx.setup(() => {
-      ctx.mount();
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('Should call initDashboard on mount', () => {
+    setup();
+    expect(mockInitDashboard).toBeCalledWith({
+      fixUrl: true,
+      routeName: 'normal-dashboard',
+      urlSlug: 'my-dash',
+      urlUid: '11',
+      keybindingSrv: expect.anything(),
+    });
+  });
+
+  describe('Given a simple dashboard', () => {
+    it('Should render panels', async () => {
+      setup({ dashboard: getTestDashboard() });
+      expect(await screen.findByText('My panel title')).toBeInTheDocument();
     });
 
-    it('Should call initDashboard on mount', () => {
-      expect(ctx.props.initDashboard).toBeCalledWith({
-        fixUrl: true,
-        routeName: 'normal-dashboard',
-        urlSlug: 'my-dash',
-        urlUid: '11',
+    it('Should update title', async () => {
+      setup({ dashboard: getTestDashboard() });
+      await waitFor(() => {
+        expect(document.title).toBe('My dashboard - Dashboards - Grafana');
       });
     });
+
+    it('only calls initDashboard once when wrapped in AppChrome', async () => {
+      const props: Props = {
+        ...getRouteComponentProps({
+          route: { routeName: DashboardRoutes.Normal } as RouteDescriptor,
+        }),
+        params: { slug: 'my-dash', uid: '11' },
+        navIndex: {
+          'dashboards/browse': {
+            text: 'Dashboards',
+            id: 'dashboards/browse',
+            parentItem: { text: 'Home', id: HOME_NAV_ID },
+          },
+          [HOME_NAV_ID]: { text: 'Home', id: HOME_NAV_ID },
+        },
+        initPhase: DashboardInitPhase.Completed,
+        initError: null,
+        initDashboard: mockInitDashboard,
+        notifyApp: mockToolkitActionCreator(notifyApp),
+        cleanUpDashboardAndVariables: mockCleanUpDashboardAndVariables,
+        cancelVariables: jest.fn(),
+        templateVarsChangedInUrl: jest.fn(),
+        dashboard: getTestDashboard(),
+        theme: createTheme(),
+      };
+
+      render(
+        <KBarProvider>
+          <AppChrome>
+            <UnthemedDashboardPage {...props} />
+          </AppChrome>
+        </KBarProvider>
+      );
+
+      await screen.findByText('My dashboard');
+      expect(mockInitDashboard).toHaveBeenCalledTimes(1);
+    });
   });
 
-  dashboardPageScenario('Given a simple dashboard', (ctx) => {
-    ctx.setup(() => {
-      ctx.mount();
-      ctx.rerender({ dashboard: getTestDashboard() });
-    });
-
-    it('Should render panels', () => {
-      expect(screen.getByText('My panel title')).toBeInTheDocument();
-    });
-
-    it('Should update title', () => {
-      expect(document.title).toBe('My dashboard - Grafana');
-    });
-  });
-
-  dashboardPageScenario('When going into view mode', (ctx) => {
-    ctx.setup(() => {
+  describe('When going into view mode', () => {
+    beforeEach(() => {
       setDataSourceSrv({
+        registerRuntimeDataSource: jest.fn(),
         get: jest.fn().mockResolvedValue({ getRef: jest.fn(), query: jest.fn().mockResolvedValue([]) }),
         getInstanceSettings: jest.fn().mockReturnValue({ meta: {} }),
         getList: jest.fn(),
@@ -196,103 +212,92 @@ describe('DashboardPage', () => {
       });
       setDashboardSrv({
         getCurrent: () => getTestDashboard(),
-      } as any);
-      ctx.mount({
-        dashboard: getTestDashboard(),
+      } as DashboardSrv);
+    });
+
+    it('Should render panel in view mode', async () => {
+      const dashboard = getTestDashboard();
+      setup({
+        dashboard,
         queryParams: { viewPanel: '1' },
       });
+      await waitFor(() => {
+        expect(dashboard.panelInView).toBeDefined();
+        expect(dashboard.panels[0].isViewing).toBe(true);
+      });
     });
 
-    it('Should render panel in view mode', () => {
-      expect(ctx.dashboard?.panelInView).toBeDefined();
-      expect(ctx.dashboard?.panels[0].isViewing).toBe(true);
-    });
+    it('Should reset state when leaving', async () => {
+      const dashboard = getTestDashboard();
+      const { rerender } = setup({
+        dashboard,
+        queryParams: { viewPanel: '1' },
+      });
+      rerender({ queryParams: {}, dashboard });
 
-    it('Should reset state when leaving', () => {
-      ctx.rerender({ queryParams: {} });
-
-      expect(ctx.dashboard?.panelInView).toBeUndefined();
-      expect(ctx.dashboard?.panels[0].isViewing).toBe(false);
+      await waitFor(() => {
+        expect(dashboard.panelInView).toBeUndefined();
+        expect(dashboard.panels[0].isViewing).toBe(false);
+      });
     });
   });
 
-  dashboardPageScenario('When going into edit mode', (ctx) => {
-    ctx.setup(() => {
-      ctx.mount({
-        dashboard: getTestDashboard(),
+  describe('When going into edit mode', () => {
+    it('Should render panel in edit mode', async () => {
+      const dashboard = getTestDashboard();
+      setup({
+        dashboard,
         queryParams: { editPanel: '1' },
       });
-    });
-
-    it('Should render panel in edit mode', () => {
-      expect(ctx.dashboard?.panelInEdit).toBeDefined();
-    });
-
-    it('Should render panel editor', () => {
-      expect(screen.getByTitle('Apply changes and go back to dashboard')).toBeInTheDocument();
-    });
-
-    it('Should reset state when leaving', () => {
-      ctx.rerender({ queryParams: {} });
-      expect(screen.queryByTitle('Apply changes and go back to dashboard')).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(dashboard.panelInEdit).toBeDefined();
+      });
     });
   });
 
-  dashboardPageScenario('When dashboard unmounts', (ctx) => {
-    ctx.setup(() => {
-      ctx.mount();
-      ctx.rerender({ dashboard: getTestDashboard() });
-      ctx.unmount();
-    });
-
-    it('Should call close action', () => {
-      expect(ctx.props.cleanUpDashboardAndVariables).toHaveBeenCalledTimes(1);
+  describe('When dashboard unmounts', () => {
+    it('Should call close action', async () => {
+      const { rerender, unmount } = setup();
+      rerender({ dashboard: getTestDashboard() });
+      unmount();
+      await waitFor(() => {
+        expect(mockCleanUpDashboardAndVariables).toHaveBeenCalledTimes(1);
+      });
     });
   });
 
-  dashboardPageScenario('When dashboard changes', (ctx) => {
-    ctx.setup(() => {
-      ctx.mount();
-      ctx.rerender({ dashboard: getTestDashboard() });
-      ctx.rerender({
-        match: {
-          params: { uid: 'new-uid' },
-        } as any,
+  describe('When dashboard changes', () => {
+    it('Should call clean up action and init', async () => {
+      const { rerender } = setup();
+      rerender({ dashboard: getTestDashboard() });
+      rerender({
+        params: { uid: 'new-uid' },
         dashboard: getTestDashboard({ title: 'Another dashboard' }),
       });
-    });
-
-    it('Should call clean up action and init', () => {
-      expect(ctx.props.cleanUpDashboardAndVariables).toHaveBeenCalledTimes(1);
-      expect(ctx.props.initDashboard).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  dashboardPageScenario('No kiosk mode tv', (ctx) => {
-    ctx.setup(() => {
-      ctx.mount({ dashboard: getTestDashboard() });
-      ctx.rerender({ dashboard: ctx.dashboard });
-    });
-
-    it('should render dashboard page toolbar and submenu', () => {
-      expect(screen.queryAllByTestId(selectors.pages.Dashboard.DashNav.navV2)).toHaveLength(1);
-      expect(screen.queryAllByLabelText(selectors.pages.Dashboard.SubMenu.submenu)).toHaveLength(1);
+      await waitFor(() => {
+        expect(mockCleanUpDashboardAndVariables).toHaveBeenCalledTimes(1);
+        expect(mockInitDashboard).toHaveBeenCalledTimes(2);
+      });
     });
   });
 
-  dashboardPageScenario('When in full kiosk mode', (ctx) => {
-    ctx.setup(() => {
-      locationService.partial({ kiosk: true });
-      ctx.mount({
-        queryParams: {},
+  describe('No kiosk mode tv', () => {
+    it('should render dashboard page toolbar with no submenu', async () => {
+      setup({
         dashboard: getTestDashboard(),
       });
-      ctx.rerender({ dashboard: ctx.dashboard });
-    });
-
-    it('should not render page toolbar and submenu', () => {
-      expect(screen.queryAllByTestId(selectors.pages.Dashboard.DashNav.navV2)).toHaveLength(0);
+      expect(await screen.findAllByTestId(selectors.pages.Dashboard.DashNav.navV2)).toHaveLength(1);
       expect(screen.queryAllByLabelText(selectors.pages.Dashboard.SubMenu.submenu)).toHaveLength(0);
+    });
+  });
+
+  describe('When in full kiosk mode', () => {
+    it('should not render page toolbar and submenu', async () => {
+      setup({ dashboard: getTestDashboard(), queryParams: { kiosk: true } });
+      await waitFor(() => {
+        expect(screen.queryAllByTestId(selectors.pages.Dashboard.DashNav.navV2)).toHaveLength(0);
+        expect(screen.queryAllByLabelText(selectors.pages.Dashboard.SubMenu.submenu)).toHaveLength(0);
+      });
     });
   });
 });

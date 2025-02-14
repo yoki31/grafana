@@ -1,15 +1,17 @@
 import { cloneDeep } from 'lodash';
 
-import { QueryVariableModel, VariableRefresh } from '../types';
-import { initialQueryVariableModelState, queryVariableReducer } from './reducer';
+import { QueryVariableModel, VariableRefresh } from '@grafana/data';
+
 import { dispatch } from '../../../store/store';
-import { setOptionAsCurrent, setOptionFromUrl } from '../state/actions';
 import { VariableAdapter } from '../adapters';
+import { ALL_VARIABLE_TEXT } from '../constants';
+import { optionPickerFactory } from '../pickers';
+import { setOptionAsCurrent, setOptionFromUrl } from '../state/actions';
+import { containsVariable, isAllVariable, toKeyedVariableIdentifier } from '../utils';
+
 import { QueryVariableEditor } from './QueryVariableEditor';
 import { updateQueryVariableOptions } from './actions';
-import { containsVariable, isAllVariable, toKeyedVariableIdentifier } from '../utils';
-import { optionPickerFactory } from '../pickers';
-import { ALL_VARIABLE_TEXT } from '../constants';
+import { initialQueryVariableModelState, queryVariableReducer } from './reducer';
 
 export const createQueryVariableAdapter = (): VariableAdapter<QueryVariableModel> => {
   return {

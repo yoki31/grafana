@@ -1,6 +1,7 @@
-import { GrafanaTheme2 } from '@grafana/data';
 import { useMemo } from 'react';
 import { CSSObjectWithLabel } from 'react-select';
+
+import { GrafanaTheme2 } from '@grafana/data';
 
 export default function resetSelectStyles(theme: GrafanaTheme2) {
   return {
@@ -20,6 +21,7 @@ export default function resetSelectStyles(theme: GrafanaTheme2) {
         padding: 0,
         // Set an explicit z-index here to ensure this element always overlays the singleValue
         zIndex: 1,
+        overflow: 'hidden',
       };
     },
     loadingIndicator: () => ({}),
@@ -29,13 +31,16 @@ export default function resetSelectStyles(theme: GrafanaTheme2) {
       maxHeight,
     }),
     multiValue: () => ({}),
-    multiValueLabel: () => ({}),
+    multiValueLabel: () => ({
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+    }),
     multiValueRemove: () => ({}),
     noOptionsMessage: () => ({}),
     option: () => ({}),
     placeholder: (originalStyles: CSSObjectWithLabel) => ({
       ...originalStyles,
-      color: theme.colors.text.disabled,
+      color: theme.colors.text.secondary,
     }),
     singleValue: () => ({}),
     valueContainer: () => ({}),

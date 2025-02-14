@@ -1,128 +1,85 @@
-import React from 'react';
-import { connect, ConnectedProps } from 'react-redux';
-import memoizeOne from 'memoize-one';
-import { DataQuery, ExploreUrlState, EventBusExtended, EventBusSrv } from '@grafana/data';
+import { css } from '@emotion/css';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { connect } from 'react-redux';
+
+import { EventBusSrv, getTimeZone } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
-import store from 'app/core/store';
-import { lastSavedUrl, cleanupPaneAction } from './state/main';
-import { initializeExplore, refreshExplore } from './state/explorePane';
-import { ExploreId } from 'app/types/explore';
-import { StoreState } from 'app/types';
-import {
-  DEFAULT_RANGE,
-  ensureQueries,
-  getTimeRange,
-  getTimeRangeFromUrl,
-  lastUsedDatasourceKeyForOrgId,
-  parseUrlState,
-} from 'app/core/utils/explore';
-import { getFiscalYearStartMonth, getTimeZone } from '../profile/state/selectors';
+import { stopQueryState } from 'app/core/utils/explore';
+import { StoreState, useSelector } from 'app/types';
+
 import Explore from './Explore';
+import ExploreQueryInspector from './ExploreQueryInspector';
+import { getExploreItemSelector } from './state/selectors';
 
-interface OwnProps {
-  exploreId: ExploreId;
-  urlQuery: string;
-  split: boolean;
+const containerStyles = css({
+  label: 'explorePaneContainer',
+  display: 'flex',
+  flexDirection: 'column',
+  minWidth: '600px',
+  height: '100%',
+});
+
+interface Props {
+  exploreId: string;
 }
 
-interface Props extends OwnProps, ConnectedProps<typeof connector> {}
+/*
+  Connected components subscribe to the store before function components (using hooks) and can react to store changes. Thus, this connector function is called before the parent component (ExplorePage) is rerendered.
+  This means that child components' mapStateToProps will be executed with a zombie `exploreId` that is not present anymore in the store if the pane gets closed.
+  By connecting this component and returning the pane we workaround the zombie children issue here instead of modifying every children.
+  This is definitely not the ideal solution and we should in the future invest more time in exploring other approaches to better handle this scenario, potentially by refactoring panels to be function components
+  (therefore immune to this behaviour), or by forbidding them to access the store directly and instead pass them all the data they need via props or context.
 
-/**
- * This component is responsible for handling initialization of an Explore pane and triggering synchronization
- * of state based on URL changes and preventing any infinite loops.
- */
-class ExplorePaneContainerUnconnected extends React.PureComponent<Props> {
-  el: any;
-  exploreEvents: EventBusExtended;
+  You can read more about this issue here: https://react-redux.js.org/api/hooks#stale-props-and-zombie-children
+*/
+function ExplorePaneContainerUnconnected({ exploreId }: Props) {
+  useStopQueries(exploreId);
+  const eventBus = useRef(new EventBusSrv());
+  const ref = useRef(null);
+  const [showQueryInspector, setShowQueryInspector] = useState(false);
 
-  constructor(props: Props) {
-    super(props);
-    this.exploreEvents = new EventBusSrv();
-    this.state = {
-      openDrawer: undefined,
-    };
-  }
+  useEffect(() => {
+    const bus = eventBus.current;
+    return () => bus.removeAllListeners();
+  }, []);
 
-  componentDidMount() {
-    const { initialized, exploreId, initialDatasource, initialQueries, initialRange, panelsState } = this.props;
-    const width = this.el?.offsetWidth ?? 0;
-
-    // initialize the whole explore first time we mount and if browser history contains a change in datasource
-    if (!initialized) {
-      this.props.initializeExplore(
-        exploreId,
-        initialDatasource,
-        initialQueries,
-        initialRange,
-        width,
-        this.exploreEvents,
-        panelsState
-      );
-    }
-  }
-
-  componentWillUnmount() {
-    this.exploreEvents.removeAllListeners();
-    this.props.cleanupPaneAction({ exploreId: this.props.exploreId });
-  }
-
-  componentDidUpdate(prevProps: Props) {
-    this.refreshExplore(prevProps.urlQuery);
-  }
-
-  refreshExplore = (prevUrlQuery: string) => {
-    const { exploreId, urlQuery } = this.props;
-
-    // Update state from url only if it changed and only if the change wasn't initialised by redux to prevent any loops
-    if (urlQuery !== prevUrlQuery && urlQuery !== lastSavedUrl[exploreId]) {
-      this.props.refreshExplore(exploreId, urlQuery);
-    }
-  };
-
-  getRef = (el: any) => {
-    this.el = el;
-  };
-
-  render() {
-    const exploreClass = this.props.split ? 'explore explore-split' : 'explore';
-    return (
-      <div className={exploreClass} ref={this.getRef} data-testid={selectors.pages.Explore.General.container}>
-        {this.props.initialized && <Explore exploreId={this.props.exploreId} />}
-      </div>
-    );
-  }
+  return (
+    <div className={containerStyles} ref={ref} data-testid={selectors.pages.Explore.General.container}>
+      <Explore
+        exploreId={exploreId}
+        eventBus={eventBus.current}
+        showQueryInspector={showQueryInspector}
+        setShowQueryInspector={setShowQueryInspector}
+      />
+      {showQueryInspector && (
+        <ExploreQueryInspector
+          exploreId={exploreId}
+          onClose={() => setShowQueryInspector(false)}
+          timeZone={getTimeZone()}
+        />
+      )}
+    </div>
+  );
 }
 
-const ensureQueriesMemoized = memoizeOne(ensureQueries);
-const getTimeRangeFromUrlMemoized = memoizeOne(getTimeRangeFromUrl);
+function mapStateToProps(state: StoreState, props: Props) {
+  const pane = state.explore.panes[props.exploreId];
 
-function mapStateToProps(state: StoreState, props: OwnProps) {
-  const urlState = parseUrlState(props.urlQuery);
-  const timeZone = getTimeZone(state.user);
-  const fiscalYearStartMonth = getFiscalYearStartMonth(state.user);
-
-  const { datasource, queries, range: urlRange, panelsState } = (urlState || {}) as ExploreUrlState;
-  const initialDatasource = datasource || store.get(lastUsedDatasourceKeyForOrgId(state.user.orgId));
-  const initialQueries: DataQuery[] = ensureQueriesMemoized(queries);
-  const initialRange = urlRange
-    ? getTimeRangeFromUrlMemoized(urlRange, timeZone, fiscalYearStartMonth)
-    : getTimeRange(timeZone, DEFAULT_RANGE, fiscalYearStartMonth);
-
-  return {
-    initialized: state.explore[props.exploreId]?.initialized,
-    initialDatasource,
-    initialQueries,
-    initialRange,
-    panelsState,
-  };
+  return { pane };
 }
 
-const mapDispatchToProps = {
-  initializeExplore,
-  refreshExplore,
-  cleanupPaneAction,
-};
-
-const connector = connect(mapStateToProps, mapDispatchToProps);
+const connector = connect(mapStateToProps);
 
 export const ExplorePaneContainer = connector(ExplorePaneContainerUnconnected);
+
+function useStopQueries(exploreId: string) {
+  const paneSelector = useMemo(() => getExploreItemSelector(exploreId), [exploreId]);
+  const paneRef = useRef<ReturnType<typeof paneSelector>>();
+  paneRef.current = useSelector(paneSelector);
+
+  useEffect(() => {
+    return () => {
+      stopQueryState(paneRef.current?.querySubscription);
+    };
+  }, []);
+}

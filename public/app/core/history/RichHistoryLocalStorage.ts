@@ -1,10 +1,18 @@
-import RichHistoryStorage, { RichHistoryServiceError, RichHistoryStorageWarning } from './RichHistoryStorage';
+import { find, isEqual, omit } from 'lodash';
+
+import { DataQuery, SelectableValue } from '@grafana/data';
+import { RichHistorySearchFilters, RichHistorySettings } from 'app/core/utils/richHistory';
+
 import { RichHistoryQuery } from '../../types';
 import store from '../store';
-import { DataQuery } from '@grafana/data';
-import { find, isEqual, omit } from 'lodash';
-import { createRetentionPeriodBoundary, RICH_HISTORY_SETTING_KEYS } from './richHistoryLocalStorageUtils';
+
+import RichHistoryStorage, { RichHistoryServiceError, RichHistoryStorageWarning } from './RichHistoryStorage';
 import { fromDTO, toDTO } from './localStorageConverter';
+import {
+  createRetentionPeriodBoundary,
+  filterAndSortQueries,
+  RICH_HISTORY_SETTING_KEYS,
+} from './richHistoryLocalStorageUtils';
 
 export const RICH_HISTORY_KEY = 'grafana.explore.richHistory';
 export const MAX_HISTORY_ITEMS = 10000;
@@ -23,10 +31,23 @@ export type RichHistoryLocalStorageDTO = {
  */
 export default class RichHistoryLocalStorage implements RichHistoryStorage {
   /**
-   * Return all history entries, perform migration and clean up entries not matching retention policy.
+   * Return history entries based on provided filters, perform migration and clean up entries not matching retention policy.
    */
-  async getRichHistory() {
-    return getRichHistoryDTOs().map(fromDTO);
+  async getRichHistory(filters: RichHistorySearchFilters) {
+    const allQueries = getRichHistoryDTOs().map(fromDTO);
+    const queries = filters.starred ? allQueries.filter((q) => q.starred === true) : allQueries;
+
+    const timeFilter: [number, number] | undefined =
+      filters.from && filters.to ? [filters.from, filters.to] : undefined;
+
+    const richHistory = filterAndSortQueries(
+      queries,
+      filters.sortOrder,
+      filters.datasourceFilters,
+      filters.search,
+      timeFilter
+    );
+    return { richHistory, total: richHistory.length };
   }
 
   async addToRichHistory(newRichHistoryQuery: Omit<RichHistoryQuery, 'id' | 'createdAt'>) {
@@ -63,7 +84,7 @@ export default class RichHistoryLocalStorage implements RichHistoryStorage {
     try {
       store.setObject(RICH_HISTORY_KEY, updatedHistory);
     } catch (error) {
-      if (error.name === 'QuotaExceededError') {
+      if (error instanceof Error && error.name === 'QuotaExceededError') {
         throwError(RichHistoryServiceError.StorageFull, `Saving rich history failed: ${error.message}`);
       } else {
         throw error;
@@ -101,6 +122,32 @@ export default class RichHistoryLocalStorage implements RichHistoryStorage {
   async updateComment(id: string, comment: string) {
     return updateRichHistory(id, (richHistoryDTO) => (richHistoryDTO.comment = comment));
   }
+
+  async getSettings() {
+    // get the new key without a default. If undefined, use the legacy key, or false as the default
+    const activeDatasource: boolean | undefined = store.getObject(RICH_HISTORY_SETTING_KEYS.activeDatasourcesOnly);
+    return {
+      activeDatasourcesOnly:
+        activeDatasource ?? store.getObject(RICH_HISTORY_SETTING_KEYS.legacyActiveDatasourceOnly, false),
+      retentionPeriod: store.getObject(RICH_HISTORY_SETTING_KEYS.retentionPeriod, 7),
+      starredTabAsFirstTab: store.getBool(RICH_HISTORY_SETTING_KEYS.starredTabAsFirstTab, false),
+      lastUsedDatasourceFilters: store
+        .getObject(RICH_HISTORY_SETTING_KEYS.datasourceFilters, [])
+        .map((selectableValue: SelectableValue) => selectableValue.value),
+    };
+  }
+
+  async updateSettings(settings: RichHistorySettings) {
+    store.set(RICH_HISTORY_SETTING_KEYS.activeDatasourcesOnly, settings.activeDatasourcesOnly);
+    store.set(RICH_HISTORY_SETTING_KEYS.retentionPeriod, settings.retentionPeriod);
+    store.set(RICH_HISTORY_SETTING_KEYS.starredTabAsFirstTab, settings.starredTabAsFirstTab);
+    store.setObject(
+      RICH_HISTORY_SETTING_KEYS.datasourceFilters,
+      (settings.lastUsedDatasourceFilters || []).map((datasourceName: string) => {
+        return { value: datasourceName };
+      })
+    );
+  }
 }
 
 function updateRichHistory(
@@ -126,7 +173,10 @@ function updateRichHistory(
  */
 function cleanUp(richHistory: RichHistoryLocalStorageDTO[]): RichHistoryLocalStorageDTO[] {
   const retentionPeriod: number = store.getObject(RICH_HISTORY_SETTING_KEYS.retentionPeriod, 7);
-  const retentionPeriodLastTs = createRetentionPeriodBoundary(retentionPeriod, false);
+  // We don't care about timezones that much here when creating the time stamp for deletion. First, not sure if we
+  // should be deleting entries based on timezone change that may serve only for querying and also the timezone
+  // difference would not change that much what is or isn't deleted compared to the default 2 weeks retention.
+  const retentionPeriodLastTs = createRetentionPeriodBoundary(retentionPeriod, { isLastTs: false });
 
   /* Keep only queries, that are within the selected retention period or that are starred.
    * If no queries, initialize with empty array
@@ -138,7 +188,7 @@ function cleanUp(richHistory: RichHistoryLocalStorageDTO[]): RichHistoryLocalSto
  * Ensures the entry can be added. Throws an error if current limit has been hit.
  * Returns queries that should be saved back giving space for one extra query.
  */
-function checkLimits(queriesToKeep: RichHistoryLocalStorageDTO[]): {
+export function checkLimits(queriesToKeep: RichHistoryLocalStorageDTO[]): {
   queriesToKeep: RichHistoryLocalStorageDTO[];
   limitExceeded: boolean;
 } {
@@ -179,7 +229,7 @@ function createDataQuery(query: RichHistoryLocalStorageDTO, individualQuery: Dat
     // ElasticSearch (maybe other datasoures too) before grafana7
     return JSON.parse(individualQuery);
   }
-  // prometehus (maybe other datasources too) before grafana7
+  // prometheus (maybe other datasources too) before grafana7
   return { expr: individualQuery, refId: letters[index] };
 }
 

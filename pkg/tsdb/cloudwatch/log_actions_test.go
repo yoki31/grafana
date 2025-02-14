@@ -7,19 +7,28 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface"
+	"github.com/grafana/grafana-aws-sdk/pkg/awsds"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
+	"github.com/grafana/grafana/pkg/tsdb/cloudwatch/features"
+	"github.com/grafana/grafana/pkg/tsdb/cloudwatch/kinds/dataquery"
+	"github.com/grafana/grafana/pkg/tsdb/cloudwatch/mocks"
+	"github.com/grafana/grafana/pkg/tsdb/cloudwatch/models"
+	"github.com/grafana/grafana/pkg/tsdb/cloudwatch/utils"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func TestQuery_DescribeLogGroups(t *testing.T) {
+func TestQuery_handleGetLogEvents_passes_nil_start_and_end_times_to_GetLogEvents(t *testing.T) {
 	origNewCWLogsClient := NewCWLogsClient
 	t.Cleanup(func() {
 		NewCWLogsClient = origNewCWLogsClient
@@ -30,197 +39,131 @@ func TestQuery_DescribeLogGroups(t *testing.T) {
 	NewCWLogsClient = func(sess *session.Session) cloudwatchlogsiface.CloudWatchLogsAPI {
 		return &cli
 	}
-
-	t.Run("Empty log group name prefix", func(t *testing.T) {
-		cli = fakeCWLogsClient{
-			logGroups: cloudwatchlogs.DescribeLogGroupsOutput{
-				LogGroups: []*cloudwatchlogs.LogGroup{
-					{
-						LogGroupName: aws.String("group_a"),
-					},
-					{
-						LogGroupName: aws.String("group_b"),
-					},
-					{
-						LogGroupName: aws.String("group_c"),
-					},
-				},
-			},
-		}
-
-		im := datasource.NewInstanceManager(func(s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-			return datasourceInfo{}, nil
-		})
-
-		executor := newExecutor(im, newTestConfig(), &fakeSessionCache{})
-		resp, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
-			PluginContext: backend.PluginContext{
-				DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{},
-			},
-			Queries: []backend.DataQuery{
-				{
-					JSON: json.RawMessage(`{
-						"type":    "logAction",
-						"subtype": "DescribeLogGroups",
-						"limit":   50
-					}`),
-				},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-
-		assert.Equal(t, &backend.QueryDataResponse{Responses: backend.Responses{
-			"": backend.DataResponse{
-				Frames: data.Frames{
-					&data.Frame{
-						Name: "logGroups",
-						Fields: []*data.Field{
-							data.NewField("logGroupName", nil, []*string{
-								aws.String("group_a"), aws.String("group_b"), aws.String("group_c"),
-							}),
-						},
-					},
-				},
-			},
-		},
-		}, resp)
-	})
-
-	t.Run("Non-empty log group name prefix", func(t *testing.T) {
-		cli = fakeCWLogsClient{
-			logGroups: cloudwatchlogs.DescribeLogGroupsOutput{
-				LogGroups: []*cloudwatchlogs.LogGroup{
-					{
-						LogGroupName: aws.String("group_a"),
-					},
-					{
-						LogGroupName: aws.String("group_b"),
-					},
-					{
-						LogGroupName: aws.String("group_c"),
-					},
-				},
-			},
-		}
-
-		im := datasource.NewInstanceManager(func(s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-			return datasourceInfo{}, nil
-		})
-
-		executor := newExecutor(im, newTestConfig(), &fakeSessionCache{})
-		resp, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
-			PluginContext: backend.PluginContext{
-				DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{},
-			},
-			Queries: []backend.DataQuery{
-				{
-					JSON: json.RawMessage(`{
-						"type":    "logAction",
-						"subtype": "DescribeLogGroups",
-						"limit": 50,
-						"region": "default",
-						"logGroupNamePrefix": "g"
-					}`),
-				},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-
-		assert.Equal(t, &backend.QueryDataResponse{Responses: backend.Responses{
-			"": backend.DataResponse{
-				Frames: data.Frames{
-					&data.Frame{
-						Name: "logGroups",
-						Fields: []*data.Field{
-							data.NewField("logGroupName", nil, []*string{
-								aws.String("group_a"), aws.String("group_b"), aws.String("group_c"),
-							}),
-						},
-					},
-				},
-			},
-		},
-		}, resp)
-	})
-}
-
-func TestQuery_GetLogGroupFields(t *testing.T) {
-	origNewCWLogsClient := NewCWLogsClient
-	t.Cleanup(func() {
-		NewCWLogsClient = origNewCWLogsClient
-	})
-
-	var cli fakeCWLogsClient
-
-	NewCWLogsClient = func(sess *session.Session) cloudwatchlogsiface.CloudWatchLogsAPI {
-		return &cli
-	}
-
-	cli = fakeCWLogsClient{
-		logGroupFields: cloudwatchlogs.GetLogGroupFieldsOutput{
-			LogGroupFields: []*cloudwatchlogs.LogGroupField{
-				{
-					Name:    aws.String("field_a"),
-					Percent: aws.Int64(100),
-				},
-				{
-					Name:    aws.String("field_b"),
-					Percent: aws.Int64(30),
-				},
-				{
-					Name:    aws.String("field_c"),
-					Percent: aws.Int64(55),
-				},
-			},
-		},
-	}
-
 	const refID = "A"
 
-	im := datasource.NewInstanceManager(func(s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-		return datasourceInfo{}, nil
-	})
+	testCases := map[string]struct {
+		query         string
+		expectedInput []*cloudwatchlogs.GetLogEventsInput
+	}{
+		"Nil startTime": {
+			query: `{
+				"type":         "logAction",
+				"subtype":       "GetLogEvents",
+				"logGroupName":  "foo",
+				"logStreamName": "bar",
+				"endTime":       1,
+				"startFromHead": false
+			}`,
+			expectedInput: []*cloudwatchlogs.GetLogEventsInput{
+				{
+					EndTime:       aws.Int64(1),
+					Limit:         aws.Int64(10),
+					LogGroupName:  aws.String("foo"),
+					LogStreamName: aws.String("bar"),
+					StartFromHead: aws.Bool(false),
+				},
+			},
+		},
+		"Nil endTime": {
+			query: `{
+				"type":         "logAction",
+				"subtype":       "GetLogEvents",
+				"logGroupName":  "foo",
+				"logStreamName": "bar",
+				"startTime":       1,
+				"startFromHead": true
+			}`,
+			expectedInput: []*cloudwatchlogs.GetLogEventsInput{
+				{
+					StartTime:     aws.Int64(1),
+					Limit:         aws.Int64(10),
+					LogGroupName:  aws.String("foo"),
+					LogStreamName: aws.String("bar"),
+					StartFromHead: aws.Bool(true),
+				},
+			},
+		},
+	}
 
-	executor := newExecutor(im, newTestConfig(), &fakeSessionCache{})
+	for name, test := range testCases {
+		t.Run(name, func(t *testing.T) {
+			cli = fakeCWLogsClient{}
+
+			im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+				return DataSource{Settings: models.CloudWatchSettings{}, sessions: &fakeSessionCache{}}, nil
+			})
+
+			executor := newExecutor(im, log.NewNullLogger())
+			_, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
+				PluginContext: backend.PluginContext{
+					DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{},
+				},
+				Queries: []backend.DataQuery{
+					{
+						RefID:     refID,
+						TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(1, 0)},
+						JSON:      json.RawMessage(test.query),
+					},
+				},
+			})
+
+			require.NoError(t, err)
+			require.Len(t, cli.calls.getEventsWithContext, 1)
+			assert.Equal(t, test.expectedInput, cli.calls.getEventsWithContext)
+		})
+	}
+}
+
+func TestQuery_GetLogEvents_returns_response_from_GetLogEvents_to_data_frame_field(t *testing.T) {
+	origNewCWLogsClient := NewCWLogsClient
+	t.Cleanup(func() {
+		NewCWLogsClient = origNewCWLogsClient
+	})
+	var cli *mocks.MockLogEvents
+	NewCWLogsClient = func(sess *session.Session) cloudwatchlogsiface.CloudWatchLogsAPI {
+		return cli
+	}
+	im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+		return DataSource{Settings: models.CloudWatchSettings{}, sessions: &fakeSessionCache{}}, nil
+	})
+	executor := newExecutor(im, log.NewNullLogger())
+
+	cli = &mocks.MockLogEvents{}
+	cli.On("GetLogEventsWithContext", mock.Anything, mock.Anything, mock.Anything).Return(&cloudwatchlogs.GetLogEventsOutput{
+		Events: []*cloudwatchlogs.OutputLogEvent{{
+			Message:   utils.Pointer("some message"),
+			Timestamp: utils.Pointer(int64(15)),
+		}}}, nil)
+
 	resp, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
 		PluginContext: backend.PluginContext{
 			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{},
 		},
 		Queries: []backend.DataQuery{
 			{
-				RefID: refID,
+				RefID:     "A",
+				TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(1, 0)},
 				JSON: json.RawMessage(`{
-					"type":    "logAction",
-					"subtype": "GetLogGroupFields",
-					"logGroupName": "group_a",
-					"limit": 50
-				}`),
+							"type":         "logAction",
+							"subtype":       "GetLogEvents",
+							"logGroupName":  "foo",
+							"logStreamName": "bar",
+							"endTime":       1,
+							"startFromHead": false
+						}`),
 			},
 		},
 	})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
 
-	expFrame := &data.Frame{
-		Name: refID,
-		Fields: []*data.Field{
-			data.NewField("name", nil, []*string{
-				aws.String("field_a"), aws.String("field_b"), aws.String("field_c"),
-			}),
-			data.NewField("percent", nil, []*int64{
-				aws.Int64(100), aws.Int64(30), aws.Int64(55),
-			}),
-		},
-	}
-	expFrame.RefID = refID
-	assert.Equal(t, &backend.QueryDataResponse{Responses: backend.Responses{
-		refID: backend.DataResponse{
-			Frames: data.Frames{expFrame},
-		},
-	},
-	}, resp)
+	require.NoError(t, err)
+
+	respA, ok := resp.Responses["A"]
+	assert.True(t, ok)
+
+	expectedTsField := data.NewField("ts", nil, []time.Time{time.UnixMilli(15).UTC()})
+	expectedMessageField := data.NewField("line", nil, []*string{utils.Pointer("some message")})
+	expectedTsField.SetConfig(&data.FieldConfig{DisplayName: "Time"})
+	assert.Equal(t, []*data.Field{expectedTsField, expectedMessageField}, respA.Frames[0].Fields)
 }
 
 func TestQuery_StartQuery(t *testing.T) {
@@ -236,6 +179,8 @@ func TestQuery_StartQuery(t *testing.T) {
 	}
 
 	t.Run("invalid time range", func(t *testing.T) {
+		const refID = "A"
+
 		cli = fakeCWLogsClient{
 			logGroupFields: cloudwatchlogs.GetLogGroupFieldsOutput{
 				LogGroupFields: []*cloudwatchlogs.LogGroupField{
@@ -260,17 +205,22 @@ func TestQuery_StartQuery(t *testing.T) {
 			To:   time.Unix(1584700643, 0),
 		}
 
-		im := datasource.NewInstanceManager(func(s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-			return datasourceInfo{}, nil
+		im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+			return DataSource{Settings: models.CloudWatchSettings{
+				AWSDatasourceSettings: awsds.AWSDatasourceSettings{
+					Region: "us-east-2",
+				},
+			}, sessions: &fakeSessionCache{}}, nil
 		})
 
-		executor := newExecutor(im, newTestConfig(), &fakeSessionCache{})
-		_, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
+		executor := newExecutor(im, log.NewNullLogger())
+		resp, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
 			PluginContext: backend.PluginContext{
 				DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{},
 			},
 			Queries: []backend.DataQuery{
 				{
+					RefID:     refID,
 					TimeRange: timeRange,
 					JSON: json.RawMessage(`{
 						"type":        "logAction",
@@ -282,9 +232,9 @@ func TestQuery_StartQuery(t *testing.T) {
 				},
 			},
 		})
-		require.Error(t, err)
+		require.NoError(t, err)
 
-		assert.Contains(t, err.Error(), "invalid time range: start time must be before end time")
+		assert.Equal(t, "failed to execute log action with subtype: StartQuery: invalid time range: start time must be before end time", resp.Responses[refID].Error.Error())
 	})
 
 	t.Run("valid time range", func(t *testing.T) {
@@ -313,11 +263,15 @@ func TestQuery_StartQuery(t *testing.T) {
 			To:   time.Unix(1584873443000, 0),
 		}
 
-		im := datasource.NewInstanceManager(func(s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-			return datasourceInfo{}, nil
+		im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+			return DataSource{Settings: models.CloudWatchSettings{
+				AWSDatasourceSettings: awsds.AWSDatasourceSettings{
+					Region: "us-east-2",
+				},
+			}, sessions: &fakeSessionCache{}}, nil
 		})
 
-		executor := newExecutor(im, newTestConfig(), &fakeSessionCache{})
+		executor := newExecutor(im, log.NewNullLogger())
 		resp, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
 			PluginContext: backend.PluginContext{
 				DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{},
@@ -344,7 +298,7 @@ func TestQuery_StartQuery(t *testing.T) {
 		)
 		expFrame.RefID = refID
 		expFrame.Meta = &data.FrameMeta{
-			Custom: map[string]interface{}{
+			Custom: map[string]any{
 				"Region": "default",
 			},
 		}
@@ -355,6 +309,26 @@ func TestQuery_StartQuery(t *testing.T) {
 		},
 		}, resp)
 	})
+}
+
+type withQueryLanguageMock struct {
+	capturedLanguage      *dataquery.LogsQueryLanguage
+	mockWithQueryLanguage func(language *dataquery.LogsQueryLanguage) func(request *request.Request)
+}
+
+func newWithQueryLanguageMock() *withQueryLanguageMock {
+	mock := &withQueryLanguageMock{
+		capturedLanguage: new(dataquery.LogsQueryLanguage),
+	}
+
+	mock.mockWithQueryLanguage = func(language *dataquery.LogsQueryLanguage) func(request *request.Request) {
+		*mock.capturedLanguage = *language
+		return func(req *request.Request) {
+
+		}
+	}
+
+	return mock
 }
 
 func Test_executeStartQuery(t *testing.T) {
@@ -369,75 +343,143 @@ func Test_executeStartQuery(t *testing.T) {
 		return &cli
 	}
 
-	t.Run("successfully parses information from JSON to StartQueryWithContext", func(t *testing.T) {
-		cli = fakeCWLogsClient{}
-		im := datasource.NewInstanceManager(func(s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-			return datasourceInfo{}, nil
-		})
-		executor := newExecutor(im, newTestConfig(), &fakeSessionCache{})
-
-		_, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
-			PluginContext: backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{}},
-			Queries: []backend.DataQuery{
-				{
+	t.Run("successfully parses information from JSON to StartQueryWithContext for language", func(t *testing.T) {
+		testCases := map[string]struct {
+			queries        []backend.DataQuery
+			expectedOutput []*cloudwatchlogs.StartQueryInput
+			queryLanguage  dataquery.LogsQueryLanguage
+		}{
+			"not defined": {
+				queries: []backend.DataQuery{
+					{
+						RefID:     "A",
+						TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(1, 0)},
+						JSON: json.RawMessage(`{
+							"type":    "logAction",
+							"subtype": "StartQuery",
+							"limit":   12,
+							"queryString":"fields @message",
+							"logGroupNames":["some name","another name"]
+						}`),
+					},
+				},
+				expectedOutput: []*cloudwatchlogs.StartQueryInput{{
+					StartTime:     aws.Int64(0),
+					EndTime:       aws.Int64(1),
+					Limit:         aws.Int64(12),
+					QueryString:   aws.String("fields @timestamp,ltrim(@log) as __log__grafana_internal__,ltrim(@logStream) as __logstream__grafana_internal__|fields @message"),
+					LogGroupNames: []*string{aws.String("some name"), aws.String("another name")},
+				}},
+				queryLanguage: dataquery.LogsQueryLanguageCWLI,
+			},
+			"CWLI": {
+				queries: []backend.DataQuery{{
 					RefID:     "A",
 					TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(1, 0)},
 					JSON: json.RawMessage(`{
 						"type":    "logAction",
 						"subtype": "StartQuery",
 						"limit":   12,
+						"queryLanguage": "CWLI",
 						"queryString":"fields @message",
 						"logGroupNames":["some name","another name"]
 					}`),
+				}},
+				expectedOutput: []*cloudwatchlogs.StartQueryInput{
+					{
+						StartTime:     aws.Int64(0),
+						EndTime:       aws.Int64(1),
+						Limit:         aws.Int64(12),
+						QueryString:   aws.String("fields @timestamp,ltrim(@log) as __log__grafana_internal__,ltrim(@logStream) as __logstream__grafana_internal__|fields @message"),
+						LogGroupNames: []*string{aws.String("some name"), aws.String("another name")},
+					},
 				},
+				queryLanguage: dataquery.LogsQueryLanguageCWLI,
 			},
-		})
-
-		assert.NoError(t, err)
-		assert.Equal(t, []*cloudwatchlogs.StartQueryInput{
-			{
-				StartTime:     aws.Int64(0),
-				EndTime:       aws.Int64(1),
-				Limit:         aws.Int64(12),
-				QueryString:   aws.String("fields @timestamp,ltrim(@log) as __log__grafana_internal__,ltrim(@logStream) as __logstream__grafana_internal__|fields @message"),
-				LogGroupNames: []*string{aws.String("some name"), aws.String("another name")},
-			},
-		}, cli.calls.startQueryWithContext)
-	})
-
-	t.Run("cannot parse limit as float", func(t *testing.T) {
-		cli = fakeCWLogsClient{}
-		im := datasource.NewInstanceManager(func(s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-			return datasourceInfo{}, nil
-		})
-		executor := newExecutor(im, newTestConfig(), &fakeSessionCache{})
-
-		_, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
-			PluginContext: backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{}},
-			Queries: []backend.DataQuery{
-				{
+			"PPL": {
+				queries: []backend.DataQuery{{
 					RefID:     "A",
 					TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(1, 0)},
 					JSON: json.RawMessage(`{
 						"type":    "logAction",
 						"subtype": "StartQuery",
-						"limit":   12.0
+						"limit":   12,
+						"queryLanguage": "PPL",
+						"queryString":"source logs | fields @message",
+						"logGroupNames":["some name","another name"]
 					}`),
+				}},
+				expectedOutput: []*cloudwatchlogs.StartQueryInput{
+					{
+						StartTime:     aws.Int64(0),
+						EndTime:       aws.Int64(1),
+						Limit:         aws.Int64(12),
+						QueryString:   aws.String("source logs | fields @message"),
+						LogGroupNames: []*string{aws.String("some name"), aws.String("another name")},
+					},
 				},
+				queryLanguage: dataquery.LogsQueryLanguagePPL,
 			},
-		})
+			"SQL": {
+				queries: []backend.DataQuery{
+					{
+						RefID:     "A",
+						TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(1, 0)},
+						JSON: json.RawMessage(`{
+							"type":    "logAction",
+							"subtype": "StartQuery",
+							"limit":   12,
+							"queryLanguage": "SQL",
+							"queryString":"SELECT * FROM logs",
+							"logGroupNames":["some name","another name"]
+						}`),
+					},
+				},
+				expectedOutput: []*cloudwatchlogs.StartQueryInput{
+					{
+						StartTime:     aws.Int64(0),
+						EndTime:       aws.Int64(1),
+						Limit:         aws.Int64(12),
+						QueryString:   aws.String("SELECT * FROM logs"),
+						LogGroupNames: nil,
+					},
+				},
+				queryLanguage: dataquery.LogsQueryLanguageSQL,
+			},
+		}
+		for name, test := range testCases {
+			t.Run(name, func(t *testing.T) {
+				cli = fakeCWLogsClient{}
+				im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+					return DataSource{Settings: models.CloudWatchSettings{}, sessions: &fakeSessionCache{}}, nil
+				})
+				executor := newExecutor(im, log.NewNullLogger())
 
-		assert.NoError(t, err)
-		require.Len(t, cli.calls.startQueryWithContext, 1)
-		assert.Nil(t, cli.calls.startQueryWithContext[0].Limit)
+				languageMock := newWithQueryLanguageMock()
+				originalWithQueryLanguage := WithQueryLanguage
+				WithQueryLanguage = languageMock.mockWithQueryLanguage
+				defer func() {
+					WithQueryLanguage = originalWithQueryLanguage
+				}()
+
+				_, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
+					PluginContext: backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{}},
+					Queries:       test.queries,
+				})
+
+				assert.NoError(t, err)
+				assert.Equal(t, test.expectedOutput, cli.calls.startQueryWithContext)
+				assert.Equal(t, &test.queryLanguage, languageMock.capturedLanguage)
+			})
+		}
 	})
 
 	t.Run("does not populate StartQueryInput.limit when no limit provided", func(t *testing.T) {
 		cli = fakeCWLogsClient{}
-		im := datasource.NewInstanceManager(func(s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-			return datasourceInfo{}, nil
+		im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+			return DataSource{Settings: models.CloudWatchSettings{}, sessions: &fakeSessionCache{}}, nil
 		})
-		executor := newExecutor(im, newTestConfig(), &fakeSessionCache{})
+		executor := newExecutor(im, log.NewNullLogger())
 
 		_, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
 			PluginContext: backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{}},
@@ -456,6 +498,183 @@ func Test_executeStartQuery(t *testing.T) {
 		assert.NoError(t, err)
 		require.Len(t, cli.calls.startQueryWithContext, 1)
 		assert.Nil(t, cli.calls.startQueryWithContext[0].Limit)
+	})
+
+	t.Run("attaches logGroupIdentifiers if the crossAccount feature is enabled", func(t *testing.T) {
+		cli = fakeCWLogsClient{}
+		im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+			return DataSource{Settings: models.CloudWatchSettings{}, sessions: &fakeSessionCache{}}, nil
+		})
+		executor := newExecutor(im, log.NewNullLogger())
+
+		_, err := executor.QueryData(contextWithFeaturesEnabled(features.FlagCloudWatchCrossAccountQuerying), &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{}},
+			Queries: []backend.DataQuery{
+				{
+					RefID:     "A",
+					TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(1, 0)},
+					JSON: json.RawMessage(`{
+						"type":    "logAction",
+						"subtype": "StartQuery",
+						"limit":   12,
+						"queryLanguage": "CWLI",
+						"queryString":"fields @message",
+						"logGroups":[{"arn": "fakeARN"}]
+					}`),
+				},
+			},
+		})
+
+		assert.NoError(t, err)
+		assert.Equal(t, []*cloudwatchlogs.StartQueryInput{
+			{
+				StartTime:           aws.Int64(0),
+				EndTime:             aws.Int64(1),
+				Limit:               aws.Int64(12),
+				QueryString:         aws.String("fields @timestamp,ltrim(@log) as __log__grafana_internal__,ltrim(@logStream) as __logstream__grafana_internal__|fields @message"),
+				LogGroupIdentifiers: []*string{aws.String("fakeARN")},
+			},
+		}, cli.calls.startQueryWithContext)
+	})
+
+	t.Run("attaches logGroupIdentifiers if the crossAccount feature is enabled and strips out trailing *", func(t *testing.T) {
+		cli = fakeCWLogsClient{}
+		im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+			return DataSource{Settings: models.CloudWatchSettings{}, sessions: &fakeSessionCache{}}, nil
+		})
+		executor := newExecutor(im, log.NewNullLogger())
+
+		_, err := executor.QueryData(contextWithFeaturesEnabled(features.FlagCloudWatchCrossAccountQuerying), &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{}},
+			Queries: []backend.DataQuery{
+				{
+					RefID:     "A",
+					TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(1, 0)},
+					JSON: json.RawMessage(`{
+						"type":    "logAction",
+						"subtype": "StartQuery",
+						"limit":   12,
+						"queryString":"fields @message",
+						"logGroups":[{"arn": "*fake**ARN*"}]
+					}`),
+				},
+			},
+		})
+
+		assert.NoError(t, err)
+		assert.Equal(t, []*cloudwatchlogs.StartQueryInput{
+			{
+				StartTime:           aws.Int64(0),
+				EndTime:             aws.Int64(1),
+				Limit:               aws.Int64(12),
+				QueryString:         aws.String("fields @timestamp,ltrim(@log) as __log__grafana_internal__,ltrim(@logStream) as __logstream__grafana_internal__|fields @message"),
+				LogGroupIdentifiers: []*string{aws.String("*fake**ARN")},
+			},
+		}, cli.calls.startQueryWithContext)
+	})
+
+	t.Run("uses LogGroupNames if the cross account feature flag is not enabled, and log group names is present", func(t *testing.T) {
+		cli = fakeCWLogsClient{}
+		im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+			return DataSource{Settings: models.CloudWatchSettings{}, sessions: &fakeSessionCache{}}, nil
+		})
+		executor := newExecutor(im, log.NewNullLogger())
+		_, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{}},
+			Queries: []backend.DataQuery{
+				{
+					RefID:     "A",
+					TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(1, 0)},
+					JSON: json.RawMessage(`{
+						"type":    "logAction",
+						"subtype": "StartQuery",
+						"limit":   12,
+						"queryString":"fields @message",
+						"logGroups":[{"arn": "*fake**ARN*"}],
+						"LogGroupNames": ["/log-group-name"]
+					}`),
+				},
+			},
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, []*cloudwatchlogs.StartQueryInput{
+			{
+				StartTime:     aws.Int64(0),
+				EndTime:       aws.Int64(1),
+				Limit:         aws.Int64(12),
+				QueryString:   aws.String("fields @timestamp,ltrim(@log) as __log__grafana_internal__,ltrim(@logStream) as __logstream__grafana_internal__|fields @message"),
+				LogGroupNames: []*string{aws.String("/log-group-name")},
+			},
+		}, cli.calls.startQueryWithContext)
+	})
+
+	t.Run("ignores logGroups if feature flag is disabled even if logGroupNames is not present", func(t *testing.T) {
+		cli = fakeCWLogsClient{}
+		im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+			return DataSource{Settings: models.CloudWatchSettings{}, sessions: &fakeSessionCache{}}, nil
+		})
+		executor := newExecutor(im, log.NewNullLogger())
+		_, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{}},
+			Queries: []backend.DataQuery{
+				{
+					RefID:     "A",
+					TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(1, 0)},
+					JSON: json.RawMessage(`{
+						"type":    "logAction",
+						"subtype": "StartQuery",
+						"limit":   12,
+						"queryString":"fields @message",
+						"logGroups":[{"arn": "*fake**ARN*"}]
+					}`),
+				},
+			},
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, []*cloudwatchlogs.StartQueryInput{
+			{
+				StartTime:     aws.Int64(0),
+				EndTime:       aws.Int64(1),
+				Limit:         aws.Int64(12),
+				QueryString:   aws.String("fields @timestamp,ltrim(@log) as __log__grafana_internal__,ltrim(@logStream) as __logstream__grafana_internal__|fields @message"),
+				LogGroupNames: []*string{},
+			},
+		}, cli.calls.startQueryWithContext)
+	})
+
+	t.Run("it always uses logGroups when feature flag is enabled and ignores log group names", func(t *testing.T) {
+		cli = fakeCWLogsClient{}
+		im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+			return DataSource{Settings: models.CloudWatchSettings{}, sessions: &fakeSessionCache{}}, nil
+		})
+		executor := newExecutor(im, log.NewNullLogger())
+		_, err := executor.QueryData(contextWithFeaturesEnabled(features.FlagCloudWatchCrossAccountQuerying), &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{}},
+			Queries: []backend.DataQuery{
+				{
+					RefID:     "A",
+					TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(1, 0)},
+					JSON: json.RawMessage(`{
+						"type":    "logAction",
+						"subtype": "StartQuery",
+						"limit":   12,
+						"queryString":"fields @message",
+						"logGroups":[{"arn": "*fake**ARN*"}],
+						"logGroupNames":["/log-group"]
+					}`),
+				},
+			},
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, []*cloudwatchlogs.StartQueryInput{
+			{
+				StartTime:           aws.Int64(0),
+				EndTime:             aws.Int64(1),
+				Limit:               aws.Int64(12),
+				QueryString:         aws.String("fields @timestamp,ltrim(@log) as __log__grafana_internal__,ltrim(@logStream) as __logstream__grafana_internal__|fields @message"),
+				LogGroupIdentifiers: []*string{aws.String("*fake**ARN")},
+			},
+		}, cli.calls.startQueryWithContext)
 	})
 }
 
@@ -490,8 +709,8 @@ func TestQuery_StopQuery(t *testing.T) {
 		},
 	}
 
-	im := datasource.NewInstanceManager(func(s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-		return datasourceInfo{}, nil
+	im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+		return DataSource{Settings: models.CloudWatchSettings{}, sessions: &fakeSessionCache{}}, nil
 	})
 
 	timeRange := backend.TimeRange{
@@ -499,7 +718,7 @@ func TestQuery_StopQuery(t *testing.T) {
 		To:   time.Unix(1584700643, 0),
 	}
 
-	executor := newExecutor(im, newTestConfig(), &fakeSessionCache{})
+	executor := newExecutor(im, log.NewNullLogger())
 	resp, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
 		PluginContext: backend.PluginContext{
 			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{},
@@ -585,11 +804,11 @@ func TestQuery_GetQueryResults(t *testing.T) {
 		},
 	}
 
-	im := datasource.NewInstanceManager(func(s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-		return datasourceInfo{}, nil
+	im := datasource.NewInstanceManager(func(ctx context.Context, s backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+		return DataSource{Settings: models.CloudWatchSettings{}, sessions: &fakeSessionCache{}}, nil
 	})
 
-	executor := newExecutor(im, newTestConfig(), &fakeSessionCache{})
+	executor := newExecutor(im, log.NewNullLogger())
 	resp, err := executor.QueryData(context.Background(), &backend.QueryDataRequest{
 		PluginContext: backend.PluginContext{
 			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{},
@@ -621,7 +840,7 @@ func TestQuery_GetQueryResults(t *testing.T) {
 	expFrame := data.NewFrame(refID, expField1, expField2)
 	expFrame.RefID = refID
 	expFrame.Meta = &data.FrameMeta{
-		Custom: map[string]interface{}{
+		Custom: map[string]any{
 			"Status": "Complete",
 		},
 		Stats: []data.QueryStat{
@@ -647,4 +866,27 @@ func TestQuery_GetQueryResults(t *testing.T) {
 		},
 	},
 	}, resp)
+}
+
+func TestGroupResponseFrame(t *testing.T) {
+	t.Run("Doesn't group results without time field", func(t *testing.T) {
+		frame := data.NewFrameOfFieldTypes("test", 0, data.FieldTypeString, data.FieldTypeInt32)
+		frame.AppendRow("val1", int32(10))
+		frame.AppendRow("val2", int32(20))
+		frame.AppendRow("val3", int32(30))
+
+		groupedFrame, err := groupResponseFrame(frame, []string{"something"})
+		require.NoError(t, err)
+		require.Equal(t, 3, groupedFrame[0].Rows())
+		require.Equal(t, []any{"val1", "val2", "val3"}, asArray(groupedFrame[0].Fields[0]))
+		require.Equal(t, []any{int32(10), int32(20), int32(30)}, asArray(groupedFrame[0].Fields[1]))
+	})
+}
+
+func asArray(field *data.Field) []any {
+	var vals []any
+	for i := 0; i < field.Len(); i++ {
+		vals = append(vals, field.At(i))
+	}
+	return vals
 }

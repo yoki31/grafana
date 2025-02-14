@@ -1,11 +1,12 @@
-import React, { PureComponent, ReactNode, ComponentType } from 'react';
-import { captureException } from '@sentry/browser';
+import { PureComponent, ReactNode, ComponentType, ErrorInfo } from 'react';
+
+import { faro } from '@grafana/faro-web-sdk';
+
 import { Alert } from '../Alert/Alert';
+
 import { ErrorWithStack } from './ErrorWithStack';
 
-export interface ErrorInfo {
-  componentStack: string;
-}
+export type { ErrorInfo };
 
 export interface ErrorBoundaryApi {
   error: Error | null;
@@ -15,11 +16,13 @@ export interface ErrorBoundaryApi {
 interface Props {
   children: (r: ErrorBoundaryApi) => ReactNode;
   /** Will re-render children after error if recover values changes */
-  dependencies?: any[];
+  dependencies?: unknown[];
   /** Callback called on error */
   onError?: (error: Error) => void;
   /** Callback error state is cleared due to recover props change */
   onRecover?: () => void;
+  /** Default error logger - Faro by default */
+  errorLogger?: (error: Error) => void;
 }
 
 interface State {
@@ -34,7 +37,12 @@ export class ErrorBoundary extends PureComponent<Props, State> {
   };
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    captureException(error, { contexts: { react: { componentStack: errorInfo.componentStack } } });
+    const logger = this.props.errorLogger ?? faro?.api?.pushError;
+
+    if (logger) {
+      logger(error);
+    }
+
     this.setState({ error, errorInfo });
 
     if (this.props.onError) {
@@ -87,7 +95,9 @@ export interface ErrorBoundaryAlertProps {
   style?: 'page' | 'alertbox';
 
   /** Will re-render children after error if recover values changes */
-  dependencies?: any[];
+  dependencies?: unknown[];
+  /** Default error logger - Faro by default */
+  errorLogger?: (error: Error) => void;
 }
 
 export class ErrorBoundaryAlert extends PureComponent<ErrorBoundaryAlertProps> {
@@ -97,10 +107,10 @@ export class ErrorBoundaryAlert extends PureComponent<ErrorBoundaryAlertProps> {
   };
 
   render() {
-    const { title, children, style, dependencies } = this.props;
+    const { title, children, style, dependencies, errorLogger } = this.props;
 
     return (
-      <ErrorBoundary dependencies={dependencies}>
+      <ErrorBoundary dependencies={dependencies} errorLogger={errorLogger}>
         {({ error, errorInfo }) => {
           if (!errorInfo) {
             return children;
@@ -133,7 +143,7 @@ export class ErrorBoundaryAlert extends PureComponent<ErrorBoundaryAlertProps> {
  *
  * @public
  */
-export function withErrorBoundary<P = {}>(
+export function withErrorBoundary<P extends {} = {}>(
   Component: ComponentType<P>,
   errorBoundaryProps: Omit<ErrorBoundaryAlertProps, 'children'> = {}
 ): ComponentType<P> {

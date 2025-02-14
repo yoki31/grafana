@@ -1,7 +1,7 @@
-import React from 'react';
+import * as React from 'react';
 
 import { DataFrameFieldIndex, DisplayValue } from '@grafana/data';
-import { LegendDisplayMode, LegendPlacement } from '@grafana/schema';
+import { LegendDisplayMode, LegendPlacement, LineStyle } from '@grafana/schema';
 
 export enum SeriesVisibilityChangeBehavior {
   Isolate,
@@ -12,11 +12,19 @@ export interface VizLegendBaseProps<T> {
   placement: LegendPlacement;
   className?: string;
   items: Array<VizLegendItem<T>>;
+  thresholdItems?: Array<VizLegendItem<T>>;
+  mappingItems?: Array<VizLegendItem<T>>;
   seriesVisibilityChangeBehavior?: SeriesVisibilityChangeBehavior;
-  onLabelClick?: (item: VizLegendItem<T>, event: React.MouseEvent<HTMLElement>) => void;
+  onLabelClick?: (item: VizLegendItem<T>, event: React.MouseEvent<HTMLButtonElement>) => void;
   itemRenderer?: (item: VizLegendItem<T>, index: number) => JSX.Element;
-  onLabelMouseEnter?: (item: VizLegendItem, event: React.MouseEvent<HTMLElement>) => void;
-  onLabelMouseOut?: (item: VizLegendItem, event: React.MouseEvent<HTMLElement>) => void;
+  onLabelMouseOver?: (
+    item: VizLegendItem,
+    event: React.MouseEvent<HTMLButtonElement> | React.FocusEvent<HTMLButtonElement>
+  ) => void;
+  onLabelMouseOut?: (
+    item: VizLegendItem,
+    event: React.MouseEvent<HTMLButtonElement> | React.FocusEvent<HTMLButtonElement>
+  ) => void;
   readonly?: boolean;
 }
 
@@ -24,6 +32,7 @@ export interface VizLegendTableProps<T> extends VizLegendBaseProps<T> {
   sortBy?: string;
   sortDesc?: boolean;
   onToggleSort?: (sortBy: string) => void;
+  isSortable?: boolean;
 }
 
 export interface LegendProps<T = any> extends VizLegendBaseProps<T>, VizLegendTableProps<T> {
@@ -40,5 +49,7 @@ export interface VizLegendItem<T = any> {
   // displayValues?: DisplayValue[];
   getDisplayValues?: () => DisplayValue[];
   fieldIndex?: DataFrameFieldIndex;
+  fieldName?: string;
   data?: T;
+  lineStyle?: LineStyle;
 }

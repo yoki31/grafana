@@ -1,177 +1,192 @@
-import React, { Component } from 'react';
-import { Select, Table } from '@grafana/ui';
+import { css } from '@emotion/css';
+
 import {
+  ActionModel,
+  DashboardCursorSync,
   DataFrame,
   FieldMatcherID,
-  getDataSourceRef,
   getFrameDisplayName,
+  InterpolateFunction,
   PanelProps,
   SelectableValue,
+  Field,
 } from '@grafana/data';
-import { PanelOptions } from './models.gen';
-import { css } from '@emotion/css';
-import { config } from 'app/core/config';
-import { FilterItem, TableSortByFieldState } from '@grafana/ui/src/components/Table/types';
-import { dispatch } from '../../../store/store';
-import { applyFilterFromTable } from '../../../features/variables/adhoc/actions';
-import { getDashboardSrv } from '../../../features/dashboard/services/DashboardSrv';
-import { getFooterCells } from './footer';
-import { getDatasourceSrv } from 'app/features/plugins/datasource_srv';
+import { config, PanelDataErrorView } from '@grafana/runtime';
+import { Select, Table, usePanelContext, useTheme2 } from '@grafana/ui';
+import { TableSortByFieldState } from '@grafana/ui/src/components/Table/types';
 
-interface Props extends PanelProps<PanelOptions> {}
+import { getActions } from '../../../features/actions/utils';
 
-export class TablePanel extends Component<Props> {
-  constructor(props: Props) {
-    super(props);
+import { hasDeprecatedParentRowIndex, migrateFromParentRowIndexToNestedFrames } from './migrations';
+import { Options } from './panelcfg.gen';
+
+interface Props extends PanelProps<Options> {}
+
+export function TablePanel(props: Props) {
+  const { data, height, width, options, fieldConfig, id, timeRange, replaceVariables } = props;
+
+  const theme = useTheme2();
+  const panelContext = usePanelContext();
+  const frames = hasDeprecatedParentRowIndex(data.series)
+    ? migrateFromParentRowIndexToNestedFrames(data.series)
+    : data.series;
+  const count = frames?.length;
+  const hasFields = frames.some((frame) => frame.fields.length > 0);
+  const currentIndex = getCurrentFrameIndex(frames, options);
+  const main = frames[currentIndex];
+
+  let tableHeight = height;
+
+  if (!count || !hasFields) {
+    return <PanelDataErrorView panelId={id} fieldConfig={fieldConfig} data={data} />;
   }
 
-  onColumnResize = (fieldDisplayName: string, width: number) => {
-    const { fieldConfig } = this.props;
-    const { overrides } = fieldConfig;
+  if (count > 1) {
+    const inputHeight = theme.spacing.gridSize * theme.components.height.md;
+    const padding = theme.spacing.gridSize;
 
-    const matcherId = FieldMatcherID.byName;
-    const propId = 'custom.width';
-
-    // look for existing override
-    const override = overrides.find((o) => o.matcher.id === matcherId && o.matcher.options === fieldDisplayName);
-
-    if (override) {
-      // look for existing property
-      const property = override.properties.find((prop) => prop.id === propId);
-      if (property) {
-        property.value = width;
-      } else {
-        override.properties.push({ id: propId, value: width });
-      }
-    } else {
-      overrides.push({
-        matcher: { id: matcherId, options: fieldDisplayName },
-        properties: [{ id: propId, value: width }],
-      });
-    }
-
-    this.props.onFieldConfigChange({
-      ...fieldConfig,
-      overrides,
-    });
-  };
-
-  onSortByChange = (sortBy: TableSortByFieldState[]) => {
-    this.props.onOptionsChange({
-      ...this.props.options,
-      sortBy,
-    });
-  };
-
-  onChangeTableSelection = (val: SelectableValue<number>) => {
-    this.props.onOptionsChange({
-      ...this.props.options,
-      frameIndex: val.value || 0,
-    });
-
-    // Force a redraw -- but no need to re-query
-    this.forceUpdate();
-  };
-
-  onCellFilterAdded = (filter: FilterItem) => {
-    const { key, value, operator } = filter;
-    const panelModel = getDashboardSrv().getCurrent()?.getPanelById(this.props.id);
-    if (!panelModel) {
-      return;
-    }
-
-    // When the datasource is null/undefined (for a default datasource), we use getInstanceSettings
-    // to find the real datasource ref for the default datasource.
-    const datasourceInstance = getDatasourceSrv().getInstanceSettings(panelModel.datasource);
-    const datasourceRef = datasourceInstance && getDataSourceRef(datasourceInstance);
-    if (!datasourceRef) {
-      return;
-    }
-
-    dispatch(applyFilterFromTable({ datasource: datasourceRef, key, operator, value }));
-  };
-
-  renderTable(frame: DataFrame, width: number, height: number) {
-    const { options } = this.props;
-    const footerValues = options.footer?.show ? getFooterCells(frame, options.footer) : undefined;
-
-    return (
-      <Table
-        height={height}
-        width={width}
-        data={frame}
-        noHeader={!options.showHeader}
-        showTypeIcons={options.showTypeIcons}
-        resizable={true}
-        initialSortBy={options.sortBy}
-        onSortByChange={this.onSortByChange}
-        onColumnResize={this.onColumnResize}
-        onCellFilterAdded={this.onCellFilterAdded}
-        footerValues={footerValues}
-      />
-    );
+    tableHeight = height - inputHeight - padding;
   }
 
-  getCurrentFrameIndex(frames: DataFrame[], options: PanelOptions) {
-    return options.frameIndex > 0 && options.frameIndex < frames.length ? options.frameIndex : 0;
+  const enableSharedCrosshair = panelContext.sync && panelContext.sync() !== DashboardCursorSync.Off;
+
+  const tableElement = (
+    <Table
+      height={tableHeight}
+      width={width}
+      data={main}
+      noHeader={!options.showHeader}
+      showTypeIcons={options.showTypeIcons}
+      resizable={true}
+      initialSortBy={options.sortBy}
+      onSortByChange={(sortBy) => onSortByChange(sortBy, props)}
+      onColumnResize={(displayName, resizedWidth) => onColumnResize(displayName, resizedWidth, props)}
+      onCellFilterAdded={panelContext.onAddAdHocFilter}
+      footerOptions={options.footer}
+      enablePagination={options.footer?.enablePagination}
+      cellHeight={options.cellHeight}
+      timeRange={timeRange}
+      enableSharedCrosshair={config.featureToggles.tableSharedCrosshair && enableSharedCrosshair}
+      fieldConfig={fieldConfig}
+      getActions={getCellActions}
+      replaceVariables={replaceVariables}
+    />
+  );
+
+  if (count === 1) {
+    return tableElement;
   }
 
-  render() {
-    const { data, height, width, options } = this.props;
+  const names = frames.map((frame, index) => {
+    return {
+      label: getFrameDisplayName(frame),
+      value: index,
+    };
+  });
 
-    const frames = data.series;
-    const count = frames?.length;
-    const hasFields = frames[0]?.fields.length;
-
-    if (!count || !hasFields) {
-      return <div className={tableStyles.noData}>No data</div>;
-    }
-
-    if (count > 1) {
-      const inputHeight = config.theme.spacing.formInputHeight;
-      const padding = 8 * 2;
-      const currentIndex = this.getCurrentFrameIndex(frames, options);
-      const names = frames.map((frame, index) => {
-        return {
-          label: getFrameDisplayName(frame),
-          value: index,
-        };
-      });
-
-      return (
-        <div className={tableStyles.wrapper}>
-          {this.renderTable(data.series[currentIndex], width, height - inputHeight + padding)}
-          <div className={tableStyles.selectWrapper}>
-            <Select
-              menuShouldPortal
-              options={names}
-              value={names[currentIndex]}
-              onChange={this.onChangeTableSelection}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    return this.renderTable(data.series[0], width, height);
-  }
+  return (
+    <div className={tableStyles.wrapper}>
+      {tableElement}
+      <div className={tableStyles.selectWrapper}>
+        <Select options={names} value={names[currentIndex]} onChange={(val) => onChangeTableSelection(val, props)} />
+      </div>
+    </div>
+  );
 }
 
+function getCurrentFrameIndex(frames: DataFrame[], options: Options) {
+  return options.frameIndex > 0 && options.frameIndex < frames.length ? options.frameIndex : 0;
+}
+
+function onColumnResize(fieldDisplayName: string, width: number, props: Props) {
+  const { fieldConfig } = props;
+  const { overrides } = fieldConfig;
+
+  const matcherId = FieldMatcherID.byName;
+  const propId = 'custom.width';
+
+  // look for existing override
+  const override = overrides.find((o) => o.matcher.id === matcherId && o.matcher.options === fieldDisplayName);
+
+  if (override) {
+    // look for existing property
+    const property = override.properties.find((prop) => prop.id === propId);
+    if (property) {
+      property.value = width;
+    } else {
+      override.properties.push({ id: propId, value: width });
+    }
+  } else {
+    overrides.push({
+      matcher: { id: matcherId, options: fieldDisplayName },
+      properties: [{ id: propId, value: width }],
+    });
+  }
+
+  props.onFieldConfigChange({
+    ...fieldConfig,
+    overrides,
+  });
+}
+
+function onSortByChange(sortBy: TableSortByFieldState[], props: Props) {
+  props.onOptionsChange({
+    ...props.options,
+    sortBy,
+  });
+}
+
+function onChangeTableSelection(val: SelectableValue<number>, props: Props) {
+  props.onOptionsChange({
+    ...props.options,
+    frameIndex: val.value || 0,
+  });
+}
+
+// placeholder function; assuming the values are already interpolated
+const replaceVars: InterpolateFunction = (value: string) => value;
+
+const getCellActions = (
+  dataFrame: DataFrame,
+  field: Field,
+  rowIndex: number,
+  replaceVariables: InterpolateFunction | undefined
+) => {
+  if (!config.featureToggles?.vizActions) {
+    return [];
+  }
+
+  const actions: Array<ActionModel<Field>> = [];
+  const actionLookup = new Set<string>();
+
+  const actionsModel = getActions(
+    dataFrame,
+    field,
+    field.state!.scopedVars!,
+    replaceVariables ?? replaceVars,
+    field.config.actions ?? [],
+    { valueRowIndex: rowIndex }
+  );
+
+  actionsModel.forEach((action) => {
+    const key = `${action.title}`;
+    if (!actionLookup.has(key)) {
+      actions.push(action);
+      actionLookup.add(key);
+    }
+  });
+
+  return actions;
+};
+
 const tableStyles = {
-  wrapper: css`
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    height: 100%;
-  `,
-  noData: css`
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-  `,
-  selectWrapper: css`
-    padding: 8px;
-  `,
+  wrapper: css({
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    height: '100%',
+  }),
+  selectWrapper: css({
+    padding: '8px 8px 0px 8px',
+  }),
 };

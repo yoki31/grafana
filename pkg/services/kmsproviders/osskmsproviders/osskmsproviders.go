@@ -11,24 +11,20 @@ import (
 
 type Service struct {
 	enc      encryption.Internal
-	settings setting.Provider
+	cfg      *setting.Cfg
 	features featuremgmt.FeatureToggles
 }
 
-func ProvideService(enc encryption.Internal, settings setting.Provider, features featuremgmt.FeatureToggles) Service {
+func ProvideService(enc encryption.Internal, cfg *setting.Cfg, features featuremgmt.FeatureToggles) Service {
 	return Service{
 		enc:      enc,
-		settings: settings,
+		cfg:      cfg,
 		features: features,
 	}
 }
 
 func (s Service) Provide() (map[secrets.ProviderID]secrets.Provider, error) {
-	if !s.features.IsEnabled(featuremgmt.FlagEnvelopeEncryption) {
-		return nil, nil
-	}
-
 	return map[secrets.ProviderID]secrets.Provider{
-		kmsproviders.Default: grafana.New(s.settings, s.enc),
+		kmsproviders.Default: grafana.New(s.cfg, s.enc),
 	}, nil
 }

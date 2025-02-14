@@ -1,6 +1,5 @@
-import { config, GrafanaBootConfig } from '@grafana/runtime';
 import { PluginState } from '@grafana/data';
-// Legacy binding paths
+import { config, GrafanaBootConfig } from '@grafana/runtime';
 export { config, GrafanaBootConfig as Settings };
 
 let grafanaConfig: GrafanaBootConfig = config;
@@ -18,5 +17,5 @@ export const updateConfig = (update: Partial<GrafanaBootConfig>) => {
   };
 };
 
-// The `enable_alpha` flag is no exposed directly, this is equivolant
+// The `enable_alpha` flag is not exposed directly, this is equivalent
 export const hasAlphaPanels = Boolean(config.panels?.debug?.state === PluginState.alpha);

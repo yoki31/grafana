@@ -1,11 +1,13 @@
-import React, { FunctionComponent } from 'react';
-import { GrafanaTheme2, ThemeVizHue } from '@grafana/data';
-import { Property } from 'csstype';
-import { ColorSwatch, ColorSwatchVariant } from './ColorSwatch';
-import { upperFirst } from 'lodash';
-import { useStyles2 } from '../../themes/ThemeContext';
 import { css } from '@emotion/css';
+import { Property } from 'csstype';
+import { upperFirst } from 'lodash';
+
+import { GrafanaTheme2, ThemeVizHue } from '@grafana/data';
+
+import { useStyles2 } from '../../themes/ThemeContext';
 import { reverseMap } from '../../utils/reverseMap';
+
+import { ColorSwatch, ColorSwatchVariant } from './ColorSwatch';
 
 interface NamedColorsGroupProps {
   hue: ThemeVizHue;
@@ -14,12 +16,7 @@ interface NamedColorsGroupProps {
   key?: string;
 }
 
-const NamedColorsGroup: FunctionComponent<NamedColorsGroupProps> = ({
-  hue,
-  selectedColor,
-  onColorSelect,
-  ...otherProps
-}) => {
+const NamedColorsGroup = ({ hue, selectedColor, onColorSelect, ...otherProps }: NamedColorsGroupProps) => {
   const label = upperFirst(hue.name);
   const styles = useStyles2(getStyles);
 
@@ -46,27 +43,27 @@ export default NamedColorsGroup;
 
 const getStyles = (theme: GrafanaTheme2) => {
   return {
-    colorRow: css`
-      display: grid;
-      grid-template-columns: 25% 1fr;
-      grid-column-gap: ${theme.spacing(2)};
-      padding: ${theme.spacing(0.5, 0)};
+    colorRow: css({
+      display: 'grid',
+      gridTemplateColumns: '25% 1fr',
+      gridColumnGap: theme.spacing(2),
+      padding: theme.spacing(0.5, 0),
 
-      &:hover {
-        background: ${theme.colors.background.secondary};
-      }
-    `,
-    colorLabel: css`
-      padding-left: ${theme.spacing(2)};
-      display: flex;
-      align-items: center;
-    `,
-    swatchRow: css`
-      display: flex;
-      gap: ${theme.spacing(1)};
-      align-items: center;
-      justify-content: space-around;
-      flex-direction: row;
-    `,
+      '&:hover': {
+        background: theme.colors.background.secondary,
+      },
+    }),
+    colorLabel: css({
+      paddingLeft: theme.spacing(1),
+      display: 'flex',
+      alignItems: 'center',
+    }),
+    swatchRow: css({
+      display: 'flex',
+      gap: theme.spacing(1),
+      alignItems: 'center',
+      justifyContent: 'space-around',
+      flexDirection: 'row',
+    }),
   };
 };

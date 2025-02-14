@@ -1,9 +1,9 @@
 import { compact, flattenDeep, map, uniq } from 'lodash';
-import { DashboardModel } from '../state/DashboardModel';
-import { expect } from 'test/lib/common';
-import { getDashboardModel } from '../../../../test/helpers/getDashboardModel';
-import { PanelModel } from './PanelModel';
+
 import { DashboardPanelsChangedEvent } from 'app/types/events';
+
+import { getDashboardModel } from '../../../../test/helpers/getDashboardModel';
+import { DashboardModel } from '../state/DashboardModel';
 
 jest.mock('app/core/services/context_srv', () => ({}));
 
@@ -194,7 +194,7 @@ describe('given dashboard with panel repeat in horizontal direction', () => {
 });
 
 describe('given dashboard with panel repeat in vertical direction', () => {
-  let dashboard: any;
+  let dashboard: DashboardModel;
 
   beforeEach(() => {
     const dashboardJSON = {
@@ -238,7 +238,7 @@ describe('given dashboard with panel repeat in vertical direction', () => {
 });
 
 describe('given dashboard with row repeat and panel repeat in horizontal direction', () => {
-  let dashboard: any, dashboardJSON: any;
+  let dashboard: DashboardModel, dashboardJSON: any;
 
   beforeEach(() => {
     dashboardJSON = {
@@ -280,7 +280,7 @@ describe('given dashboard with row repeat and panel repeat in horizontal directi
       },
     };
     dashboard = getDashboardModel(dashboardJSON);
-    dashboard.processRepeats(false);
+    dashboard.processRepeats();
   });
 
   it('should panels in self row', () => {
@@ -325,7 +325,7 @@ describe('given dashboard with row repeat and panel repeat in horizontal directi
 });
 
 describe('given dashboard with row repeat', () => {
-  let dashboard: any, dashboardJSON: any;
+  let dashboard: DashboardModel, dashboardJSON: any;
 
   beforeEach(() => {
     dashboardJSON = {
@@ -382,7 +382,7 @@ describe('given dashboard with row repeat', () => {
 
     const scopedVars = compact(
       map(dashboard.panels, (panel) => {
-        return panel.scopedVars ? panel.scopedVars.apps.value : null;
+        return panel.scopedVars ? panel.scopedVars.apps?.value : null;
       })
     );
 
@@ -474,14 +474,14 @@ describe('given dashboard with row repeat', () => {
       'graph',
     ]);
 
-    expect(dashboard.panels[0].scopedVars['apps'].value).toBe('se1');
-    expect(dashboard.panels[1].scopedVars['apps'].value).toBe('se1');
-    expect(dashboard.panels[3].scopedVars['apps'].value).toBe('se2');
-    expect(dashboard.panels[4].scopedVars['apps'].value).toBe('se2');
-    expect(dashboard.panels[8].scopedVars['hosts'].value).toBe('backend01');
-    expect(dashboard.panels[9].scopedVars['hosts'].value).toBe('backend01');
-    expect(dashboard.panels[11].scopedVars['hosts'].value).toBe('backend02');
-    expect(dashboard.panels[12].scopedVars['hosts'].value).toBe('backend02');
+    expect(dashboard.panels[0].scopedVars?.['apps']?.value).toBe('se1');
+    expect(dashboard.panels[1].scopedVars?.['apps']?.value).toBe('se1');
+    expect(dashboard.panels[3].scopedVars?.['apps']?.value).toBe('se2');
+    expect(dashboard.panels[4].scopedVars?.['apps']?.value).toBe('se2');
+    expect(dashboard.panels[8].scopedVars?.['hosts']?.value).toBe('backend01');
+    expect(dashboard.panels[9].scopedVars?.['hosts']?.value).toBe('backend01');
+    expect(dashboard.panels[11].scopedVars?.['hosts']?.value).toBe('backend02');
+    expect(dashboard.panels[12].scopedVars?.['hosts']?.value).toBe('backend02');
   });
 
   it('should assign unique ids for repeated panels', () => {
@@ -505,7 +505,7 @@ describe('given dashboard with row repeat', () => {
 
     const panelIds = flattenDeep(
       map(dashboard.panels, (panel) => {
-        let ids = [];
+        let ids: number[] = [];
         if (panel.panels && panel.panels.length) {
           ids = map(panel.panels, 'id');
         }
@@ -798,63 +798,5 @@ describe('given dashboard with row and repeats on same row', () => {
     expect(dashboard.panels[13].gridPos).toEqual({ x: x2, y: 21, w: w2, h: h2 });
     expect(dashboard.panels[15].gridPos).toEqual({ x: x2, y: 26, w: w2, h: h2 });
     expect(dashboard.panels[17].gridPos).toEqual({ x: x2, y: 31, w: w2, h: h2 });
-  });
-});
-
-describe('given panel is in view mode', () => {
-  let dashboard: any;
-
-  beforeEach(() => {
-    const dashboardJSON = {
-      panels: [
-        {
-          id: 1,
-          repeat: 'apps',
-          repeatDirection: 'h',
-          gridPos: { x: 0, y: 0, h: 2, w: 24 },
-        },
-      ],
-      templating: {
-        list: [
-          {
-            name: 'apps',
-            type: 'custom',
-            current: {
-              text: 'se1, se2, se3',
-              value: ['se1', 'se2', 'se3'],
-            },
-            options: [
-              { text: 'se1', value: 'se1', selected: true },
-              { text: 'se2', value: 'se2', selected: true },
-              { text: 'se3', value: 'se3', selected: true },
-              { text: 'se4', value: 'se4', selected: false },
-            ],
-          },
-        ],
-      },
-    };
-
-    dashboard = getDashboardModel(dashboardJSON);
-    dashboard.initViewPanel(
-      new PanelModel({
-        id: 2,
-        repeat: undefined,
-        repeatDirection: 'h',
-        panels: [
-          {
-            id: 2,
-            repeat: 'apps',
-            repeatDirection: 'h',
-            gridPos: { x: 0, y: 0, h: 2, w: 24 },
-          },
-        ],
-        repeatPanelId: 2,
-      })
-    );
-    dashboard.processRepeats();
-  });
-
-  it('should set correct repeated panel to be in view', () => {
-    expect(dashboard.panels[1].isViewing).toBeTruthy();
   });
 });

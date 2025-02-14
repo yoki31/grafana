@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+
 	"github.com/grafana/grafana/pkg/tsdb/influxdb/models"
 )
 
@@ -24,6 +25,7 @@ type queryModel struct {
 	// Not from JSON
 	TimeRange     backend.TimeRange `json:"-"`
 	MaxDataPoints int64             `json:"-"`
+	MaxSeries     int               `json:"-"`
 	Interval      time.Duration     `json:"-"`
 }
 

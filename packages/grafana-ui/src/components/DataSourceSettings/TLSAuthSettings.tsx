@@ -1,13 +1,17 @@
-import React from 'react';
-import { KeyValue } from '@grafana/data';
 import { css, cx } from '@emotion/css';
-import { Tooltip } from '../Tooltip/Tooltip';
+import * as React from 'react';
+
+import { KeyValue } from '@grafana/data';
+
+import { Trans } from '../../utils/i18n';
+import { FormField } from '../FormField/FormField';
 import { Icon } from '../Icon/Icon';
+import { Tooltip } from '../Tooltip/Tooltip';
+
 import { CertificationKey } from './CertificationKey';
 import { HttpSettingsBaseProps } from './types';
-import { FormField } from '../FormField/FormField';
 
-export const TLSAuthSettings: React.FC<HttpSettingsBaseProps> = ({ dataSourceConfig, onChange }) => {
+export const TLSAuthSettings = ({ dataSourceConfig, onChange }: HttpSettingsBaseProps) => {
   const hasTLSCACert = dataSourceConfig.secureJsonFields && dataSourceConfig.secureJsonFields.tlsCACert;
   const hasTLSClientCert = dataSourceConfig.secureJsonFields && dataSourceConfig.secureJsonFields.tlsClientCert;
   const hasTLSClientKey = dataSourceConfig.secureJsonFields && dataSourceConfig.secureJsonFields.tlsClientKey;
@@ -50,20 +54,20 @@ export const TLSAuthSettings: React.FC<HttpSettingsBaseProps> = ({ dataSourceCon
       <div
         className={cx(
           'gf-form',
-          css`
-            align-items: baseline;
-          `
+          css({
+            alignItems: 'baseline',
+          })
         )}
       >
-        <h6>TLS/SSL Auth Details</h6>
+        <h6>
+          <Trans i18nKey="grafana-ui.data-source-settings.tls-heading">TLS/SSL Auth Details</Trans>
+        </h6>
         <Tooltip
           placement="right-end"
           content="TLS/SSL Certs are encrypted and stored in the Grafana database."
           theme="info"
         >
-          <div className="gf-form-help-icon gf-form-help-icon--right-normal">
-            <Icon name="info-circle" size="xs" style={{ marginLeft: '10px' }} />
-          </div>
+          <Icon name="info-circle" size="xs" style={{ marginLeft: '10px' }} />
         </Tooltip>
       </div>
       <div>

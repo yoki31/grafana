@@ -1,67 +1,102 @@
 import { createSelector } from '@reduxjs/toolkit';
-import { PluginError, PluginErrorCode } from '@grafana/data';
+import { debounce } from 'lodash';
+
+import { PluginError, PluginType, unEscapeStringFromRegex } from '@grafana/data';
+import { reportInteraction } from '@grafana/runtime';
+
+import { filterByKeyword, isPluginUpdatable } from '../helpers';
 import { RequestStatus, PluginCatalogStoreState } from '../types';
+
 import { pluginsAdapter } from './reducer';
 
 export const selectRoot = (state: PluginCatalogStoreState) => state.plugins;
 
 export const selectItems = createSelector(selectRoot, ({ items }) => items);
 
-export const selectDisplayMode = createSelector(selectRoot, ({ settings }) => settings.displayMode);
-
 export const { selectAll, selectById } = pluginsAdapter.getSelectors(selectItems);
 
-const selectInstalled = (filterBy: string) =>
-  createSelector(selectAll, (plugins) =>
-    plugins.filter((plugin) => (filterBy === 'installed' ? plugin.isInstalled : !plugin.isCore))
-  );
+const debouncedTrackSearch = debounce((count) => {
+  reportInteraction('plugins_search', {
+    resultsCount: count,
+    creator_team: 'grafana_plugins_catalog',
+    schema_version: '1.0.0',
+  });
+}, 300);
 
-const findByInstallAndType = (filterBy: string, filterByType: string) =>
-  createSelector(selectInstalled(filterBy), (plugins) =>
-    plugins.filter((plugin) => filterByType === 'all' || plugin.type === filterByType)
-  );
+export type PluginFilters = {
+  // Searches for a string in certain fields (e.g. "name" or "orgName")
+  // (Note: this will be an escaped regex string as it comes from `FilterInput`)
+  keyword?: string;
 
-const findByKeyword = (searchBy: string) =>
+  // (Optional, only applied if set)
+  type?: PluginType;
+
+  // (Optional, only applied if set)
+  isInstalled?: boolean;
+
+  // (Optional, only applied if set)
+  isEnterprise?: boolean;
+
+  // (Optional, only applied if set)
+  hasUpdate?: boolean;
+};
+
+export const selectPlugins = (filters: PluginFilters) =>
   createSelector(selectAll, (plugins) => {
-    if (searchBy === '') {
-      return [];
+    const keyword = filters.keyword ? unEscapeStringFromRegex(filters.keyword.toLowerCase()) : '';
+    // Fuzzy search does not consider plugin type filter
+    const filteredPluginIds = keyword !== '' ? filterByKeyword(plugins, keyword) : null;
+
+    // Filters are applied here
+    const filteredPlugins = plugins.filter((plugin) => {
+      if (keyword && filteredPluginIds == null) {
+        return false;
+      }
+
+      if (keyword && !filteredPluginIds?.includes(plugin.id)) {
+        return false;
+      }
+
+      if (filters.type && plugin.type !== filters.type) {
+        return false;
+      }
+
+      if (filters.isInstalled !== undefined && plugin.isInstalled !== filters.isInstalled) {
+        return false;
+      }
+
+      if (filters.isEnterprise !== undefined && plugin.isEnterprise !== filters.isEnterprise) {
+        return false;
+      }
+
+      if (filters.hasUpdate !== undefined && (plugin.hasUpdate !== filters.hasUpdate || !isPluginUpdatable(plugin))) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (keyword) {
+      debouncedTrackSearch(filteredPlugins.length);
     }
 
-    return plugins.filter((plugin) => {
-      const fields: String[] = [];
-      if (plugin.name) {
-        fields.push(plugin.name.toLowerCase());
-      }
-
-      if (plugin.orgName) {
-        fields.push(plugin.orgName.toLowerCase());
-      }
-
-      return fields.some((f) => f.includes(searchBy.toLowerCase()));
-    });
+    return filteredPlugins;
   });
 
-export const find = (searchBy: string, filterBy: string, filterByType: string) =>
-  createSelector(
-    findByInstallAndType(filterBy, filterByType),
-    findByKeyword(searchBy),
-    (filteredPlugins, searchedPlugins) => {
-      return searchBy === '' ? filteredPlugins : searchedPlugins;
+export const selectPluginErrors = (filterByPluginType?: PluginType) =>
+  createSelector(selectAll, (plugins) => {
+    const pluginErrors: PluginError[] = [];
+    for (const plugin of plugins) {
+      if (plugin.error && (!filterByPluginType || plugin.type === filterByPluginType)) {
+        pluginErrors.push({
+          pluginId: plugin.id,
+          errorCode: plugin.error,
+          pluginType: plugin.type,
+        });
+      }
     }
-  );
-
-export const selectPluginErrors = createSelector(selectAll, (plugins) =>
-  plugins
-    ? plugins
-        .filter((p) => Boolean(p.error))
-        .map(
-          (p): PluginError => ({
-            pluginId: p.id,
-            errorCode: p!.error as PluginErrorCode,
-          })
-        )
-    : []
-);
+    return pluginErrors;
+  });
 
 // The following selectors are used to get information about the outstanding or completed plugins-related network requests.
 export const selectRequest = (actionType: string) =>

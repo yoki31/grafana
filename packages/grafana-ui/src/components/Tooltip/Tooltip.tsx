@@ -1,10 +1,26 @@
-import React from 'react';
-import { usePopperTooltip } from 'react-popper-tooltip';
-import { colorManipulator, GrafanaTheme2 } from '@grafana/data';
-import { css } from '@emotion/css';
+import {
+  arrow,
+  autoUpdate,
+  flip,
+  FloatingArrow,
+  offset,
+  shift,
+  useDismiss,
+  useFloating,
+  useFocus,
+  useHover,
+  useInteractions,
+} from '@floating-ui/react';
+import { forwardRef, cloneElement, isValidElement, useCallback, useId, useRef, useState } from 'react';
+
+import { GrafanaTheme2 } from '@grafana/data';
+import { selectors } from '@grafana/e2e-selectors';
+
 import { useStyles2 } from '../../themes/ThemeContext';
-import { PopoverContent, TooltipPlacement } from './types';
+import { buildTooltipTheme, getPlacement } from '../../utils/tooltipUtils';
 import { Portal } from '../Portal/Portal';
+
+import { PopoverContent, TooltipPlacement } from './types';
 
 export interface TooltipProps {
   theme?: 'info' | 'error' | 'info-alt';
@@ -18,188 +34,122 @@ export interface TooltipProps {
   interactive?: boolean;
 }
 
-export const Tooltip = React.memo(({ children, theme, interactive, show, placement, content }: TooltipProps) => {
-  const { getArrowProps, getTooltipProps, setTooltipRef, setTriggerRef, visible, update } = usePopperTooltip({
-    visible: show,
-    placement: placement,
-    interactive: interactive,
-    delayHide: interactive ? 100 : 0,
-    delayShow: 150,
-    offset: [0, 8],
-    trigger: ['hover', 'focus'],
-  });
+export const Tooltip = forwardRef<HTMLElement, TooltipProps>(
+  ({ children, theme, interactive, show, placement, content }, forwardedRef) => {
+    const arrowRef = useRef(null);
+    const [controlledVisible, setControlledVisible] = useState(show);
+    const isOpen = show ?? controlledVisible;
 
-  const styles = useStyles2(getStyles);
-  const containerStyle = styles[theme ?? 'info'];
+    // the order of middleware is important!
+    // `arrow` should almost always be at the end
+    // see https://floating-ui.com/docs/arrow#order
+    const middleware = [
+      offset(8),
+      flip({
+        fallbackAxisSideDirection: 'end',
+        // see https://floating-ui.com/docs/flip#combining-with-shift
+        crossAxis: false,
+        boundary: document.body,
+      }),
+      shift(),
+      arrow({
+        element: arrowRef,
+      }),
+    ];
 
-  return (
-    <>
-      {React.cloneElement(children, {
-        ref: setTriggerRef,
-      })}
-      {visible && (
-        <Portal>
-          <div ref={setTooltipRef} {...getTooltipProps({ className: containerStyle })}>
-            <div {...getArrowProps({ className: 'tooltip-arrow' })} />
-            {typeof content === 'string' && content}
-            {React.isValidElement(content) && React.cloneElement(content)}
-            {typeof content === 'function' &&
-              content({
-                updatePopperPosition: update as any,
-              })}
-          </div>
-        </Portal>
-      )}
-    </>
-  );
-});
+    const { context, refs, floatingStyles } = useFloating({
+      open: isOpen,
+      placement: getPlacement(placement),
+      onOpenChange: setControlledVisible,
+      middleware,
+      whileElementsMounted: autoUpdate,
+    });
+    const tooltipId = useId();
+
+    const hover = useHover(context, {
+      delay: {
+        close: interactive ? 100 : 0,
+      },
+      move: false,
+    });
+    const focus = useFocus(context);
+    const dismiss = useDismiss(context);
+
+    const { getReferenceProps, getFloatingProps } = useInteractions([dismiss, hover, focus]);
+
+    const contentIsFunction = typeof content === 'function';
+
+    const styles = useStyles2(getStyles);
+    const style = styles[theme ?? 'info'];
+
+    const handleRef = useCallback(
+      (ref: HTMLElement | null) => {
+        refs.setReference(ref);
+
+        if (typeof forwardedRef === 'function') {
+          forwardedRef(ref);
+        } else if (forwardedRef) {
+          forwardedRef.current = ref;
+        }
+      },
+      [forwardedRef, refs]
+    );
+
+    // if the child has a matching aria-label, this should take precedence over the tooltip content
+    // otherwise we end up double announcing things in e.g. IconButton
+    const childHasMatchingAriaLabel = 'aria-label' in children.props && children.props['aria-label'] === content;
+
+    return (
+      <>
+        {cloneElement(children, {
+          ref: handleRef,
+          tabIndex: 0, // tooltip trigger should be keyboard focusable
+          'aria-describedby': !childHasMatchingAriaLabel && isOpen ? tooltipId : undefined,
+          ...getReferenceProps(),
+        })}
+        {isOpen && (
+          <Portal>
+            <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()}>
+              <FloatingArrow className={style.arrow} ref={arrowRef} context={context} />
+              <div
+                data-testid={selectors.components.Tooltip.container}
+                id={tooltipId}
+                role="tooltip"
+                className={style.container}
+              >
+                {typeof content === 'string' && content}
+                {isValidElement(content) && cloneElement(content)}
+                {contentIsFunction && content({})}
+              </div>
+            </div>
+          </Portal>
+        )}
+      </>
+    );
+  }
+);
 
 Tooltip.displayName = 'Tooltip';
 
-function getStyles(theme: GrafanaTheme2) {
-  function buildTooltipTheme(tooltipBg: string, tooltipBorder: string, tooltipText: string) {
-    return css`
-      background-color: ${tooltipBg};
-      border-radius: 3px;
-      border: 1px solid ${tooltipBorder};
-      box-shadow: ${theme.shadows.z2};
-      color: ${tooltipText};
-      font-size: ${theme.typography.bodySmall.fontSize};
-      padding: ${theme.spacing(0.5, 1)};
-      transition: opacity 0.3s;
-      z-index: ${theme.zIndex.tooltip};
-      max-width: 400px;
-      overflow-wrap: break-word;
-
-      &[data-popper-interactive='false'] {
-        pointer-events: none;
-      }
-
-      .tooltip-arrow {
-        height: 1rem;
-        position: absolute;
-        width: 1rem;
-        pointer-events: none;
-      }
-
-      .tooltip-arrow::before {
-        border-style: solid;
-        content: '';
-        display: block;
-        height: 0;
-        margin: auto;
-        width: 0;
-      }
-
-      .tooltip-arrow::after {
-        border-style: solid;
-        content: '';
-        display: block;
-        height: 0;
-        margin: auto;
-        position: absolute;
-        width: 0;
-      }
-
-      &[data-popper-placement*='bottom'] .tooltip-arrow {
-        left: 0;
-        margin-top: -10px;
-        top: 0;
-      }
-
-      &[data-popper-placement*='bottom'] .tooltip-arrow::before {
-        border-color: transparent transparent ${tooltipBorder} transparent;
-        border-width: 0 8px 7px 8px;
-        position: absolute;
-        top: -1px;
-      }
-
-      &[data-popper-placement*='bottom'] .tooltip-arrow::after {
-        border-color: transparent transparent ${tooltipBg} transparent;
-        border-width: 0 8px 7px 8px;
-      }
-
-      &[data-popper-placement*='top'] .tooltip-arrow {
-        bottom: 0;
-        left: 0;
-        margin-bottom: -11px;
-      }
-
-      &[data-popper-placement*='top'] .tooltip-arrow::before {
-        border-color: ${tooltipBorder} transparent transparent transparent;
-        border-width: 7px 8px 0 7px;
-        position: absolute;
-        top: 1px;
-      }
-
-      &[data-popper-placement*='top'] .tooltip-arrow::after {
-        border-color: ${tooltipBg} transparent transparent transparent;
-        border-width: 7px 8px 0 7px;
-      }
-
-      &[data-popper-placement*='right'] .tooltip-arrow {
-        left: 0;
-        margin-left: -11px;
-      }
-
-      &[data-popper-placement*='right'] .tooltip-arrow::before {
-        border-color: transparent ${tooltipBorder} transparent transparent;
-        border-width: 7px 6px 7px 0;
-      }
-
-      &[data-popper-placement*='right'] .tooltip-arrow::after {
-        border-color: transparent ${tooltipBg} transparent transparent;
-        border-width: 6px 7px 7px 0;
-        left: 2px;
-        top: 1px;
-      }
-
-      &[data-popper-placement*='left'] .tooltip-arrow {
-        margin-right: -10px;
-        right: 0;
-      }
-
-      &[data-popper-placement*='left'] .tooltip-arrow::before {
-        border-color: transparent transparent transparent ${tooltipBorder};
-        border-width: 7px 0px 6px 7px;
-      }
-
-      &[data-popper-placement*='left'] .tooltip-arrow::after {
-        border-color: transparent transparent transparent ${tooltipBg};
-        border-width: 6px 0 5px 5px;
-        left: 1px;
-        top: 1px;
-      }
-
-      code {
-        border: none;
-        display: inline;
-        background: ${colorManipulator.darken(tooltipBg, 0.3)};
-        color: ${tooltipText};
-      }
-
-      strong,
-      em {
-        color: ${colorManipulator.emphasize(tooltipBg)};
-      }
-
-      a {
-        color: ${theme.colors.text.link};
-        text-decoration: underline;
-      }
-    `;
-  }
-
+export const getStyles = (theme: GrafanaTheme2) => {
   const info = buildTooltipTheme(
+    theme,
     theme.components.tooltip.background,
     theme.components.tooltip.background,
-    theme.components.tooltip.text
+    theme.components.tooltip.text,
+    { topBottom: 0.5, rightLeft: 1 }
   );
-  const error = buildTooltipTheme(theme.colors.error.main, theme.colors.error.main, theme.colors.error.contrastText);
+  const error = buildTooltipTheme(
+    theme,
+    theme.colors.error.main,
+    theme.colors.error.main,
+    theme.colors.error.contrastText,
+    { topBottom: 0.5, rightLeft: 1 }
+  );
 
   return {
-    info: info,
+    info,
     ['info-alt']: info,
     error,
   };
-}
+};

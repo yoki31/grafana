@@ -1,69 +1,47 @@
-import React from 'react';
-import { PlaylistDTO } from './types';
-import { Button, Card, LinkButton, ModalsController, useStyles2 } from '@grafana/ui';
-import { contextSrv } from 'app/core/services/context_srv';
-import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
-import { DashNavButton } from '../dashboard/components/DashNav/DashNavButton';
-import { ShareModal } from './ShareModal';
+
+import { GrafanaTheme2 } from '@grafana/data';
+import { useStyles2 } from '@grafana/ui';
+import { SkeletonComponent, attachSkeleton } from '@grafana/ui/src/unstable';
+
+import { PlaylistCard } from './PlaylistCard';
+import { Playlist } from './types';
 
 interface Props {
-  setStartPlaylist: (playlistItem: PlaylistDTO) => void;
-  setPlaylistToDelete: (playlistItem: PlaylistDTO) => void;
-  playlists: PlaylistDTO[] | undefined;
+  setStartPlaylist: (playlistItem: Playlist) => void;
+  setPlaylistToDelete: (playlistItem: Playlist) => void;
+  playlists: Playlist[];
 }
 
-export const PlaylistPageList = ({ playlists, setStartPlaylist, setPlaylistToDelete }: Props) => {
+const PlaylistPageListComponent = ({ playlists, setStartPlaylist, setPlaylistToDelete }: Props) => {
   const styles = useStyles2(getStyles);
   return (
     <ul className={styles.list}>
-      {playlists!.map((playlist: PlaylistDTO) => (
-        <li className={styles.listItem} key={playlist.id.toString()}>
-          <Card>
-            <Card.Heading>
-              {playlist.name}
-              <ModalsController key="button-share">
-                {({ showModal, hideModal }) => (
-                  <DashNavButton
-                    tooltip="Share playlist"
-                    icon="share-alt"
-                    iconSize="lg"
-                    onClick={() => {
-                      showModal(ShareModal, {
-                        playlistId: playlist.id,
-                        onDismiss: hideModal,
-                      });
-                    }}
-                  />
-                )}
-              </ModalsController>
-            </Card.Heading>
-            <Card.Actions>
-              <Button variant="secondary" icon="play" onClick={() => setStartPlaylist(playlist)}>
-                Start playlist
-              </Button>
-              {contextSrv.isEditor && (
-                <>
-                  <LinkButton key="edit" variant="secondary" href={`/playlists/edit/${playlist.id}`} icon="cog">
-                    Edit playlist
-                  </LinkButton>
-                  <Button
-                    disabled={false}
-                    onClick={() => setPlaylistToDelete({ id: playlist.id, name: playlist.name })}
-                    icon="trash-alt"
-                    variant="destructive"
-                  >
-                    Delete playlist
-                  </Button>
-                </>
-              )}
-            </Card.Actions>
-          </Card>
+      {playlists.map((playlist: Playlist) => (
+        <li className={styles.listItem} key={playlist.uid}>
+          <PlaylistCard
+            playlist={playlist}
+            setStartPlaylist={setStartPlaylist}
+            setPlaylistToDelete={setPlaylistToDelete}
+          />
         </li>
       ))}
     </ul>
   );
 };
+
+const PlaylistPageListSkeleton: SkeletonComponent = ({ rootProps }) => {
+  const styles = useStyles2(getStyles);
+  return (
+    <div data-testid="playlist-page-list-skeleton" className={styles.list} {...rootProps}>
+      <PlaylistCard.Skeleton />
+      <PlaylistCard.Skeleton />
+      <PlaylistCard.Skeleton />
+    </div>
+  );
+};
+
+export const PlaylistPageList = attachSkeleton(PlaylistPageListComponent, PlaylistPageListSkeleton);
 
 function getStyles(theme: GrafanaTheme2) {
   return {

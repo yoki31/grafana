@@ -1,39 +1,31 @@
-import React from 'react';
-import { css, cx } from '@emotion/css';
-import { useStyles2 } from '@grafana/ui';
-import { GrafanaTheme2 } from '@grafana/data';
-import { useLocation } from 'react-router-dom';
-import { CatalogPlugin, PluginListDisplayMode } from '../types';
+import { useLocation } from 'react-router-dom-v5-compat';
+
+import { config } from '@grafana/runtime';
+import { EmptyState, Grid } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
+
+import { CatalogPlugin } from '../types';
+
 import { PluginListItem } from './PluginListItem';
 
 interface Props {
   plugins: CatalogPlugin[];
-  displayMode: PluginListDisplayMode;
+  isLoading?: boolean;
 }
 
-export const PluginList = ({ plugins, displayMode }: Props) => {
-  const isList = displayMode === PluginListDisplayMode.List;
-  const styles = useStyles2(getStyles);
-  const location = useLocation();
+export const PluginList = ({ plugins, isLoading }: Props) => {
+  const { pathname } = useLocation();
+  const pathName = config.appSubUrl + (pathname.endsWith('/') ? pathname.slice(0, -1) : pathname);
+
+  if (!isLoading && plugins.length === 0) {
+    return <EmptyState variant="not-found" message={t('plugins.empty-state.message', 'No plugins found')} />;
+  }
 
   return (
-    <div className={cx(styles.container, { [styles.list]: isList })} data-testid="plugin-list">
-      {plugins.map((plugin) => (
-        <PluginListItem key={plugin.id} plugin={plugin} pathName={location.pathname} displayMode={displayMode} />
-      ))}
-    </div>
+    <Grid gap={3} {...{ minColumnWidth: 34 }} data-testid="plugin-list">
+      {isLoading
+        ? new Array(50).fill(null).map((_, index) => <PluginListItem.Skeleton key={index} />)
+        : plugins.map((plugin) => <PluginListItem key={plugin.id} plugin={plugin} pathName={pathName} />)}
+    </Grid>
   );
-};
-
-const getStyles = (theme: GrafanaTheme2) => {
-  return {
-    container: css`
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
-      gap: ${theme.spacing(3)};
-    `,
-    list: css`
-      grid-template-columns: 1fr;
-    `,
-  };
 };

@@ -1,6 +1,7 @@
 import { assign, each, filter, forEach, get, includes, isString, last, map, toString, isFinite } from 'lodash';
-import { isVersionGtOrEq } from 'app/core/utils/version';
+
 import { InterpolateFunction } from '@grafana/data';
+import { isVersionGtOrEq } from 'app/core/utils/version';
 
 export type ParamDef = {
   name: string;
@@ -16,7 +17,7 @@ export interface FuncDef {
   params: ParamDef[];
   defaultParams: Array<string | number>;
   category?: string;
-  shortName?: any;
+  shortName?: string;
   fake?: boolean;
   version?: string;
   description?: string;
@@ -989,7 +990,7 @@ function isVersionRelatedFunction(obj: { version?: string }, graphiteVersion: st
 export class FuncInstance {
   def: FuncDef;
   params: Array<string | number>;
-  text: any;
+  text = '';
   /**
    * True if this function was just added and not edited yet. It's used to focus on first
    * function param to edit it straight away after adding a function.
@@ -1003,7 +1004,7 @@ export class FuncInstance {
    */
   hidden?: boolean;
 
-  constructor(funcDef: FuncDef, options?: { withDefaultParams: any }) {
+  constructor(funcDef: FuncDef, options?: { withDefaultParams: boolean }) {
     this.def = funcDef;
     this.params = [];
 
@@ -1027,7 +1028,13 @@ export class FuncInstance {
       }
 
       // param types that should never be quoted
-      if (includes(['value_or_series', 'boolean', 'int', 'float', 'node', 'int_or_infinity'], paramType)) {
+      const neverQuotedParams = ['value_or_series', 'boolean', 'int', 'float', 'node', 'int_or_infinity'];
+
+      // functions that should not have param types quoted
+      // https://github.com/grafana/grafana/issues/54924
+      const neverQuotedFunctions = ['asPercent'];
+      // params or functions that should never be quoted
+      if (includes(neverQuotedParams, paramType) || includes(neverQuotedFunctions, this.def.name)) {
         return value;
       }
 
@@ -1054,7 +1061,7 @@ export class FuncInstance {
     return str + parameters.join(', ') + ')';
   }
 
-  _hasMultipleParamsInString(strValue: any, index: number) {
+  _hasMultipleParamsInString(strValue: string, index: number) {
     if (strValue.indexOf(',') === -1) {
       return false;
     }
@@ -1070,7 +1077,7 @@ export class FuncInstance {
     return false;
   }
 
-  updateParam(strValue: any, index: any) {
+  updateParam(strValue: string, index: number) {
     // handle optional parameters
     // if string contains ',' and next param is optional, split and update both
     if (this._hasMultipleParamsInString(strValue, index)) {
@@ -1102,21 +1109,25 @@ export class FuncInstance {
   }
 }
 
-function createFuncInstance(funcDef: any, options?: { withDefaultParams: any }, idx?: any): FuncInstance {
+function createFuncInstance(
+  funcDef: FuncDef | string,
+  options?: { withDefaultParams: boolean },
+  idx?: FuncDefs | null
+): FuncInstance {
   if (isString(funcDef)) {
     funcDef = getFuncDef(funcDef, idx);
   }
   return new FuncInstance(funcDef, options);
 }
 
-function getFuncDef(name: string, idx?: any): FuncDef {
+function getFuncDef(name: string, idx?: FuncDefs | null): FuncDef {
   if (!(idx || index)[name]) {
     return { name: name, params: [{ name: '', type: '', multiple: true }], defaultParams: [''], unknown: true };
   }
   return (idx || index)[name];
 }
 
-function getFuncDefs(graphiteVersion: string, idx?: any): FuncDefs {
+function getFuncDefs(graphiteVersion: string, idx?: FuncDefs | null): FuncDefs {
   const funcs: FuncDefs = {};
   forEach(idx || index, (funcDef: FuncDef) => {
     if (isVersionRelatedFunction(funcDef, graphiteVersion)) {
@@ -1174,7 +1185,7 @@ function parseFuncDefs(rawDefs: any): FuncDefs {
     }
 
     forEach(funcDef.params, (rawParam) => {
-      const param: any = {
+      const param: ParamDef = {
         name: rawParam.name,
         type: 'string',
         optional: !rawParam.required,

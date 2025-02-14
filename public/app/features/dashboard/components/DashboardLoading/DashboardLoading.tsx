@@ -1,8 +1,8 @@
-import React from 'react';
 import { css, keyframes } from '@emotion/css';
-import { Button, HorizontalGroup, Spinner, useStyles, VerticalGroup } from '@grafana/ui';
+
+import { GrafanaTheme2 } from '@grafana/data';
 import { locationService } from '@grafana/runtime';
-import { GrafanaTheme } from '@grafana/data';
+import { Button, HorizontalGroup, Spinner, useStyles2, VerticalGroup } from '@grafana/ui';
 import { DashboardInitPhase } from 'app/types';
 
 export interface Props {
@@ -10,7 +10,7 @@ export interface Props {
 }
 
 export const DashboardLoading = ({ initPhase }: Props) => {
-  const styles = useStyles(getStyles);
+  const styles = useStyles2(getStyles);
   const cancelVariables = () => {
     locationService.push('/');
   };
@@ -33,7 +33,7 @@ export const DashboardLoading = ({ initPhase }: Props) => {
   );
 };
 
-export const getStyles = (theme: GrafanaTheme) => {
+export const getStyles = (theme: GrafanaTheme2) => {
   // Amount of time we want to pass before we start showing loading spinner
   const slowStartThreshold = '0.5s';
 
@@ -43,16 +43,18 @@ export const getStyles = (theme: GrafanaTheme) => {
   `;
 
   return {
-    dashboardLoading: css`
-      height: 60vh;
-      display: flex;
-      opacity: 0%;
-      align-items: center;
-      justify-content: center;
-      animation: ${invisibleToVisible} 0s step-end ${slowStartThreshold} 1 normal forwards;
-    `,
-    dashboardLoadingText: css`
-      font-size: ${theme.typography.size.lg};
-    `,
+    dashboardLoading: css({
+      height: '60vh',
+      display: 'flex',
+      opacity: '0%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      [theme.transitions.handleMotion('no-preference', 'reduce')]: {
+        animation: `${invisibleToVisible} 0s step-end ${slowStartThreshold} 1 normal forwards`,
+      },
+    }),
+    dashboardLoadingText: css({
+      fontSize: theme.typography.h4.fontSize,
+    }),
   };
 };

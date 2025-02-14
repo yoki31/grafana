@@ -1,23 +1,28 @@
+import { useEffect, useState } from 'react';
+
 import { DataSourceInstanceSettings } from '@grafana/data';
-import { useEffect, useMemo } from 'react';
-import { useDispatch } from 'react-redux';
-import { checkIfLotexSupportsEditingRulesAction } from '../state/actions';
+
+import { featureDiscoveryApi } from '../api/featureDiscoveryApi';
 import { getRulesDataSources } from '../utils/datasource';
-import { useUnifiedAlertingSelector } from './useUnifiedAlertingSelector';
 
-export function useRulesSourcesWithRuler(): DataSourceInstanceSettings[] {
-  const checkEditingRequests = useUnifiedAlertingSelector((state) => state.lotexSupportsRuleEditing);
-  const dispatch = useDispatch();
+const { useLazyDiscoverDsFeaturesQuery } = featureDiscoveryApi;
 
-  // try fetching rules for each prometheus to see if it has ruler
+export function useRulesSourcesWithRuler(): {
+  rulesSourcesWithRuler: DataSourceInstanceSettings[];
+  isLoading: boolean;
+} {
+  const [rulesSourcesWithRuler, setRulesSourcesWithRuler] = useState<DataSourceInstanceSettings[]>([]);
+  const [discoverDsFeatures, { isLoading }] = useLazyDiscoverDsFeaturesQuery();
+
   useEffect(() => {
-    getRulesDataSources()
-      .filter((ds) => checkEditingRequests[ds.name] === undefined)
-      .forEach((ds) => dispatch(checkIfLotexSupportsEditingRulesAction(ds.name)));
-  }, [dispatch, checkEditingRequests]);
+    const dataSources = getRulesDataSources();
+    dataSources.forEach(async (ds) => {
+      const { data: dsFeatures } = await discoverDsFeatures({ uid: ds.uid }, true);
+      if (dsFeatures?.rulerConfig) {
+        setRulesSourcesWithRuler((prev) => [...prev, ds]);
+      }
+    });
+  }, [discoverDsFeatures]);
 
-  return useMemo(
-    () => getRulesDataSources().filter((ds) => checkEditingRequests[ds.name]?.result),
-    [checkEditingRequests]
-  );
+  return { rulesSourcesWithRuler, isLoading };
 }

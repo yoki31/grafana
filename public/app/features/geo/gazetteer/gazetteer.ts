@@ -1,10 +1,13 @@
+import { getCenter } from 'ol/extent';
+import { Geometry, Point } from 'ol/geom';
+
 import { DataFrame, Field, FieldType, KeyValue, toDataFrame } from '@grafana/data';
 import { getBackendSrv } from '@grafana/runtime';
-import { loadWorldmapPoints } from './worldmap';
-import { Geometry, Point } from 'ol/geom';
+
 import { frameFromGeoJSON } from '../format/geojson';
 import { pointFieldFromLonLat, pointFieldFromGeohash } from '../format/utils';
-import { getCenter } from 'ol/extent';
+
+import { loadWorldmapPoints } from './worldmap';
 
 export interface PlacenameInfo {
   point: () => Point | undefined; // lon, lat (WGS84)
@@ -28,7 +31,7 @@ export function loadGazetteer(path: string, data: any): Gazetteer {
   let frame: DataFrame | undefined = undefined;
 
   if (Array.isArray(data)) {
-    const first = data[0] as any;
+    const first = data[0];
     // Check for legacy worldmap syntax
     if (first.latitude && first.longitude && (first.key || first.keys)) {
       return loadWorldmapPoints(path, data);
@@ -57,7 +60,7 @@ export function loadGazetteer(path: string, data: any): Gazetteer {
 
 export function frameAsGazetter(frame: DataFrame, opts: { path: string; keys?: string[] }): Gazetteer {
   const keys: Field[] = [];
-  let geo: Field<Geometry> | undefined = undefined;
+  let geo: Field<Geometry | undefined> | undefined = undefined;
   let lat: Field | undefined = undefined;
   let lng: Field | undefined = undefined;
   let geohash: Field | undefined = undefined;
@@ -129,12 +132,12 @@ export function frameAsGazetter(frame: DataFrame, opts: { path: string; keys?: s
       isPoint = true;
     }
   } else {
-    isPoint = geo.values.get(0).getType() === 'Point';
+    isPoint = geo.values[0]?.getType() === 'Point';
   }
 
   const lookup = new Map<string, number>();
   keys.forEach((f) => {
-    f.values.toArray().forEach((k, idx) => {
+    f.values.forEach((k, idx) => {
       const str = `${k}`;
       lookup.set(str.toUpperCase(), idx);
       lookup.set(str, idx);
@@ -146,7 +149,7 @@ export function frameAsGazetter(frame: DataFrame, opts: { path: string; keys?: s
     find: (k) => {
       const index = lookup.get(k);
       if (index != null) {
-        const g = geo?.values.get(index);
+        const g = geo?.values[index];
         return {
           frame,
           index,

@@ -1,19 +1,13 @@
 import { map } from 'rxjs/operators';
+
+import { DataFrame, DataTransformerID, DataTransformerInfo, Field, getFieldDisplayName, Labels } from '@grafana/data';
+
 import {
-  ArrayVector,
-  DataFrame,
-  DataTransformerID,
-  DataTransformerInfo,
-  Field,
-  getFieldDisplayName,
-  Labels,
-} from '@grafana/data';
-import {
-  getFieldConfigFromFrame,
-  FieldToConfigMapping,
-  evaluteFieldMappings,
   EvaluatedMappingResult,
+  evaluateFieldMappings,
   FieldConfigHandlerKey,
+  FieldToConfigMapping,
+  getFieldConfigFromFrame,
 } from '../fieldToConfigMapping/fieldToConfigMapping';
 
 export interface RowToFieldsTransformOptions {
@@ -25,11 +19,11 @@ export interface RowToFieldsTransformOptions {
 export const rowsToFieldsTransformer: DataTransformerInfo<RowToFieldsTransformOptions> = {
   id: DataTransformerID.rowsToFields,
   name: 'Rows to fields',
-  description: 'Convert each row into a field with dynamic config',
+  description: 'Convert each row into a field with dynamic config.',
   defaultOptions: {},
 
   /**
-   * Return a modified copy of the series.  If the transform is not or should not
+   * Return a modified copy of the series. If the transform is not or should not
    * be applied, just return the input series
    */
   operator: (options) => (source) =>
@@ -41,7 +35,7 @@ export const rowsToFieldsTransformer: DataTransformerInfo<RowToFieldsTransformOp
 };
 
 export function rowsToFields(options: RowToFieldsTransformOptions, data: DataFrame): DataFrame {
-  const mappingResult = evaluteFieldMappings(data, options.mappings ?? [], true);
+  const mappingResult = evaluateFieldMappings(data, options.mappings ?? [], true);
   const { nameField, valueField } = mappingResult;
 
   if (!nameField || !valueField) {
@@ -51,15 +45,15 @@ export function rowsToFields(options: RowToFieldsTransformOptions, data: DataFra
   const outFields: Field[] = [];
 
   for (let index = 0; index < nameField.values.length; index++) {
-    const name = nameField.values.get(index);
-    const value = valueField.values.get(index);
+    const name = nameField.values[index];
+    const value = valueField.values[index];
     const config = getFieldConfigFromFrame(data, index, mappingResult);
     const labels = getLabelsFromRow(data, index, mappingResult);
 
     const field: Field = {
       name: `${name}`,
       type: valueField.type,
-      values: new ArrayVector([value]),
+      values: [value],
       config: config,
       labels,
     };
@@ -70,6 +64,7 @@ export function rowsToFields(options: RowToFieldsTransformOptions, data: DataFra
   return {
     fields: outFields,
     length: 1,
+    refId: `${DataTransformerID.rowsToFields}-${data.refId}`,
   };
 }
 
@@ -85,7 +80,7 @@ function getLabelsFromRow(frame: DataFrame, index: number, mappingResult: Evalua
       continue;
     }
 
-    const value = field.values.get(index);
+    const value = field.values[index];
     if (value != null) {
       labels[fieldName] = value;
     }

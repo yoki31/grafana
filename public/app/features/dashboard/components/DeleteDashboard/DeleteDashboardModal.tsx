@@ -1,97 +1,96 @@
-import React from 'react';
 import { css } from '@emotion/css';
-import { sumBy } from 'lodash';
-import { Modal, ConfirmModal, Button } from '@grafana/ui';
-import { DashboardModel, PanelModel } from '../../state';
-import { useDashboardDelete } from './useDashboardDelete';
+import { connect, ConnectedProps } from 'react-redux';
 import useAsyncFn from 'react-use/lib/useAsyncFn';
-import { config } from 'app/core/config';
+
+import { locationService, config, reportInteraction } from '@grafana/runtime';
+import { Modal, Button, Text, Space, TextLink } from '@grafana/ui';
+import { DashboardModel } from 'app/features/dashboard/state/DashboardModel';
+import { cleanUpDashboardAndVariables } from 'app/features/dashboard/state/actions';
+
+import { Trans, t } from '../../../../core/internationalization';
+import { useDeleteItemsMutation } from '../../../browse-dashboards/api/browseDashboardsAPI';
+import { DeleteDashboardModal as DeleteModal } from '../../../dashboard-scene/settings/DeleteDashboardButton';
 
 type DeleteDashboardModalProps = {
   hideModal(): void;
   dashboard: DashboardModel;
 };
 
-export const DeleteDashboardModal: React.FC<DeleteDashboardModalProps> = ({ hideModal, dashboard }) => {
+const mapDispatchToProps = {
+  cleanUpDashboardAndVariables,
+};
+
+const connector = connect(null, mapDispatchToProps);
+
+type Props = DeleteDashboardModalProps & ConnectedProps<typeof connector>;
+
+const DeleteDashboardModalUnconnected = ({ hideModal, cleanUpDashboardAndVariables, dashboard }: Props) => {
   const isProvisioned = dashboard.meta.provisioned;
-  const { onDeleteDashboard } = useDashboardDelete(dashboard.uid);
+  const [deleteItems] = useDeleteItemsMutation();
 
   const [, onConfirm] = useAsyncFn(async () => {
-    await onDeleteDashboard();
+    reportInteraction('grafana_manage_dashboards_delete_clicked', {
+      item_counts: {
+        dashboard: 1,
+      },
+      source: 'dashboard_settings',
+      restore_enabled: Boolean(config.featureToggles.dashboardRestore),
+    });
+    await deleteItems({
+      selectedItems: {
+        dashboard: {
+          [dashboard.uid]: true,
+        },
+        folder: {},
+      },
+    });
+    cleanUpDashboardAndVariables();
     hideModal();
+    locationService.replace('/');
   }, [hideModal]);
-
-  const modalBody = getModalBody(dashboard.panels, dashboard.title);
 
   if (isProvisioned) {
     return <ProvisionedDeleteModal hideModal={hideModal} provisionedId={dashboard.meta.provisionedExternalId!} />;
   }
 
-  return (
-    <ConfirmModal
-      isOpen={true}
-      body={modalBody}
-      onConfirm={onConfirm}
-      onDismiss={hideModal}
-      title="Delete"
-      icon="trash-alt"
-      confirmText="Delete"
-    />
-  );
-};
-
-const getModalBody = (panels: PanelModel[], title: string) => {
-  const totalAlerts = sumBy(panels, (panel) => (panel.alert ? 1 : 0));
-  return totalAlerts > 0 && !config.unifiedAlertingEnabled ? (
-    <>
-      <p>Do you want to delete this dashboard?</p>
-      <p>
-        This dashboard contains {totalAlerts} alert{totalAlerts > 1 ? 's' : ''}. Deleting this dashboard also deletes
-        those alerts.
-      </p>
-    </>
-  ) : (
-    <>
-      <p>Do you want to delete this dashboard?</p>
-      <p>{title}</p>
-    </>
-  );
+  return <DeleteModal onConfirm={onConfirm} onClose={hideModal} dashboardTitle={dashboard.title} />;
 };
 
 const ProvisionedDeleteModal = ({ hideModal, provisionedId }: { hideModal(): void; provisionedId: string }) => (
   <Modal
     isOpen={true}
-    title="Cannot delete provisioned dashboard"
+    title={t('dashboard-settings.provisioned-delete-modal.title', 'Cannot delete provisioned dashboard')}
     icon="trash-alt"
     onDismiss={hideModal}
-    className={css`
-      width: 500px;
-    `}
+    className={css({
+      width: '500px',
+    })}
   >
-    <p>
-      This dashboard is managed by Grafana provisioning and cannot be deleted. Remove the dashboard from the config file
-      to delete it.
-    </p>
-    <p>
-      <i>
-        See{' '}
-        <a
-          className="external-link"
-          href="https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards"
-          target="_blank"
-          rel="noreferrer"
-        >
-          documentation
-        </a>{' '}
-        for more information about provisioning.
-      </i>
-      <br />
-      File path: {provisionedId}
-    </p>
+    <Text element="p">
+      <Trans i18nKey="dashboard-settings.provisioned-delete-modal.text-1">
+        This dashboard is managed by Grafana provisioning and cannot be deleted. Remove the dashboard from the config
+        file to delete it.
+      </Trans>
+    </Text>
+    <Space v={1} />
+    <Text element="p">
+      <Trans i18nKey="dashboard-settings.provisioned-delete-modal.text-2">
+        See grafana documentation for more information about provisioning.&nbsp;
+      </Trans>
+      <TextLink href="https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards" external>
+        {t('dashboard-settings.provisioned-delete-modal.text-link', 'Go to docs page')}
+      </TextLink>
+    </Text>
+    <Space v={2} />
+    <Text element="p">
+      <Trans i18nKey="dashboard-settings.provisioned-delete-modal.text-3">File path: {{ provisionedId }}</Trans>
+    </Text>
     <Modal.ButtonRow>
       <Button variant="primary" onClick={hideModal}>
-        OK
+        <Trans i18nKey="dashboard-settings.provisioned-delete-modal.confirm-button">OK</Trans>
       </Button>
     </Modal.ButtonRow>
   </Modal>
 );
+
+export const DeleteDashboardModal = connector(DeleteDashboardModalUnconnected);

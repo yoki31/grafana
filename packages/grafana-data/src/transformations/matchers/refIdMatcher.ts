@@ -1,19 +1,37 @@
+import { escapeStringForRegex, stringStartsAsRegEx, stringToJsRegex } from '../../text/string';
 import { DataFrame } from '../../types/dataFrame';
-import { FrameMatcherID } from './ids';
 import { FrameMatcherInfo } from '../../types/transformations';
-import { stringToJsRegex } from '../../text';
+
+import { FrameMatcherID } from './ids';
 
 // General Field matcher
-const refIdMacher: FrameMatcherInfo<string> = {
+const refIdMatcher: FrameMatcherInfo<string> = {
   id: FrameMatcherID.byRefId,
   name: 'Query refId',
   description: 'match the refId',
   defaultOptions: 'A',
 
   get: (pattern: string) => {
-    const regex = stringToJsRegex(pattern);
+    let regex: RegExp | null = null;
+
+    if (stringStartsAsRegEx(pattern)) {
+      try {
+        regex = stringToJsRegex(pattern);
+      } catch (error) {
+        if (error instanceof Error) {
+          console.warn(error.message);
+        }
+      }
+    }
+    // old format that was simply unescaped pipe-joined strings -> regexp
+    else if (pattern.includes('|')) {
+      // convert A|B -> /^(?:A|B)$/, regexp-escaping all chars between pipes
+      const escapedUnion = pattern.split('|').map(escapeStringForRegex).join('|');
+      regex = new RegExp(`^(?:${escapedUnion})$`);
+    }
+
     return (frame: DataFrame) => {
-      return regex.test(frame.refId || '');
+      return regex?.test(frame.refId || '') ?? frame.refId === pattern;
     };
   },
 
@@ -23,5 +41,5 @@ const refIdMacher: FrameMatcherInfo<string> = {
 };
 
 export function getRefIdMatchers(): FrameMatcherInfo[] {
-  return [refIdMacher];
+  return [refIdMatcher];
 }

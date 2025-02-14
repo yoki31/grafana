@@ -1,11 +1,12 @@
 import { FieldColorModeId, FieldConfigProperty, PanelPlugin } from '@grafana/data';
-import { StatusHistoryPanel } from './StatusHistoryPanel';
-import { StatusPanelOptions, StatusFieldConfig, defaultStatusFieldConfig } from './types';
-import { VisibilityMode } from '@grafana/schema';
+import { AxisPlacement, VisibilityMode } from '@grafana/schema';
 import { commonOptionsBuilder } from '@grafana/ui';
+
+import { StatusHistoryPanel } from './StatusHistoryPanel';
+import { Options, FieldConfig, defaultFieldConfig } from './panelcfg.gen';
 import { StatusHistorySuggestionsSupplier } from './suggestions';
 
-export const plugin = new PanelPlugin<StatusPanelOptions, StatusFieldConfig>(StatusHistoryPanel)
+export const plugin = new PanelPlugin<Options, FieldConfig>(StatusHistoryPanel)
   .useFieldConfig({
     standardOptions: {
       [FieldConfigProperty.Color]: {
@@ -16,13 +17,21 @@ export const plugin = new PanelPlugin<StatusPanelOptions, StatusFieldConfig>(Sta
           mode: FieldColorModeId.Thresholds,
         },
       },
+      [FieldConfigProperty.Links]: {
+        settings: {
+          showOneClick: true,
+        },
+      },
+      [FieldConfigProperty.Actions]: {
+        hideFromDefaults: false,
+      },
     },
     useCustomConfig: (builder) => {
       builder
         .addSliderInput({
           path: 'lineWidth',
           name: 'Line width',
-          defaultValue: defaultStatusFieldConfig.lineWidth,
+          defaultValue: defaultFieldConfig.lineWidth,
           settings: {
             min: 0,
             max: 10,
@@ -32,13 +41,20 @@ export const plugin = new PanelPlugin<StatusPanelOptions, StatusFieldConfig>(Sta
         .addSliderInput({
           path: 'fillOpacity',
           name: 'Fill opacity',
-          defaultValue: defaultStatusFieldConfig.fillOpacity,
+          defaultValue: defaultFieldConfig.fillOpacity,
           settings: {
             min: 0,
             max: 100,
             step: 1,
           },
         });
+
+      commonOptionsBuilder.addHideFrom(builder);
+      commonOptionsBuilder.addAxisPlacement(
+        builder,
+        (placement) => placement === AxisPlacement.Auto || placement === AxisPlacement.Hidden
+      );
+      commonOptionsBuilder.addAxisWidth(builder);
     },
   })
   .setPanelOptions((builder) => {
@@ -74,9 +90,19 @@ export const plugin = new PanelPlugin<StatusPanelOptions, StatusFieldConfig>(Sta
           max: 1,
           step: 0.01,
         },
+      })
+      .addNumberInput({
+        path: 'perPage',
+        name: 'Page size (enable pagination)',
+        settings: {
+          min: 1,
+          step: 1,
+          integer: true,
+        },
       });
 
     commonOptionsBuilder.addLegendOptions(builder, false);
-    commonOptionsBuilder.addTooltipOptions(builder, true);
+    commonOptionsBuilder.addTooltipOptions(builder);
   })
-  .setSuggestionsSupplier(new StatusHistorySuggestionsSupplier());
+  .setSuggestionsSupplier(new StatusHistorySuggestionsSupplier())
+  .setDataSupport({ annotations: true });

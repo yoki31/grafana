@@ -1,10 +1,17 @@
 import { ComponentType } from 'react';
-import { MatcherConfig, FieldConfig, Field, DataFrame, TimeZone } from '../types';
-import { InterpolateFunction } from './panel';
-import { StandardEditorProps, FieldConfigOptionsRegistry, StandardEditorContext } from '../field';
+
+import { FieldConfigOptionsRegistry } from '../field/FieldConfigOptionsRegistry';
+import { StandardEditorContext, StandardEditorProps } from '../field/standardFieldConfigEditorRegistry';
+import { GrafanaTheme2 } from '../themes/types';
+
 import { OptionsEditorItem } from './OptionsUIRegistryBuilder';
+import { ScopedVars } from './ScopedVars';
+import { DataFrame, Field, FieldConfig, ValueLinkConfig } from './dataFrame';
+import { DataLink, LinkModel } from './dataLink';
 import { OptionEditorConfig } from './options';
-import { GrafanaTheme2 } from '../themes';
+import { InterpolateFunction } from './panel';
+import { TimeZone } from './time';
+import { MatcherConfig } from './transformations';
 
 export interface DynamicConfigValue {
   id: string;
@@ -34,8 +41,7 @@ export interface SystemConfigOverrideRule extends ConfigOverrideRule {
  */
 export function isSystemOverrideWithRef<T extends SystemConfigOverrideRule>(ref: string) {
   return (override: ConfigOverrideRule): override is T => {
-    const overrideAs = override as T;
-    return overrideAs.__systemRef === ref;
+    return '__systemRef' in override && override.__systemRef === ref;
   };
 }
 
@@ -46,7 +52,7 @@ export function isSystemOverrideWithRef<T extends SystemConfigOverrideRule>(ref:
  * @internal
  */
 export const isSystemOverride = (override: ConfigOverrideRule): override is SystemConfigOverrideRule => {
-  return typeof (override as SystemConfigOverrideRule)?.__systemRef === 'string';
+  return '__systemRef' in override && typeof override.__systemRef === 'string';
 };
 
 export interface FieldConfigSource<TOptions = any> {
@@ -57,22 +63,16 @@ export interface FieldConfigSource<TOptions = any> {
   overrides: ConfigOverrideRule[];
 }
 
-export interface FieldOverrideContext extends StandardEditorContext<any, any> {
+export interface FieldOverrideContext extends StandardEditorContext<any> {
   field?: Field;
   dataFrameIndex?: number; // The index for the selected field frame
 }
-export interface FieldConfigEditorProps<TValue, TSettings>
-  extends Omit<StandardEditorProps<TValue, TSettings>, 'item'> {
-  item: FieldConfigPropertyItem<any, TValue, TSettings>; // The property info
-  value: TValue;
-  context: FieldOverrideContext;
-  onChange: (value?: TValue) => void;
-}
 
-export interface FieldOverrideEditorProps<TValue, TSettings> extends Omit<StandardEditorProps<TValue>, 'item'> {
-  item: FieldConfigPropertyItem<TValue, TSettings>;
-  context: FieldOverrideContext;
-}
+/** @deprecated Use StandardEditorProps instead */
+export type FieldConfigEditorProps<TValue, TSettings extends {}> = StandardEditorProps<TValue, TSettings>;
+
+/** @deprecated Use StandardEditorProps instead */
+export type FieldOverrideEditorProps<TValue, TSettings extends {}> = StandardEditorProps<TValue, TSettings>;
 
 export interface FieldConfigEditorConfig<TOptions, TSettings = any, TValue = any>
   extends OptionEditorConfig<TOptions, TSettings, TValue> {
@@ -90,9 +90,9 @@ export interface FieldConfigEditorConfig<TOptions, TSettings = any, TValue = any
 }
 
 export interface FieldConfigPropertyItem<TOptions = any, TValue = any, TSettings extends {} = any>
-  extends OptionsEditorItem<TOptions, TSettings, FieldConfigEditorProps<TValue, TSettings>, TValue> {
+  extends OptionsEditorItem<TOptions, TSettings, StandardEditorProps<TValue, TSettings>, TValue> {
   // An editor that can be filled in with context info (template variables etc)
-  override: ComponentType<FieldOverrideEditorProps<TValue, TSettings>>;
+  override: ComponentType<StandardEditorProps<TValue, TSettings>>;
 
   /** true for plugin field config properties */
   isCustom?: boolean;
@@ -110,6 +110,19 @@ export interface FieldConfigPropertyItem<TOptions = any, TValue = any, TSettings
   shouldApply: (field: Field) => boolean;
 }
 
+export type DataLinkPostProcessorOptions = {
+  frame: DataFrame;
+  field: Field;
+  dataLinkScopedVars: ScopedVars;
+  replaceVariables: InterpolateFunction;
+  timeZone?: TimeZone;
+  config: ValueLinkConfig;
+  link: DataLink;
+  linkModel: LinkModel;
+};
+
+export type DataLinkPostProcessor = (options: DataLinkPostProcessorOptions) => LinkModel<Field> | undefined;
+
 export interface ApplyFieldOverrideOptions {
   data?: DataFrame[];
   fieldConfig: FieldConfigSource;
@@ -117,17 +130,21 @@ export interface ApplyFieldOverrideOptions {
   replaceVariables: InterpolateFunction;
   theme: GrafanaTheme2;
   timeZone?: TimeZone;
+  dataLinkPostProcessor?: DataLinkPostProcessor;
 }
 
 export enum FieldConfigProperty {
   Unit = 'unit',
   Min = 'min',
   Max = 'max',
+  FieldMinMax = 'fieldMinMax',
   Decimals = 'decimals',
   DisplayName = 'displayName',
   NoValue = 'noValue',
   Thresholds = 'thresholds',
   Mappings = 'mappings',
   Links = 'links',
+  Actions = 'actions',
   Color = 'color',
+  Filterable = 'filterable',
 }

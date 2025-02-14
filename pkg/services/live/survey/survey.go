@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/centrifugal/centrifuge"
+
 	"github.com/grafana/grafana/pkg/services/live/managedstream"
 )
 
@@ -41,7 +42,7 @@ type NodeManagedChannelsResponse struct {
 
 func (c *Caller) handleSurvey(e centrifuge.SurveyEvent, cb centrifuge.SurveyCallback) {
 	var (
-		resp interface{}
+		resp any
 		err  error
 	)
 	switch e.Op {
@@ -65,7 +66,7 @@ func (c *Caller) handleSurvey(e centrifuge.SurveyEvent, cb centrifuge.SurveyCall
 	})
 }
 
-func (c *Caller) handleManagedStreams(data []byte) (interface{}, error) {
+func (c *Caller) handleManagedStreams(data []byte) (any, error) {
 	var req NodeManagedChannelsRequest
 	err := json.Unmarshal(data, &req)
 	if err != nil {
@@ -89,7 +90,7 @@ func (c *Caller) CallManagedStreams(orgID int64) ([]*managedstream.ManagedChanne
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	resp, err := c.node.Survey(ctx, managedStreamsCall, jsonData)
+	resp, err := c.node.Survey(ctx, managedStreamsCall, jsonData, "")
 	if err != nil {
 		return nil, err
 	}

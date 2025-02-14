@@ -16,80 +16,82 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"html/template"
+	"net"
 	"net/http"
 	"net/url"
-	"reflect"
 	"strconv"
 	"strings"
+	"syscall"
+
+	"github.com/grafana/grafana/pkg/apimachinery/errutil"
+	"github.com/grafana/grafana/pkg/util/errhttp"
 )
-
-// ContextInvoker is an inject.FastInvoker wrapper of func(ctx *Context).
-type ContextInvoker func(ctx *Context)
-
-// Invoke implements inject.FastInvoker which simplifies calls of `func(ctx *Context)` function.
-func (invoke ContextInvoker) Invoke(params []interface{}) ([]reflect.Value, error) {
-	invoke(params[0].(*Context))
-	return nil, nil
-}
 
 // Context represents the runtime context of current request of Macaron instance.
 // It is the integration of most frequently used middlewares and helper methods.
 type Context struct {
-	Injector
-	handlers []Handler
-	index    int
+	mws []Middleware
 
-	*Router
 	Req      *http.Request
 	Resp     ResponseWriter
 	template *template.Template
 }
 
-func (ctx *Context) handler() Handler {
-	if ctx.index < len(ctx.handlers) {
-		return ctx.handlers[ctx.index]
-	}
-	if ctx.index == len(ctx.handlers) {
-		return func() {}
-	}
-	panic("invalid index for context handler")
-}
-
-// Next runs the next handler in the context chain
-func (ctx *Context) Next() {
-	ctx.index++
-	ctx.run()
-}
+var errMissingWrite = errutil.Internal("web.missingWrite")
 
 func (ctx *Context) run() {
-	for ctx.index <= len(ctx.handlers) {
-		if _, err := ctx.Invoke(ctx.handler()); err != nil {
-			panic(err)
-		}
-		ctx.index++
-		if ctx.Resp.Written() {
-			return
-		}
+	h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	for i := len(ctx.mws) - 1; i >= 0; i-- {
+		h = ctx.mws[i](h)
+	}
+
+	rw := ctx.Resp
+	h.ServeHTTP(ctx.Resp, ctx.Req)
+
+	// Prevent the handler chain from not writing anything.
+	// This indicates nearly always that a middleware is misbehaving and not calling its next.ServeHTTP().
+	// In rare cases where a blank http.StatusOK without any body is wished, explicitly state that using w.WriteStatus(http.StatusOK)
+	if !rw.Written() {
+		errhttp.Write(
+			ctx.Req.Context(),
+			errMissingWrite.Errorf("chain did not write HTTP response: %s", ctx.Req.URL.Path),
+			rw,
+		)
 	}
 }
 
 // RemoteAddr returns more real IP address.
 func (ctx *Context) RemoteAddr() string {
-	addr := ctx.Req.Header.Get("X-Real-IP")
+	return RemoteAddr(ctx.Req)
+}
+
+func RemoteAddr(req *http.Request) string {
+	addr := req.Header.Get("X-Real-IP")
 
 	if len(addr) == 0 {
 		// X-Forwarded-For may contain multiple IP addresses, separated by
 		// commas.
-		addr = strings.TrimSpace(strings.Split(ctx.Req.Header.Get("X-Forwarded-For"), ",")[0])
+		addr = strings.TrimSpace(strings.Split(req.Header.Get("X-Forwarded-For"), ",")[0])
+	}
+
+	// parse user inputs from headers to prevent log forgery
+	if len(addr) > 0 {
+		if parsedIP := net.ParseIP(addr); parsedIP == nil {
+			// if parsedIP is nil we clean addr and populate with RemoteAddr below
+			addr = ""
+		}
 	}
 
 	if len(addr) == 0 {
-		addr = ctx.Req.RemoteAddr
+		addr = req.RemoteAddr
 		if i := strings.LastIndex(addr, ":"); i > -1 {
 			addr = addr[:i]
 		}
 	}
+
 	return addr
 }
 
@@ -100,15 +102,18 @@ const (
 )
 
 // HTML renders the HTML with default template set.
-func (ctx *Context) HTML(status int, name string, data interface{}) {
+func (ctx *Context) HTML(status int, name string, data any) {
 	ctx.Resp.Header().Set(headerContentType, contentTypeHTML)
 	ctx.Resp.WriteHeader(status)
 	if err := ctx.template.ExecuteTemplate(ctx.Resp, name, data); err != nil {
-		panic("Context.HTML:" + err.Error())
+		if errors.Is(err, syscall.EPIPE) { // Client has stopped listening.
+			return
+		}
+		panic(fmt.Sprintf("Context.HTML - Error rendering template: %s. You may need to build frontend assets \n %s", name, err.Error()))
 	}
 }
 
-func (ctx *Context) JSON(status int, data interface{}) {
+func (ctx *Context) JSON(status int, data any) {
 	ctx.Resp.Header().Set(headerContentType, contentTypeJSON)
 	ctx.Resp.WriteHeader(status)
 	enc := json.NewEncoder(ctx.Resp)
@@ -177,9 +182,27 @@ func (ctx *Context) QueryInt(name string) int {
 	return n
 }
 
+// QueryIntWithDefault returns query result in int type, including a default when the query param is not a valid int.
+func (ctx *Context) QueryIntWithDefault(name string, d int) int {
+	n, err := strconv.Atoi(ctx.Query(name))
+	if err != nil {
+		return d
+	}
+	return n
+}
+
 // QueryInt64 returns query result in int64 type.
 func (ctx *Context) QueryInt64(name string) int64 {
 	n, _ := strconv.ParseInt(ctx.Query(name), 10, 64)
+	return n
+}
+
+// QueryInt64WithDefault returns query result in int64 type, including a default when the query param is not a valid int64.
+func (ctx *Context) QueryInt64WithDefault(name string, d int64) int64 {
+	n, err := strconv.ParseInt(ctx.Query(name), 10, 64)
+	if err != nil {
+		return d
+	}
 	return n
 }
 
@@ -191,4 +214,10 @@ func (ctx *Context) GetCookie(name string) string {
 	}
 	val, _ := url.QueryUnescape(cookie.Value)
 	return val
+}
+
+// QueryFloat64 returns query result in float64 type.
+func (ctx *Context) QueryFloat64(name string) float64 {
+	n, _ := strconv.ParseFloat(ctx.Query(name), 64)
+	return n
 }

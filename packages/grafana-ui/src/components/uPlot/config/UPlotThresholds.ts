@@ -1,8 +1,10 @@
-import { GrafanaTheme2, Threshold, ThresholdsConfig, ThresholdsMode } from '@grafana/data';
-import { GraphThresholdsStyleConfig, GraphTresholdsStyleMode } from '@grafana/schema';
-import { getGradientRange, scaleGradient } from './gradientFills';
 import tinycolor from 'tinycolor2';
 import uPlot from 'uplot';
+
+import { GrafanaTheme2, Threshold, ThresholdsConfig, ThresholdsMode } from '@grafana/data';
+import { GraphThresholdsStyleConfig, GraphThresholdsStyleMode, ScaleOrientation } from '@grafana/schema';
+
+import { getGradientRange, scaleGradient } from './gradientFills';
 
 export interface UPlotThresholdOptions {
   scaleKey: string;
@@ -16,7 +18,13 @@ export interface UPlotThresholdOptions {
 }
 
 export function getThresholdsDrawHook(options: UPlotThresholdOptions) {
-  function addLines(u: uPlot, steps: Threshold[], theme: GrafanaTheme2, xMin: number, xMax: number, yScaleKey: string) {
+  const dashSegments =
+    options.config.mode === GraphThresholdsStyleMode.Dashed ||
+    options.config.mode === GraphThresholdsStyleMode.DashedAndArea
+      ? [10, 10]
+      : [];
+
+  function addLines(u: uPlot, yScaleKey: string, steps: Threshold[], theme: GrafanaTheme2) {
     let ctx = u.ctx;
 
     // Thresholds below a transparent threshold is treated like "less than", and line drawn previous threshold
@@ -31,6 +39,7 @@ export function getThresholdsDrawHook(options: UPlotThresholdOptions) {
     }
 
     ctx.lineWidth = 2;
+    ctx.setLineDash(dashSegments);
 
     // Ignore the base -Infinity threshold by always starting on index 1
     for (let idx = 1; idx < steps.length; idx++) {
@@ -49,10 +58,13 @@ export function getThresholdsDrawHook(options: UPlotThresholdOptions) {
         color.setAlpha(0.7);
       }
 
-      let x0 = Math.round(u.valToPos(xMin!, 'x', true));
-      let y0 = Math.round(u.valToPos(step.value, yScaleKey, true));
-      let x1 = Math.round(u.valToPos(xMax!, 'x', true));
-      let y1 = Math.round(u.valToPos(step.value, yScaleKey, true));
+      const isHorizontal = u.scales.x!.ori === ScaleOrientation.Horizontal;
+      const scaleVal = u.valToPos(step.value, yScaleKey, true);
+
+      let x0 = Math.round(isHorizontal ? u.bbox.left : scaleVal);
+      let y0 = Math.round(isHorizontal ? scaleVal : u.bbox.top);
+      let x1 = Math.round(isHorizontal ? u.bbox.left + u.bbox.width : scaleVal);
+      let y1 = Math.round(isHorizontal ? scaleVal : u.bbox.top + u.bbox.height);
 
       ctx.beginPath();
       ctx.moveTo(x0, y0);
@@ -63,12 +75,12 @@ export function getThresholdsDrawHook(options: UPlotThresholdOptions) {
     }
   }
 
-  function addAreas(u: uPlot, steps: Threshold[], theme: GrafanaTheme2) {
+  function addAreas(u: uPlot, yScaleKey: string, steps: Threshold[], theme: GrafanaTheme2) {
     let ctx = u.ctx;
 
     let grd = scaleGradient(
       u,
-      u.series[1].scale!,
+      yScaleKey,
       steps.map((step) => {
         let color = tinycolor(theme.visualization.getColorByName(step.color));
 
@@ -111,15 +123,17 @@ export function getThresholdsDrawHook(options: UPlotThresholdOptions) {
     ctx.save();
 
     switch (config.mode) {
-      case GraphTresholdsStyleMode.Line:
-        addLines(u, steps, theme, xMin, xMax, scaleKey);
+      case GraphThresholdsStyleMode.Line:
+      case GraphThresholdsStyleMode.Dashed:
+        addLines(u, scaleKey, steps, theme);
         break;
-      case GraphTresholdsStyleMode.Area:
-        addAreas(u, steps, theme);
+      case GraphThresholdsStyleMode.Area:
+        addAreas(u, scaleKey, steps, theme);
         break;
-      case GraphTresholdsStyleMode.LineAndArea:
-        addAreas(u, steps, theme);
-        addLines(u, steps, theme, xMin, xMax, scaleKey);
+      case GraphThresholdsStyleMode.LineAndArea:
+      case GraphThresholdsStyleMode.DashedAndArea:
+        addAreas(u, scaleKey, steps, theme);
+        addLines(u, scaleKey, steps, theme);
     }
 
     ctx.restore();

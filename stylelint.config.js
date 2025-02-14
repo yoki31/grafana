@@ -1,9 +1,8 @@
 module.exports = {
-  extends: ['stylelint-config-sass-guidelines', 'stylelint-config-prettier'],
+  extends: ['stylelint-config-sass-guidelines'],
   ignoreFiles: ['**/node_modules/**/*.scss'],
   rules: {
     'at-rule-no-vendor-prefix': null,
-    'color-hex-case': null,
     'color-hex-length': null,
     'color-named': null,
     'declaration-block-no-duplicate-properties': [
@@ -15,19 +14,15 @@ module.exports = {
     ],
     // Disable equivalent "borderZero" sass-lint rule
     'declaration-property-value-disallowed-list': {
-      border: [0],
-      'border-top': [0],
-      'border-right': [0],
-      'border-bottom': [0],
-      'border-left': [0],
+      border: [],
+      'border-bottom': [],
+      'border-left': [],
+      'border-right': [],
+      'border-top': [],
     },
-    'function-comma-space-after': null,
     'function-url-quotes': null,
     'length-zero-no-unit': null,
     'max-nesting-depth': null,
-    'number-no-trailing-zeros': null,
-    'order/order': null,
-    'order/properties-alphabetical-order': null,
     'property-no-vendor-prefix': null,
     'rule-empty-line-before': null,
     'scss/at-function-pattern': null,

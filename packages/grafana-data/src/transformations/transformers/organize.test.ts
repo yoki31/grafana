@@ -1,13 +1,11 @@
-import {
-  ArrayVector,
-  DataTransformerConfig,
-  DataTransformerID,
-  FieldType,
-  toDataFrame,
-  transformDataFrame,
-} from '@grafana/data';
-import { organizeFieldsTransformer, OrganizeFieldsTransformerOptions } from './organize';
+import { toDataFrame } from '../../dataframe/processDataFrame';
+import { FieldType } from '../../types/dataFrame';
+import { DataTransformerConfig } from '../../types/transformations';
 import { mockTransformationsRegistry } from '../../utils/tests/mockTransformationsRegistry';
+import { transformDataFrame } from '../transformDataFrame';
+
+import { DataTransformerID } from './ids';
+import { organizeFieldsTransformer, OrganizeFieldsTransformerOptions } from './organize';
 
 describe('OrganizeFields Transformer', () => {
   beforeAll(() => {
@@ -55,7 +53,7 @@ describe('OrganizeFields Transformer', () => {
               multipleFrames: false,
             },
             type: FieldType.number,
-            values: new ArrayVector([10.3, 10.4, 10.5, 10.6]),
+            values: [10.3, 10.4, 10.5, 10.6],
           },
           {
             config: {
@@ -68,7 +66,34 @@ describe('OrganizeFields Transformer', () => {
               multipleFrames: false,
             },
             type: FieldType.number,
-            values: new ArrayVector([10000.3, 10000.4, 10000.5, 10000.6]),
+            values: [10000.3, 10000.4, 10000.5, 10000.6],
+          },
+        ]);
+      });
+    });
+
+    it('should order and filter (inclusion) according to config', async () => {
+      const cfg: DataTransformerConfig<OrganizeFieldsTransformerOptions> = {
+        id: DataTransformerID.organize,
+        options: {
+          excludeByName: {},
+          indexByName: {},
+          includeByName: {
+            time: true,
+          },
+          renameByName: {},
+        },
+      };
+
+      await expect(transformDataFrame([cfg], [data])).toEmitValuesWith((received) => {
+        const data = received[0];
+        const organized = data[0];
+        expect(organized.fields).toEqual([
+          {
+            config: {},
+            name: 'time',
+            type: FieldType.time,
+            values: [3000, 4000, 5000, 6000],
           },
         ]);
       });
@@ -118,7 +143,7 @@ describe('OrganizeFields Transformer', () => {
               multipleFrames: false,
             },
             type: FieldType.time,
-            values: new ArrayVector([3000, 4000, 5000, 6000]),
+            values: [3000, 4000, 5000, 6000],
           },
           {
             config: {},
@@ -129,7 +154,7 @@ describe('OrganizeFields Transformer', () => {
               multipleFrames: false,
             },
             type: FieldType.number,
-            values: new ArrayVector([10.3, 10.4, 10.5, 10.6]),
+            values: [10.3, 10.4, 10.5, 10.6],
           },
         ]);
       });

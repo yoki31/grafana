@@ -1,18 +1,20 @@
+import { FormProvider, useForm } from 'react-hook-form';
+
+import { Alert, Button, LinkButton, Stack } from '@grafana/ui';
 import { useCleanup } from 'app/core/hooks/useCleanup';
+import { Trans } from 'app/core/internationalization';
 import { AlertManagerCortexConfig } from 'app/plugins/datasource/alertmanager/types';
-import React, { FC } from 'react';
+import { useDispatch } from 'app/types';
+
 import { useUnifiedAlertingSelector } from '../../hooks/useUnifiedAlertingSelector';
-import { useForm, FormProvider } from 'react-hook-form';
-import { globalConfigOptions } from '../../utils/cloud-alertmanager-notifier-types';
-import { OptionField } from './form/fields/OptionField';
-import { Alert, Button, HorizontalGroup, LinkButton, useStyles2 } from '@grafana/ui';
-import { makeAMLink } from '../../utils/misc';
-import { useDispatch } from 'react-redux';
 import { updateAlertManagerConfigAction } from '../../state/actions';
-import { omitEmptyValues } from '../../utils/receiver-form';
-import { css } from '@emotion/css';
-import { GrafanaTheme2 } from '@grafana/data';
+import { globalConfigOptions } from '../../utils/cloud-alertmanager-notifier-types';
 import { isVanillaPrometheusAlertManagerDataSource } from '../../utils/datasource';
+import { makeAMLink } from '../../utils/misc';
+import { omitEmptyValues } from '../../utils/receiver-form';
+import { initialAsyncRequestState } from '../../utils/redux';
+
+import { OptionField } from './form/fields/OptionField';
 
 interface Props {
   config: AlertManagerCortexConfig;
@@ -25,12 +27,13 @@ const defaultValues: FormValues = {
   smtp_require_tls: true,
 } as const;
 
-export const GlobalConfigForm: FC<Props> = ({ config, alertManagerSourceName }) => {
+export const GlobalConfigForm = ({ config, alertManagerSourceName }: Props) => {
   const dispatch = useDispatch();
-  useCleanup((state) => state.unifiedAlerting.saveAMConfig);
+
+  useCleanup((state) => (state.unifiedAlerting.saveAMConfig = initialAsyncRequestState));
+
   const { loading, error } = useUnifiedAlertingSelector((state) => state.saveAMConfig);
   const readOnly = isVanillaPrometheusAlertManagerDataSource(alertManagerSourceName);
-  const styles = useStyles2(getStyles);
 
   const formAPI = useForm<FormValues>({
     // making a copy here beacuse react-hook-form will mutate these, and break if the object is frozen. for real.
@@ -68,7 +71,6 @@ export const GlobalConfigForm: FC<Props> = ({ config, alertManagerSourceName }) 
   return (
     <FormProvider {...formAPI}>
       <form onSubmit={handleSubmit(onSubmitCallback)}>
-        <h4 className={styles.heading}>Global config</h4>
         {error && (
           <Alert severity="error" title="Error saving receiver">
             {error.message || String(error)}
@@ -85,11 +87,11 @@ export const GlobalConfigForm: FC<Props> = ({ config, alertManagerSourceName }) 
           />
         ))}
         <div>
-          <HorizontalGroup>
+          <Stack>
             {!readOnly && (
               <>
                 {loading && (
-                  <Button disabled={true} icon="fa fa-spinner" variant="primary">
+                  <Button disabled={true} icon="spinner" variant="primary">
                     Saving...
                   </Button>
                 )}
@@ -102,17 +104,11 @@ export const GlobalConfigForm: FC<Props> = ({ config, alertManagerSourceName }) 
               variant="secondary"
               href={makeAMLink('alerting/notifications', alertManagerSourceName)}
             >
-              Cancel
+              <Trans i18nKey="alerting.common.cancel">Cancel</Trans>
             </LinkButton>
-          </HorizontalGroup>
+          </Stack>
         </div>
       </form>
     </FormProvider>
   );
 };
-
-const getStyles = (theme: GrafanaTheme2) => ({
-  heading: css`
-    margin: ${theme.spacing(4, 0)};
-  `,
-});

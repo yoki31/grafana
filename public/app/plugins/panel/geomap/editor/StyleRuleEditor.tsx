@@ -1,37 +1,36 @@
-import React, { FC, useCallback, useMemo } from 'react';
-import { GrafanaTheme2, SelectableValue, StandardEditorProps } from '@grafana/data';
-import { ComparisonOperation, FeatureStyleConfig } from '../types';
-import { Button, InlineField, InlineFieldRow, Select, useStyles2 } from '@grafana/ui';
 import { css } from '@emotion/css';
-import { StyleEditor } from '../layers/data/StyleEditor';
-import { defaultStyleConfig, StyleConfig } from '../style/types';
-import { DEFAULT_STYLE_RULE } from '../layers/data/geojsonLayer';
-import { Observable } from 'rxjs';
-import { useObservable } from 'react-use';
-import { getUniqueFeatureValues, LayerContentInfo } from '../utils/getFeatures';
 import { FeatureLike } from 'ol/Feature';
+import { useCallback, useMemo } from 'react';
+import { useObservable } from 'react-use';
+import { Observable } from 'rxjs';
+
+import { GrafanaTheme2, SelectableValue, StandardEditorProps, StandardEditorsRegistryItem } from '@grafana/data';
+import { ComparisonOperation } from '@grafana/schema';
+import { Button, InlineField, InlineFieldRow, Select, useStyles2 } from '@grafana/ui';
+import { comparisonOperationOptions } from '@grafana/ui/src/components/MatchersUI/FieldValueMatcher';
+import { NumberInput } from 'app/core/components/OptionsUI/NumberInput';
+
+import { DEFAULT_STYLE_RULE } from '../layers/data/geojsonLayer';
+import { defaultStyleConfig, StyleConfig } from '../style/types';
+import { FeatureStyleConfig } from '../types';
+import { getUniqueFeatureValues, LayerContentInfo } from '../utils/getFeatures';
 import { getSelectionInfo } from '../utils/selection';
-import { NumberInput } from 'app/features/dimensions/editors/NumberInput';
+
+import { StyleEditor } from './StyleEditor';
 
 export interface StyleRuleEditorSettings {
   features: Observable<FeatureLike[]>;
   layerInfo: Observable<LayerContentInfo>;
 }
 
-const comparators = [
-  { label: '==', value: ComparisonOperation.EQ },
-  { label: '!=', value: ComparisonOperation.NEQ },
-  { label: '>', value: ComparisonOperation.GT },
-  { label: '>=', value: ComparisonOperation.GTE },
-  { label: '<', value: ComparisonOperation.LT },
-  { label: '<=', value: ComparisonOperation.LTE },
-];
+type Props = StandardEditorProps<FeatureStyleConfig, StyleRuleEditorSettings, unknown>;
 
-export const StyleRuleEditor: FC<StandardEditorProps<FeatureStyleConfig, any, any, StyleRuleEditorSettings>> = (
-  props
-) => {
-  const { value, onChange, item, context } = props;
-  const settings: StyleRuleEditorSettings = item.settings;
+export const StyleRuleEditor = ({ value, onChange, item, context }: Props) => {
+  const settings = item.settings;
+  if (!settings) {
+    // Shouldn't be possible to hit this block, but just in case
+    throw Error('Settings not found');
+  }
   const { features, layerInfo } = settings;
 
   const propertyOptions = useObservable(layerInfo);
@@ -135,7 +134,6 @@ export const StyleRuleEditor: FC<StandardEditorProps<FeatureStyleConfig, any, an
       <InlineFieldRow className={styles.row}>
         <InlineField label="Rule" labelWidth={LABEL_WIDTH} grow={true}>
           <Select
-            menuShouldPortal
             placeholder={'Feature property'}
             value={propv.current}
             options={propv.options}
@@ -147,9 +145,8 @@ export const StyleRuleEditor: FC<StandardEditorProps<FeatureStyleConfig, any, an
         </InlineField>
         <InlineField className={styles.inline}>
           <Select
-            menuShouldPortal
-            value={comparators.find((v) => v.value === check.operation)}
-            options={comparators}
+            value={comparisonOperationOptions.find((v) => v.value === check.operation)}
+            options={comparisonOperationOptions}
             onChange={onChangeComparison}
             aria-label={'Comparison operator'}
             width={8}
@@ -159,7 +156,6 @@ export const StyleRuleEditor: FC<StandardEditorProps<FeatureStyleConfig, any, an
           <div className={styles.flexRow}>
             {(check.operation === ComparisonOperation.EQ || check.operation === ComparisonOperation.NEQ) && (
               <Select
-                menuShouldPortal
                 placeholder={'value'}
                 value={valuev.current}
                 options={valuev.options}
@@ -199,7 +195,7 @@ export const StyleRuleEditor: FC<StandardEditorProps<FeatureStyleConfig, any, an
                 simpleFixedValues: true,
                 layerInfo,
               },
-            } as any
+            } as StandardEditorsRegistryItem
           }
         />
       </div>
@@ -208,23 +204,23 @@ export const StyleRuleEditor: FC<StandardEditorProps<FeatureStyleConfig, any, an
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  rule: css`
-    margin-bottom: ${theme.spacing(1)};
-  `,
-  row: css`
-    display: flex;
-    margin-bottom: 4px;
-  `,
-  inline: css`
-    margin-bottom: 0;
-    margin-left: 4px;
-  `,
-  button: css`
-    margin-left: 4px;
-  `,
-  flexRow: css`
-    display: flex;
-    flex-direction: row;
-    align-items: flex-start;
-  `,
+  rule: css({
+    marginBottom: theme.spacing(1),
+  }),
+  row: css({
+    display: 'flex',
+    marginBottom: '4px',
+  }),
+  inline: css({
+    marginBottom: 0,
+    marginLeft: '4px',
+  }),
+  button: css({
+    marginLeft: '4px',
+  }),
+  flexRow: css({
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  }),
 });

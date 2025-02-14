@@ -1,14 +1,17 @@
-import React, { Component, createRef } from 'react';
-import { PopoverController } from '../Tooltip/PopoverController';
-import { Popover } from '../Tooltip/Popover';
-import { ColorPickerPopover, ColorPickerProps, ColorPickerChangeHandler } from './ColorPickerPopover';
-import { GrafanaTheme2 } from '@grafana/data';
-import { SeriesColorPickerPopover } from './SeriesColorPickerPopover';
-
 import { css } from '@emotion/css';
+import { Component, createRef } from 'react';
+import * as React from 'react';
+
+import { GrafanaTheme2 } from '@grafana/data';
+
 import { withTheme2, stylesFactory } from '../../themes';
-import { ColorSwatch } from './ColorSwatch';
 import { closePopover } from '../../utils/closePopover';
+import { Popover } from '../Tooltip/Popover';
+import { PopoverController } from '../Tooltip/PopoverController';
+
+import { ColorPickerPopover, ColorPickerProps } from './ColorPickerPopover';
+import { ColorSwatch } from './ColorSwatch';
+import { SeriesColorPickerPopover } from './SeriesColorPickerPopover';
 
 /**
  * If you need custom trigger for the color picker you can do that with a render prop pattern and supply a function
@@ -25,28 +28,20 @@ type ColorPickerTriggerRenderer = (props: {
 }) => React.ReactNode;
 
 export const colorPickerFactory = <T extends ColorPickerProps>(
-  popover: React.ComponentType<T>,
+  popover: React.ComponentType<React.PropsWithChildren<T>>,
   displayName = 'ColorPicker'
 ) => {
-  return class ColorPicker extends Component<T & { children?: ColorPickerTriggerRenderer }, any> {
+  return class ColorPicker extends Component<T & { children?: ColorPickerTriggerRenderer }> {
     static displayName = displayName;
     pickerTriggerRef = createRef<any>();
 
-    onColorChange = (color: string) => {
-      const { onColorChange, onChange } = this.props;
-      const changeHandler = (onColorChange || onChange) as ColorPickerChangeHandler;
-
-      return changeHandler(color);
-    };
-
     render() {
-      const { theme, children } = this.props;
+      const { theme, children, onChange, color } = this.props;
       const styles = getStyles(theme);
       const popoverElement = React.createElement(popover, {
         ...{ ...this.props, children: null },
-        onChange: this.onColorChange,
+        onChange,
       });
-
       return (
         <PopoverController content={popoverElement} hideAfter={300}>
           {(showPopper, hidePopper, popperProps) => {
@@ -64,10 +59,7 @@ export const colorPickerFactory = <T extends ColorPickerProps>(
                 )}
 
                 {children ? (
-                  // Children have a bit weird type due to intersection used in the definition so we need to cast here,
-                  // but the definition is correct and should not allow to pass a children that does not conform to
-                  // ColorPickerTriggerRenderer type.
-                  (children as ColorPickerTriggerRenderer)({
+                  children({
                     ref: this.pickerTriggerRef,
                     showColorPicker: showPopper,
                     hideColorPicker: hidePopper,
@@ -77,7 +69,8 @@ export const colorPickerFactory = <T extends ColorPickerProps>(
                     ref={this.pickerTriggerRef}
                     onClick={showPopper}
                     onMouseLeave={hidePopper}
-                    color={theme.visualization.getColorByName(this.props.color || '#000000')}
+                    color={theme.visualization.getColorByName(color || '#000000')}
+                    aria-label={color}
                   />
                 )}
               </>
@@ -94,29 +87,12 @@ export const SeriesColorPicker = withTheme2(colorPickerFactory(SeriesColorPicker
 
 const getStyles = stylesFactory((theme: GrafanaTheme2) => {
   return {
-    colorPicker: css`
-      position: absolute;
-      z-index: ${theme.zIndex.tooltip};
-      color: ${theme.colors.text.primary};
-      max-width: 400px;
-      font-size: ${theme.typography.size.sm};
-      // !important because these styles are also provided to popper via .popper classes from Tooltip component
-      // hope to get rid of those soon
-      padding: 15px !important;
-      & [data-placement^='top'] {
-        padding-left: 0 !important;
-        padding-right: 0 !important;
-      }
-      & [data-placement^='bottom'] {
-        padding-left: 0 !important;
-        padding-right: 0 !important;
-      }
-      & [data-placement^='left'] {
-        padding-top: 0 !important;
-      }
-      & [data-placement^='right'] {
-        padding-top: 0 !important;
-      }
-    `,
+    colorPicker: css({
+      position: 'absolute',
+      zIndex: theme.zIndex.tooltip,
+      color: theme.colors.text.primary,
+      maxWidth: '400px',
+      fontSize: theme.typography.size.sm,
+    }),
   };
 });

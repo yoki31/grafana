@@ -1,15 +1,22 @@
-import React, { CSSProperties, ReactNode, useState, useEffect } from 'react';
-import { GrafanaTheme2 } from '@grafana/data';
+import { css, cx } from '@emotion/css';
+import { useDialog } from '@react-aria/dialog';
+import { FocusScope } from '@react-aria/focus';
+import { useOverlay } from '@react-aria/overlays';
 import RcDrawer from 'rc-drawer';
-import { css } from '@emotion/css';
+import { ReactNode, useCallback, useEffect, useState } from 'react';
+import * as React from 'react';
+
+import { GrafanaTheme2 } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 
-import { CustomScrollbar } from '../CustomScrollbar/CustomScrollbar';
-import { IconButton } from '../IconButton/IconButton';
 import { useStyles2 } from '../../themes';
-import { FocusScope } from '@react-aria/focus';
-import { useDialog } from '@react-aria/dialog';
-import { useOverlay } from '@react-aria/overlays';
+import { t } from '../../utils/i18n';
+import { getDragStyles } from '../DragHandle/DragHandle';
+import { IconButton } from '../IconButton/IconButton';
+import { ScrollContainer } from '../ScrollContainer/ScrollContainer';
+import { Text } from '../Text/Text';
+
+import 'rc-drawer/assets/index.css';
 
 export interface Props {
   children: ReactNode;
@@ -19,175 +26,341 @@ export interface Props {
   subtitle?: ReactNode;
   /** Should the Drawer be closable by clicking on the mask, defaults to true */
   closeOnMaskClick?: boolean;
-  /** Render the drawer inside a container on the page */
+  /** @deprecated */
   inline?: boolean;
-  /** Either a number in px or a string with unit postfix */
+  /**
+   * @deprecated use the size property instead
+   **/
   width?: number | string;
-  /** Should the Drawer be expandable to full width */
+  /**
+   * @deprecated use a large size instead if high width is needed
+   **/
   expandable?: boolean;
+  /**
+   * Specifies the width and min-width.
+   * sm = width 25vw & min-width 384px
+   * md = width 50vw & min-width 568px
+   * lg = width 75vw & min-width 744px
+   **/
+  size?: 'sm' | 'md' | 'lg';
   /** Tabs */
   tabs?: React.ReactNode;
-  /** Set to true if the component rendered within in drawer content has its own scroll */
+  // TODO remove this prop next major version
+  /**
+   * @deprecated this is now default behaviour. content is always scrollable.
+   **/
   scrollableContent?: boolean;
   /** Callback for closing the drawer */
   onClose: () => void;
 }
 
+const drawerSizes = {
+  sm: { width: '25vw', minWidth: 384 },
+  md: { width: '50vw', minWidth: 568 },
+  lg: { width: '75vw', minWidth: 744 },
+};
+
 export function Drawer({
   children,
-  inline = false,
   onClose,
   closeOnMaskClick = true,
-  scrollableContent = false,
+  scrollableContent = true,
   title,
   subtitle,
-  width = '40%',
-  expandable = false,
+  width,
+  size = 'md',
   tabs,
 }: Props) {
-  const drawerStyles = useStyles2(getStyles);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isOpen, setIsOpen] = useState(false);
-  const currentWidth = isExpanded ? '100%' : width;
+  const [drawerWidth, onMouseDown, onTouchStart] = useResizebleDrawer();
+
+  const styles = useStyles2(getStyles);
+  const wrapperStyles = useStyles2(getWrapperStyles, size);
+  const dragStyles = useStyles2(getDragStyles);
+
   const overlayRef = React.useRef(null);
   const { dialogProps, titleProps } = useDialog({}, overlayRef);
   const { overlayProps } = useOverlay(
     {
-      isDismissable: true,
+      isDismissable: false,
+      isOpen: true,
+      onClose,
     },
     overlayRef
   );
 
-  // RcDrawer v4.x needs to be mounted in advance for animations to play.
-  useEffect(() => {
-    setIsOpen(true);
-  }, []);
+  // Adds body class while open so the toolbar nav can hide some actions while drawer is open
+  useBodyClassWhileOpen();
 
-  const content = <div className={drawerStyles.content}>{children}</div>;
+  const content = <div className={styles.content}>{children}</div>;
+  const overrideWidth = drawerWidth ?? width ?? drawerSizes[size].width;
+  const minWidth = drawerSizes[size].minWidth;
 
   return (
     <RcDrawer
-      level={null}
-      handler={false}
-      open={isOpen}
+      open={true}
       onClose={onClose}
-      maskClosable={closeOnMaskClick}
       placement="right"
-      width={currentWidth}
-      getContainer={inline ? undefined : 'body'}
-      style={{ position: `${inline && 'absolute'}` } as CSSProperties}
-      className={drawerStyles.drawer}
-      aria-label={
-        typeof title === 'string'
-          ? selectors.components.Drawer.General.title(title)
-          : selectors.components.Drawer.General.title('no title')
-      }
+      getContainer={'.main-view'}
+      className={styles.drawerContent}
+      rootClassName={styles.drawer}
+      classNames={{
+        wrapper: wrapperStyles,
+      }}
+      styles={{
+        wrapper: {
+          width: overrideWidth,
+          minWidth,
+        },
+      }}
+      width={''}
+      motion={{
+        motionAppear: true,
+        motionName: styles.drawerMotion,
+      }}
+      maskClassName={styles.mask}
+      maskClosable={closeOnMaskClick}
+      maskMotion={{
+        motionAppear: true,
+        motionName: styles.maskMotion,
+      }}
     >
       <FocusScope restoreFocus contain autoFocus>
-        <div className={drawerStyles.container} {...overlayProps} {...dialogProps} ref={overlayRef}>
+        <div
+          aria-label={
+            typeof title === 'string'
+              ? selectors.components.Drawer.General.title(title)
+              : selectors.components.Drawer.General.title('no title')
+          }
+          className={styles.container}
+          {...overlayProps}
+          {...dialogProps}
+          ref={overlayRef}
+        >
+          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+          <div
+            className={cx(dragStyles.dragHandleVertical, styles.resizer)}
+            onMouseDown={onMouseDown}
+            onTouchStart={onTouchStart}
+          />
           {typeof title === 'string' && (
-            <div className={drawerStyles.header}>
-              <div className={drawerStyles.actions}>
-                {expandable && !isExpanded && (
-                  <IconButton
-                    name="angle-left"
-                    size="xl"
-                    onClick={() => setIsExpanded(true)}
-                    surface="header"
-                    aria-label={selectors.components.Drawer.General.expand}
-                  />
-                )}
-                {expandable && isExpanded && (
-                  <IconButton
-                    name="angle-right"
-                    size="xl"
-                    onClick={() => setIsExpanded(false)}
-                    surface="header"
-                    aria-label={selectors.components.Drawer.General.contract}
-                  />
-                )}
+            <div className={cx(styles.header, Boolean(tabs) && styles.headerWithTabs)}>
+              <div className={styles.actions}>
                 <IconButton
                   name="times"
-                  size="xl"
+                  variant="secondary"
                   onClick={onClose}
-                  surface="header"
-                  aria-label={selectors.components.Drawer.General.close}
+                  data-testid={selectors.components.Drawer.General.close}
+                  tooltip={t(`grafana-ui.drawer.close`, 'Close')}
                 />
               </div>
-              <div className={drawerStyles.titleWrapper}>
-                <h3 {...titleProps}>{title}</h3>
-                {typeof subtitle === 'string' && <div className="muted">{subtitle}</div>}
-                {typeof subtitle !== 'string' && subtitle}
-                {tabs && <div className={drawerStyles.tabsWrapper}>{tabs}</div>}
+              <div className={styles.titleWrapper}>
+                <Text element="h3" {...titleProps}>
+                  {title}
+                </Text>
+                {subtitle && (
+                  <div className={styles.subtitle} data-testid={selectors.components.Drawer.General.subtitle}>
+                    {subtitle}
+                  </div>
+                )}
+                {tabs && <div className={styles.tabsWrapper}>{tabs}</div>}
               </div>
             </div>
           )}
           {typeof title !== 'string' && title}
-          <div className={drawerStyles.contentScroll}>
-            {!scrollableContent ? content : <CustomScrollbar autoHeightMin="100%">{content}</CustomScrollbar>}
-          </div>
+          {!scrollableContent ? content : <ScrollContainer showScrollIndicators>{content}</ScrollContainer>}
         </div>
       </FocusScope>
     </RcDrawer>
   );
 }
 
+function useResizebleDrawer(): [
+  string | undefined,
+  React.EventHandler<React.MouseEvent>,
+  React.EventHandler<React.TouchEvent>,
+] {
+  const [drawerWidth, setDrawerWidth] = useState<string | undefined>(undefined);
+
+  const onMouseMove = useCallback((e: MouseEvent) => {
+    setDrawerWidth(getCustomDrawerWidth(e.clientX));
+  }, []);
+
+  const onTouchMove = useCallback((e: TouchEvent) => {
+    const touch = e.touches[0];
+    setDrawerWidth(getCustomDrawerWidth(touch.clientX));
+  }, []);
+
+  const onMouseUp = useCallback(
+    (e: MouseEvent) => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    },
+    [onMouseMove]
+  );
+
+  const onTouchEnd = useCallback(
+    (e: TouchEvent) => {
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+    },
+    [onTouchMove]
+  );
+
+  function onMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    e.stopPropagation();
+    e.preventDefault();
+    // we will only add listeners when needed, and remove them afterward
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
+  function onTouchStart(e: React.TouchEvent<HTMLDivElement>) {
+    e.stopPropagation();
+    e.preventDefault();
+    // we will only add listeners when needed, and remove them afterward
+    document.addEventListener('touchmove', onTouchMove);
+    document.addEventListener('touchend', onTouchEnd);
+  }
+
+  return [drawerWidth, onMouseDown, onTouchStart];
+}
+
+function getCustomDrawerWidth(clientX: number) {
+  let offsetRight = document.body.offsetWidth - (clientX - document.body.offsetLeft);
+  let widthPercent = Math.min((offsetRight / document.body.clientWidth) * 100, 98).toFixed(2);
+  return `${widthPercent}vw`;
+}
+
+function useBodyClassWhileOpen() {
+  useEffect(() => {
+    if (!document.body) {
+      return;
+    }
+
+    document.body.classList.add('body-drawer-open');
+
+    return () => {
+      document.body.classList.remove('body-drawer-open');
+    };
+  }, []);
+}
+
 const getStyles = (theme: GrafanaTheme2) => {
   return {
-    container: css`
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-      flex: 1 1 0;
-    `,
-    drawer: css`
-      .drawer-content {
-        background-color: ${theme.colors.background.primary};
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-      }
-      &.drawer-open .drawer-mask {
-        background-color: ${theme.components.overlay.background};
-        backdrop-filter: blur(1px);
-        opacity: 1;
-      }
-      .drawer-mask {
-        background-color: ${theme.components.overlay.background};
-        backdrop-filter: blur(1px);
-      }
-      .drawer-open .drawer-content-wrapper {
-        box-shadow: ${theme.shadows.z3};
-      }
-      z-index: ${theme.zIndex.dropdown};
-    `,
-    header: css`
-      background-color: ${theme.colors.background.canvas};
-      flex-grow: 0;
-      padding-top: ${theme.spacing(0.5)};
-    `,
-    actions: css`
-      display: flex;
-      align-items: baseline;
-      justify-content: flex-end;
-    `,
-    titleWrapper: css`
-      margin-bottom: ${theme.spacing(3)};
-      padding: ${theme.spacing(0, 1, 0, 3)};
-      overflow-wrap: break-word;
-    `,
+    container: css({
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
+      flex: '1 1 0',
+      minHeight: '100%',
+      position: 'relative',
+    }),
+    drawer: css({
+      top: 0,
+
+      '.rc-drawer-content-wrapper': {
+        boxShadow: theme.shadows.z3,
+      },
+    }),
+    drawerContent: css({
+      backgroundColor: `${theme.colors.background.primary} !important`,
+      display: 'flex',
+      overflow: 'unset !important',
+      flexDirection: 'column',
+    }),
+    drawerMotion: css({
+      '&-appear': {
+        transform: 'translateX(100%)',
+        transition: 'none !important',
+
+        '&-active': {
+          transition: `${theme.transitions.create('transform')} !important`,
+          transform: 'translateX(0)',
+        },
+      },
+    }),
+    // we want the mask itself to span the whole page including the top bar
+    // this ensures trying to click something in the top bar will close the drawer correctly
+    // but we don't want the backdrop styling to apply over the top bar as it looks weird
+    // instead have a child pseudo element to apply the backdrop styling below the top bar
+    mask: css({
+      // The !important here is to override the default .rc-drawer-mask styles
+      backgroundColor: 'transparent !important',
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      position: 'fixed !important' as 'fixed',
+
+      '&:before': {
+        backgroundColor: `${theme.components.overlay.background} !important`,
+        backdropFilter: 'blur(1px)',
+        bottom: 0,
+        content: '""',
+        left: 0,
+        position: 'fixed',
+        right: 0,
+        top: 0,
+      },
+    }),
+    maskMotion: css({
+      '&-appear': {
+        opacity: 0,
+
+        '&-active': {
+          opacity: 1,
+          transition: theme.transitions.create('opacity'),
+        },
+      },
+    }),
+    header: css({
+      label: 'drawer-header',
+      flexGrow: 0,
+      padding: theme.spacing(2, 2, 3),
+      borderBottom: `1px solid ${theme.colors.border.weak}`,
+    }),
+    headerWithTabs: css({
+      borderBottom: 'none',
+    }),
+    actions: css({
+      position: 'absolute',
+      right: theme.spacing(1),
+      top: theme.spacing(1),
+    }),
+    titleWrapper: css({
+      label: 'drawer-title',
+      overflowWrap: 'break-word',
+    }),
+    subtitle: css({
+      label: 'drawer-subtitle',
+      color: theme.colors.text.secondary,
+      paddingTop: theme.spacing(1),
+    }),
     content: css({
       padding: theme.spacing(2),
       height: '100%',
       flexGrow: 1,
     }),
-    contentScroll: css({
-      minHeight: 0,
-      flex: 1,
-    }),
     tabsWrapper: css({
+      label: 'drawer-tabs',
       paddingLeft: theme.spacing(2),
-      margin: theme.spacing(3, -1, -3, -3),
+      margin: theme.spacing(1, -1, -3, -3),
+    }),
+    resizer: css({
+      top: 0,
+      left: theme.spacing(-1),
+      bottom: 0,
+      position: 'absolute',
+      zIndex: theme.zIndex.modal,
     }),
   };
 };
+
+function getWrapperStyles(theme: GrafanaTheme2, size: 'sm' | 'md' | 'lg') {
+  return css({
+    label: `drawer-content-wrapper-${size}`,
+    overflow: 'unset !important',
+
+    [theme.breakpoints.down('md')]: {
+      width: `calc(100% - ${theme.spacing(2)}) !important`,
+      minWidth: '0 !important',
+    },
+  });
+}

@@ -42,7 +42,7 @@ func (il *InstanceLabels) StringKey() (string, error) {
 	tl := labelsToTupleLabels(*il)
 	b, err := json.Marshal(tl)
 	if err != nil {
-		return "", fmt.Errorf("can not gereate key due to failure to encode labels: %w", err)
+		return "", fmt.Errorf("could not generate key due to failure to encode labels: %w", err)
 	}
 	return string(b), nil
 }
@@ -54,7 +54,7 @@ func (il *InstanceLabels) StringAndHash() (string, string, error) {
 
 	b, err := json.Marshal(tl)
 	if err != nil {
-		return "", "", fmt.Errorf("can not gereate key for alert instance due to failure to encode labels: %w", err)
+		return "", "", fmt.Errorf("could not generate key for alert instance due to failure to encode labels: %w", err)
 	}
 
 	h := sha1.New()
@@ -63,6 +63,10 @@ func (il *InstanceLabels) StringAndHash() (string, string, error) {
 	}
 
 	return string(b), fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+func (il *InstanceLabels) Fingerprint() data.Fingerprint {
+	return data.Labels(*il).Fingerprint()
 }
 
 // The following is based on SDK code, copied for now
@@ -76,7 +80,7 @@ type tupleLabels []tupleLabel
 type tupleLabel [2]string
 
 // Sort tupleLabels by each elements first property (key).
-func (t *tupleLabels) sortBtKey() {
+func (t *tupleLabels) sortByKey() {
 	if t == nil {
 		return
 	}
@@ -91,7 +95,7 @@ func labelsToTupleLabels(l InstanceLabels) tupleLabels {
 	for k, v := range l {
 		t = append(t, tupleLabel{k, v})
 	}
-	t.sortBtKey()
+	t.sortByKey()
 	return t
 }
 
@@ -100,12 +104,16 @@ func tupleLablesToLabels(tuples tupleLabels) (InstanceLabels, error) {
 	if tuples == nil {
 		return InstanceLabels{}, nil
 	}
-	labels := make(map[string]string)
+
+	labels := make(map[string]string, len(tuples))
 	for _, tuple := range tuples {
-		if key, ok := labels[tuple[0]]; ok {
-			return nil, fmt.Errorf("duplicate key '%v' in lables: %v", key, tuples)
+		key, value := tuple[0], tuple[1]
+		if _, ok := labels[key]; ok {
+			return nil, fmt.Errorf("duplicate key '%s' in labels: %v", key, tuples)
 		}
-		labels[tuple[0]] = tuple[1]
+
+		labels[key] = value
 	}
+
 	return labels, nil
 }

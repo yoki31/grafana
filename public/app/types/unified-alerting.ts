@@ -1,25 +1,38 @@
 /* Prometheus internal models */
 
 import { AlertState, DataSourceInstanceSettings } from '@grafana/data';
+import { PromOptions } from '@grafana/prometheus';
+import { LokiOptions } from 'app/plugins/datasource/loki/types';
+
 import {
+  Annotations,
+  GrafanaAlertState,
+  GrafanaAlertStateWithReason,
+  Labels,
+  mapStateWithReasonToBaseState,
   PromAlertingRuleState,
   PromRuleType,
   RulerRuleDTO,
-  Labels,
-  Annotations,
   RulerRuleGroupDTO,
-  GrafanaAlertState,
 } from './unified-alerting-dto';
 
 export type Alert = {
   activeAt: string;
   annotations: { [key: string]: string };
   labels: { [key: string]: string };
-  state: PromAlertingRuleState | GrafanaAlertState;
+  state: Exclude<PromAlertingRuleState | GrafanaAlertStateWithReason, PromAlertingRuleState.Inactive>;
   value: string;
 };
+
+export function hasAlertState(alert: Alert, state: PromAlertingRuleState | GrafanaAlertState): boolean {
+  return mapStateWithReasonToBaseState(alert.state) === state;
+}
+
+// Prometheus API uses "err" but grafana API uses "error" *sigh*
+export type RuleHealth = 'nodata' | 'error' | 'err' | string;
+
 interface RuleBase {
-  health: string;
+  health: RuleHealth;
   name: string;
   query: string;
   lastEvaluation?: string;
@@ -29,7 +42,7 @@ interface RuleBase {
 
 export interface AlertingRule extends RuleBase {
   alerts?: Alert[];
-  labels: {
+  labels?: {
     [key: string]: string;
   };
   annotations?: {
@@ -37,6 +50,14 @@ export interface AlertingRule extends RuleBase {
   };
   state: PromAlertingRuleState;
   type: PromRuleType.Alerting;
+
+  /**
+   * Pending period in seconds, aka for. 0 or undefined means no pending period
+   */
+  duration?: number;
+  totals?: Partial<Record<Lowercase<GrafanaAlertState>, number>>;
+  totalsFiltered?: Partial<Record<Lowercase<GrafanaAlertState>, number>>;
+  activeAt?: string; // ISO timestamp
 }
 
 export interface RecordingRule extends RuleBase {
@@ -49,12 +70,42 @@ export interface RecordingRule extends RuleBase {
 
 export type Rule = AlertingRule | RecordingRule;
 
+export interface GrafanaAlertingRule extends AlertingRule {
+  uid: string;
+  folderUid: string;
+}
+
+export interface GrafanaRecordingRule extends RecordingRule {
+  uid: string;
+  folderUid: string;
+}
+
+export type GrafanaRule = GrafanaAlertingRule | GrafanaRecordingRule;
+
 export type BaseRuleGroup = { name: string };
 
+type TotalsWithoutAlerting = Exclude<AlertInstanceTotalState, AlertInstanceTotalState.Alerting>;
+enum FiringTotal {
+  Firing = 'firing',
+}
 export interface RuleGroup {
   name: string;
   interval: number;
   rules: Rule[];
+  // totals only exist for Grafana Managed rules
+  totals?: Partial<Record<TotalsWithoutAlerting | FiringTotal, number>>;
+}
+
+export interface DataSourceRuleGroup {
+  id: DataSourceRuleGroupIdentifier;
+  interval: number;
+  rules: Rule[];
+}
+
+export interface DataSourceRuleNamespace {
+  rulesSource: DataSourceRulesSourceIdentifier;
+  id: DataSourceNamespaceIdentifier;
+  groups: DataSourceRuleGroup[];
 }
 
 export interface RuleNamespace {
@@ -69,7 +120,8 @@ export interface RulesSourceResult {
   namespaces?: RuleNamespace[];
 }
 
-export type RulesSource = DataSourceInstanceSettings | 'grafana';
+/** @deprecated use RulesSourceIdentifier instead */
+export type RulesSource = DataSourceInstanceSettings<PromOptions | LokiOptions> | 'grafana';
 
 // combined prom and ruler result
 export interface CombinedRule {
@@ -81,27 +133,97 @@ export interface CombinedRule {
   rulerRule?: RulerRuleDTO;
   group: CombinedRuleGroup;
   namespace: CombinedRuleNamespace;
+  instanceTotals: AlertInstanceTotals;
+  filteredInstanceTotals: AlertInstanceTotals;
 }
+
+// export type AlertInstanceState = PromAlertingRuleState | 'nodata' | 'error';
+export enum AlertInstanceTotalState {
+  Alerting = 'alerting',
+  Pending = 'pending',
+  Normal = 'inactive',
+  NoData = 'nodata',
+  Error = 'error',
+}
+
+export type AlertInstanceTotals = Partial<Record<AlertInstanceTotalState, number>>;
+
+// AlertGroupTotals also contain the amount of recording and paused rules
+export type AlertGroupTotals = Partial<Record<AlertInstanceTotalState | 'paused' | 'recording', number>>;
 
 export interface CombinedRuleGroup {
   name: string;
   interval?: string;
   source_tenants?: string[];
   rules: CombinedRule[];
+  totals: AlertGroupTotals;
 }
 
 export interface CombinedRuleNamespace {
   rulesSource: RulesSource;
   name: string;
   groups: CombinedRuleGroup[];
+  uid?: string; //available only in grafana rules
 }
 
-export interface RuleWithLocation {
+export interface RuleWithLocation<T = RulerRuleDTO> {
   ruleSourceName: string;
   namespace: string;
+  namespace_uid?: string; // Grafana folder UID
   group: RulerRuleGroupDTO;
-  rule: RulerRuleDTO;
+  rule: T;
 }
+
+export const GrafanaRulesSourceSymbol = Symbol('grafana');
+export type RulesSourceUid = string | typeof GrafanaRulesSourceSymbol;
+
+export interface DataSourceRulesSourceIdentifier {
+  uid: string;
+  name: string;
+  // discriminator
+  ruleSourceType: 'datasource';
+}
+export interface GrafanaRulesSourceIdentifier {
+  uid: typeof GrafanaRulesSourceSymbol;
+  name: 'grafana';
+  // discriminator
+  ruleSourceType: 'grafana';
+}
+
+export type RulesSourceIdentifier = DataSourceRulesSourceIdentifier | GrafanaRulesSourceIdentifier;
+
+/** @deprecated use RuleGroupIdentifierV2 instead */
+export interface RuleGroupIdentifier {
+  dataSourceName: string;
+  /** ⚠️ use the Grafana folder UID for Grafana-managed rules */
+  namespaceName: string;
+  groupName: string;
+}
+
+export interface GrafanaNamespaceIdentifier {
+  uid: string;
+}
+
+export interface DataSourceNamespaceIdentifier {
+  name: string;
+}
+
+export interface GrafanaRuleGroupIdentifier {
+  groupName: string;
+  namespace: GrafanaNamespaceIdentifier;
+  groupOrigin: 'grafana';
+}
+
+export interface DataSourceRuleGroupIdentifier {
+  rulesSource: DataSourceRulesSourceIdentifier;
+  groupName: string;
+  namespace: DataSourceNamespaceIdentifier;
+  groupOrigin: 'datasource';
+}
+
+export type RuleGroupIdentifierV2 = GrafanaRuleGroupIdentifier | DataSourceRuleGroupIdentifier;
+
+export type CombinedRuleWithLocation = CombinedRule & RuleGroupIdentifier;
 
 export interface PromRuleWithLocation {
   rule: AlertingRule;
@@ -114,9 +236,11 @@ export interface CloudRuleIdentifier {
   ruleSourceName: string;
   namespace: string;
   groupName: string;
-  rulerRuleHash: number;
+  ruleName: string;
+  rulerRuleHash: string;
 }
 export interface GrafanaRuleIdentifier {
+  ruleSourceName: 'grafana';
   uid: string;
 }
 
@@ -125,10 +249,19 @@ export interface PrometheusRuleIdentifier {
   ruleSourceName: string;
   namespace: string;
   groupName: string;
-  ruleHash: number;
+  ruleName: string;
+  ruleHash: string;
 }
 
-export type RuleIdentifier = CloudRuleIdentifier | GrafanaRuleIdentifier | PrometheusRuleIdentifier;
+export type RuleIdentifier = EditableRuleIdentifier | PrometheusRuleIdentifier;
+
+/**
+ * This type is a union of all rule identifiers that should have a ruler API
+ *
+ * We do not support PrometheusRuleIdentifier because vanilla Prometheus has no ruler API
+ */
+export type EditableRuleIdentifier = CloudRuleIdentifier | GrafanaRuleIdentifier;
+
 export interface FilterState {
   queryString?: string;
   dataSource?: string;
@@ -144,12 +277,12 @@ export interface SilenceFilterState {
 
 interface EvalMatch {
   metric: string;
-  tags?: any;
+  tags?: Record<string, string>;
   value: number;
 }
 
 export interface StateHistoryItemData {
-  noData: boolean;
+  noData?: boolean;
   evalMatches?: EvalMatch[];
 }
 
@@ -167,9 +300,25 @@ export interface StateHistoryItem {
   time: number;
   timeEnd: number;
   text: string;
-  tags: any[];
+  tags: string[];
   login: string;
   email: string;
   avatarUrl: string;
   data: StateHistoryItemData;
+}
+
+export interface RulerDataSourceConfig {
+  dataSourceName: string;
+  dataSourceUid: string;
+  apiVersion: 'legacy' | 'config';
+}
+
+export interface PromBasedDataSource {
+  name: string;
+  id: string | number;
+  rulerConfig?: RulerDataSourceConfig;
+}
+
+export interface PaginationProps {
+  itemsPerPage: number;
 }

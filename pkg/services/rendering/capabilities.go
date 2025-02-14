@@ -1,7 +1,9 @@
 package rendering
 
 import (
+	"context"
 	"errors"
+	"fmt"
 
 	"github.com/Masterminds/semver"
 )
@@ -16,13 +18,15 @@ type CapabilityName string
 const (
 	ScalingDownImages CapabilityName = "ScalingDownImages"
 	FullHeightImages  CapabilityName = "FullHeightImages"
+	SVGSanitization   CapabilityName = "SvgSanitization"
+	PDFRendering      CapabilityName = "PdfRendering"
 )
 
 var ErrUnknownCapability = errors.New("unknown capability")
 var ErrInvalidPluginVersion = errors.New("invalid plugin version")
 
-func (rs *RenderingService) HasCapability(capability CapabilityName) (CapabilitySupportRequestResult, error) {
-	if !rs.IsAvailable() {
+func (rs *RenderingService) HasCapability(ctx context.Context, capability CapabilityName) (CapabilitySupportRequestResult, error) {
+	if !rs.IsAvailable(ctx) {
 		return CapabilitySupportRequestResult{IsSupported: false, SemverConstraint: ""}, ErrRenderUnavailable
 	}
 
@@ -52,4 +56,17 @@ func (rs *RenderingService) HasCapability(capability CapabilityName) (Capability
 	}
 
 	return CapabilitySupportRequestResult{IsSupported: compiledSemverConstraint.Check(compiledImageRendererVersion), SemverConstraint: semverConstraint}, nil
+}
+
+func (rs *RenderingService) IsCapabilitySupported(ctx context.Context, capabilityName CapabilityName) error {
+	capability, err := rs.HasCapability(ctx, capabilityName)
+	if err != nil {
+		return err
+	}
+
+	if !capability.IsSupported {
+		return fmt.Errorf("%s unsupported, requires image renderer version: %s", capabilityName, capability.SemverConstraint)
+	}
+
+	return nil
 }

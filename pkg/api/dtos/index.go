@@ -1,78 +1,73 @@
 package dtos
 
 import (
-	"github.com/grafana/grafana/pkg/setting"
-
 	"html/template"
+
+	"github.com/grafana/grafana/pkg/services/navtree"
 )
 
 type IndexViewData struct {
-	User                    *CurrentUser
-	Settings                map[string]interface{}
-	AppUrl                  string
-	AppSubUrl               string
-	GoogleAnalyticsId       string
-	GoogleTagManagerId      string
-	NavTree                 []*NavLink
-	BuildVersion            string
-	BuildCommit             string
-	Theme                   string
-	NewGrafanaVersionExists bool
-	NewGrafanaVersion       string
-	AppName                 string
-	AppNameBodyClass        string
-	FavIcon                 template.URL
-	AppleTouchIcon          template.URL
-	AppTitle                string
-	Sentry                  *setting.Sentry
-	ContentDeliveryURL      string
-	LoadingLogo             template.URL
+	User                                *CurrentUser
+	Settings                            *FrontendSettingsDTO
+	AppUrl                              string
+	AppSubUrl                           string
+	GoogleAnalyticsId                   string
+	GoogleAnalytics4Id                  string
+	GoogleAnalytics4SendManualPageViews bool
+	GoogleTagManagerId                  string
+	NavTree                             *navtree.NavTreeRoot
+	BuildVersion                        string
+	BuildCommit                         string
+	ThemeType                           string
+	NewGrafanaVersionExists             bool
+	NewGrafanaVersion                   string
+	AppName                             string
+	AppNameBodyClass                    string
+	FavIcon                             template.URL
+	AppleTouchIcon                      template.URL
+	AppTitle                            string
+	LoadingLogo                         template.URL
+	CSPContent                          string
+	CSPEnabled                          bool
+	IsDevelopmentEnv                    bool
 	// Nonce is a cryptographic identifier for use with Content Security Policy.
-	Nonce string
+	Nonce           string
+	NewsFeedEnabled bool
+	Assets          *EntryPointAssets // Includes CDN info
 }
 
-const (
-	// These weights may be used by an extension to reliably place
-	// itself in relation to a particular item in the menu. The weights
-	// are negative to ensure that the default items are placed above
-	// any items with default weight.
-
-	WeightHome = (iota - 20) * 100
-	WeightCreate
-	WeightDashboard
-	WeightExplore
-	WeightAlerting
-	WeightPlugin
-	WeightConfig
-	WeightAdmin
-	WeightProfile
-	WeightHelp
-)
-
-const (
-	NavSectionCore   string = "core"
-	NavSectionPlugin string = "plugin"
-	NavSectionConfig string = "config"
-)
-
-type NavLink struct {
-	Id            string     `json:"id,omitempty"`
-	Text          string     `json:"text,omitempty"`
-	Description   string     `json:"description,omitempty"`
-	Section       string     `json:"section,omitempty"`
-	SubTitle      string     `json:"subTitle,omitempty"`
-	Icon          string     `json:"icon,omitempty"`
-	Img           string     `json:"img,omitempty"`
-	Url           string     `json:"url,omitempty"`
-	Target        string     `json:"target,omitempty"`
-	SortWeight    int64      `json:"sortWeight,omitempty"`
-	Divider       bool       `json:"divider,omitempty"`
-	HideFromMenu  bool       `json:"hideFromMenu,omitempty"`
-	HideFromTabs  bool       `json:"hideFromTabs,omitempty"`
-	Children      []*NavLink `json:"children,omitempty"`
-	HighlightText string     `json:"highlightText,omitempty"`
-	HighlightID   string     `json:"highlightId,omitempty"`
+type EntryPointAssets struct {
+	ContentDeliveryURL string            `json:"cdn,omitempty"`
+	JSFiles            []EntryPointAsset `json:"jsFiles"`
+	CSSFiles           []EntryPointAsset `json:"cssFiles"`
+	Dark               string            `json:"dark"`
+	Light              string            `json:"light"`
+	Swagger            []EntryPointAsset `json:"swagger"`
+	SwaggerCSSFiles    []EntryPointAsset `json:"swaggerCssFiles"`
 }
 
-// NavIDCfg is the id for org configuration navigation node
-const NavIDCfg = "cfg"
+type EntryPointAsset struct {
+	FilePath  string `json:"filePath"`
+	Integrity string `json:"integrity"`
+}
+
+func (a *EntryPointAssets) SetContentDeliveryURL(prefix string) {
+	if prefix == "" {
+		return
+	}
+	a.ContentDeliveryURL = prefix
+	a.Dark = prefix + a.Dark
+	a.Light = prefix + a.Light
+	for i, p := range a.JSFiles {
+		a.JSFiles[i].FilePath = prefix + p.FilePath
+	}
+	for i, p := range a.CSSFiles {
+		a.CSSFiles[i].FilePath = prefix + p.FilePath
+	}
+	for i, p := range a.Swagger {
+		a.Swagger[i].FilePath = prefix + p.FilePath
+	}
+	for i, p := range a.SwaggerCSSFiles {
+		a.SwaggerCSSFiles[i].FilePath = prefix + p.FilePath
+	}
+}

@@ -3,12 +3,31 @@ package mathexp
 import (
 	"fmt"
 	"math"
-	"strings"
+	"sort"
 
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 )
 
 type ReducerFunc = func(fv *Float64Field) *float64
+
+// The reducer function
+// +enum
+type ReducerID string
+
+const (
+	ReducerSum    ReducerID = "sum"
+	ReducerMean   ReducerID = "mean"
+	ReducerMin    ReducerID = "min"
+	ReducerMax    ReducerID = "max"
+	ReducerCount  ReducerID = "count"
+	ReducerLast   ReducerID = "last"
+	ReducerMedian ReducerID = "median"
+)
+
+// GetSupportedReduceFuncs returns collection of supported function names
+func GetSupportedReduceFuncs() []ReducerID {
+	return []ReducerID{ReducerSum, ReducerMean, ReducerMin, ReducerMax, ReducerCount, ReducerLast, ReducerMedian}
+}
 
 func Sum(fv *Float64Field) *float64 {
 	var sum float64
@@ -81,20 +100,48 @@ func Last(fv *Float64Field) *float64 {
 	return fv.GetValue(fv.Len() - 1)
 }
 
-func GetReduceFunc(rFunc string) (ReducerFunc, error) {
-	switch strings.ToLower(rFunc) {
-	case "sum":
+func Median(fv *Float64Field) *float64 {
+	values := make([]float64, 0, fv.Len())
+	for i := 0; i < fv.Len(); i++ {
+		v := fv.GetValue(i)
+		if v == nil || math.IsNaN(*v) {
+			nan := math.NaN()
+			return &nan
+		}
+		values = append(values, *v)
+	}
+
+	if len(values) == 0 {
+		nan := math.NaN()
+		return &nan
+	}
+
+	sort.Float64s(values)
+	mid := len(values) / 2
+	if len(values)%2 == 0 {
+		v := (values[mid-1] + values[mid]) / 2
+		return &v
+	} else {
+		return &values[mid]
+	}
+}
+
+func GetReduceFunc(rFunc ReducerID) (ReducerFunc, error) {
+	switch rFunc {
+	case ReducerSum:
 		return Sum, nil
-	case "mean":
+	case ReducerMean:
 		return Avg, nil
-	case "min":
+	case ReducerMin:
 		return Min, nil
-	case "max":
+	case ReducerMax:
 		return Max, nil
-	case "count":
+	case ReducerCount:
 		return Count, nil
-	case "last":
+	case ReducerLast:
 		return Last, nil
+	case ReducerMedian:
+		return Median, nil
 	default:
 		return nil, fmt.Errorf("reduction %v not implemented", rFunc)
 	}
@@ -103,7 +150,7 @@ func GetReduceFunc(rFunc string) (ReducerFunc, error) {
 // Reduce turns the Series into a Number based on the given reduction function
 // if ReduceMapper is defined it applies it to the provided series and performs reduction of the resulting series.
 // Otherwise, the reduction operation is done against the original series.
-func (s Series) Reduce(refID, rFunc string, mapper ReduceMapper) (Number, error) {
+func (s Series) Reduce(refID string, rFunc ReducerID, mapper ReduceMapper) (Number, error) {
 	var l data.Labels
 	if s.GetLabels() != nil {
 		l = s.GetLabels().Copy()
@@ -118,7 +165,7 @@ func (s Series) Reduce(refID, rFunc string, mapper ReduceMapper) (Number, error)
 	floatField := Float64Field(*fVec)
 	reduceFunc, err := GetReduceFunc(rFunc)
 	if err != nil {
-		return number, err
+		return number, fmt.Errorf("invalid expression '%s': %w", refID, err)
 	}
 	f = reduceFunc(&floatField)
 	if f != nil && mapper != nil {

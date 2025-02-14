@@ -1,6 +1,8 @@
-import { DataQuery } from './query';
+import { ScopedVars } from './ScopedVars';
+import { ExploreCorrelationHelperData, ExplorePanelsState } from './explore';
 import { InterpolateFunction } from './panel';
-import { ExplorePanelsState } from './explore';
+import { DataQuery } from './query';
+import { TimeRange } from './time';
 
 /**
  * Callback info for DataLink click events
@@ -9,6 +11,16 @@ export interface DataLinkClickEvent<T = any> {
   origin: T;
   replaceVariables: InterpolateFunction | undefined;
   e?: any; // mouse|react event
+}
+
+/**
+ * Data Links can be created by data source plugins or correlations.
+ * Origin is set in DataLink object and indicates where the link was created.
+ */
+export enum DataLinkConfigOrigin {
+  Datasource = 'Datasource',
+  Correlations = 'Correlations',
+  ExploreCorrelationsEditor = 'CorrelationsEditor',
 }
 
 /**
@@ -38,14 +50,42 @@ export interface DataLink<T extends DataQuery = any> {
   // more custom onClick behaviour if needed.
   // @internal and subject to change in future releases
   internal?: InternalDataLink<T>;
+
+  origin?: DataLinkConfigOrigin;
+  meta?: {
+    correlationData?: ExploreCorrelationHelperData;
+    transformations?: DataLinkTransformationConfig[];
+  };
+
+  oneClick?: boolean;
+}
+
+/**
+ * We provide tooltips with information about these to guide the user, please
+ * check for validity when adding more transformation types.
+ *
+ * @internal
+ */
+export enum SupportedTransformationType {
+  Regex = 'regex',
+  Logfmt = 'logfmt',
+}
+
+/** @internal */
+export interface DataLinkTransformationConfig {
+  type: SupportedTransformationType;
+  field?: string;
+  expression?: string;
+  mapValue?: string;
 }
 
 /** @internal */
 export interface InternalDataLink<T extends DataQuery = any> {
-  query: T;
+  query: T | ((options: { replaceVariables: InterpolateFunction; scopedVars: ScopedVars }) => T);
   datasourceUid: string;
-  datasourceName: string;
+  datasourceName: string; // used as a title if `DataLink.title` is empty
   panelsState?: ExplorePanelsState;
+  range?: TimeRange;
 }
 
 export type LinkTarget = '_blank' | '_self' | undefined;
@@ -61,6 +101,7 @@ export interface LinkModel<T = any> {
 
   // When a click callback exists, this is passed the raw mouse|react event
   onClick?: (e: any, origin?: any) => void;
+  oneClick?: boolean;
 }
 
 /**
@@ -90,4 +131,10 @@ export interface VariableSuggestion {
 
 export enum VariableSuggestionsScope {
   Values = 'values',
+}
+
+export enum OneClickMode {
+  Action = 'action',
+  Link = 'link',
+  Off = 'off',
 }

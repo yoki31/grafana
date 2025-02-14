@@ -4,6 +4,7 @@
   "id": "jaeger",
   "category": "tracing",
 
+  "backend": true,
   "metrics": true,
   "alerting": false,
   "annotations": false,
@@ -30,6 +31,10 @@
         "name": "GitHub Project",
         "url": "https://github.com/jaegertracing/jaeger"
       }
-    ]
+    ],
+    "version": "%VERSION%"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=10.3.0-0"
   }
 }

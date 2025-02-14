@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/data"
+	"github.com/grafana/grafana/pkg/expr/mathexp/parse"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -78,6 +79,38 @@ func Test_union(t *testing.T) {
 			bResults:  Results{},
 			unionsAre: assert.EqualValues,
 			unions:    []*Union{},
+		},
+		{
+			name: "empty result and data result will result in no unions",
+			aResults: Results{
+				Values: Values{
+					makeSeries("a", data.Labels{"id": "1"}),
+				},
+			},
+			bResults:  Results{},
+			unionsAre: assert.EqualValues,
+			unions:    []*Union{},
+		},
+		{
+			name: "no data result and data result will result in no unions",
+			aResults: Results{
+				Values: Values{
+					makeSeries("a", data.Labels{"id": "1"}),
+				},
+			},
+			bResults: Results{
+				Values: Values{
+					NoData{}.New(),
+				},
+			},
+			unionsAre: assert.EqualValues,
+			unions: []*Union{
+				{
+					Labels: nil,
+					A:      makeSeries("a", data.Labels{"id": "1"}),
+					B:      NewNoData(),
+				},
+			},
 		},
 		{
 			name: "incompatible tags of different length with will result in no unions when len(A) != 1 && len(B) != 1",
@@ -234,10 +267,35 @@ func Test_union(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "A is no-data and B is anything makes no-data",
+			// Is this the behavior we want? A result within the results will no longer
+			// be uniquely identifiable.
+			aResults: Results{
+				Values: Values{
+					NewNoData(),
+				},
+			},
+			bResults: Results{
+				Values: Values{
+					makeSeries("a", data.Labels{"id": "1"}),
+					makeSeries("aa", data.Labels{"id": "1", "fish": "herring"}),
+				},
+			},
+			unionsAre: assert.EqualValues,
+			unions: []*Union{
+				{
+					Labels: nil,
+					A:      NewNoData(),
+					B:      makeSeries("a", data.Labels{"id": "1"}),
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			unions := union(tt.aResults, tt.bResults)
+			fakeNode := &parse.BinaryNode{Args: [2]parse.Node{&parse.VarNode{}, &parse.VarNode{}}}
+			unions := (&State{}).union(tt.aResults, tt.bResults, fakeNode)
 			tt.unionsAre(t, tt.unions, unions)
 		})
 	}

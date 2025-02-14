@@ -1,26 +1,20 @@
-import { toString, isEmpty } from 'lodash';
+import { isEmpty } from 'lodash';
+
+import { DataFrameView } from '../dataframe/DataFrameView';
+import { getTimeField } from '../dataframe/processDataFrame';
+import { GrafanaTheme2 } from '../themes/types';
+import { reduceField, ReducerID } from '../transformations/fieldReducer';
+import { getFieldMatcher } from '../transformations/matchers';
+import { FieldMatcherID } from '../transformations/matchers/ids';
+import { ScopedVars } from '../types/ScopedVars';
+import { DataFrame, Field, FieldConfig, FieldType } from '../types/dataFrame';
+import { LinkModel } from '../types/dataLink';
+import { DisplayValue, DisplayValueAlignmentFactors } from '../types/displayValue';
+import { FieldConfigSource } from '../types/fieldOverrides';
+import { InterpolateFunction } from '../types/panel';
+import { TimeRange, TimeZone } from '../types/time';
 
 import { getDisplayProcessor } from './displayProcessor';
-import {
-  DataFrame,
-  DisplayValue,
-  DisplayValueAlignmentFactors,
-  Field,
-  FieldConfig,
-  FieldConfigSource,
-  FieldType,
-  InterpolateFunction,
-  LinkModel,
-  TimeRange,
-  TimeZone,
-} from '../types';
-import { DataFrameView } from '../dataframe/DataFrameView';
-import { GrafanaTheme2 } from '../themes';
-import { reduceField, ReducerID } from '../transformations/fieldReducer';
-import { ScopedVars } from '../types/ScopedVars';
-import { getTimeField } from '../dataframe/processDataFrame';
-import { getFieldMatcher } from '../transformations';
-import { FieldMatcherID } from '../transformations/matchers/ids';
 import { getFieldDisplayName } from './fieldState';
 
 /**
@@ -71,6 +65,7 @@ export interface GetFieldDisplayValuesOptions {
   fieldConfig: FieldConfigSource;
   replaceVariables: InterpolateFunction;
   sparkline?: boolean; // Calculate the sparkline
+  percentChange?: boolean; // Calculate percent change
   theme: GrafanaTheme2;
   timeZone?: TimeZone;
 }
@@ -95,7 +90,6 @@ export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): Fi
 
   const data = options.data ?? [];
   const limit = reduceOptions.limit ? reduceOptions.limit : DEFAULT_FIELD_DISPLAY_VALUES_LIMIT;
-  const scopedVars: ScopedVars = {};
 
   let hitLimit = false;
 
@@ -124,7 +118,7 @@ export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): Fi
         };
       }
 
-      const displayName = field.config.displayName ?? '';
+      let displayName = field.config.displayName ?? '';
 
       const display =
         field.display ??
@@ -136,24 +130,11 @@ export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): Fi
 
       // Show all rows
       if (reduceOptions.values) {
-        const usesCellValues = displayName.indexOf(VAR_CELL_PREFIX) >= 0;
-
         for (let j = 0; j < field.values.length; j++) {
-          // Add all the row variables
-          if (usesCellValues) {
-            for (let k = 0; k < dataFrame.fields.length; k++) {
-              const f = dataFrame.fields[k];
-              const v = f.values.get(j);
-              scopedVars[VAR_CELL_PREFIX + k] = {
-                value: v,
-                text: toString(v),
-              };
-            }
-          }
-
           field.state = setIndexForPaletteColor(field, values.length);
 
-          const displayValue = display(field.values.get(j));
+          const scopedVars = getFieldScopedVarsWithDataContexAndRowIndex(field, j);
+          const displayValue = display(field.values[j]);
           const rowName = getSmartDisplayNameForRow(dataFrame, field, j, replaceVariables, scopedVars);
           const overrideColor = lookupRowColorFromOverride(rowName, options.fieldConfig, theme);
 
@@ -189,17 +170,19 @@ export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): Fi
         });
 
         for (const calc of calcs) {
+          const scopedVars = field.state?.scopedVars ?? {};
           scopedVars[VAR_CALC] = { value: calc, text: calc };
+
           const displayValue = display(results[calc]);
 
           if (displayName !== '') {
-            displayValue.title = replaceVariables(displayName, {
-              ...field.state?.scopedVars, // series and field scoped vars
-              ...scopedVars,
-            });
+            displayValue.title = replaceVariables(displayName, scopedVars);
           } else {
             displayValue.title = getFieldDisplayName(field, dataFrame, data);
           }
+          displayValue.percentChange = options.percentChange
+            ? reduceField({ field: field, reducers: [ReducerID.diffperc] }).diffperc
+            : undefined;
 
           let sparkline: FieldSparkline | undefined = undefined;
           if (options.sparkline) {
@@ -214,6 +197,25 @@ export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): Fi
             }
           }
 
+          // If there is only one row in the data frame, then set the
+          // valueRowIndex to that one row. This allows the data macros in
+          // things like links to access other fields from the data frame.
+          //
+          // If there were more rows, it still may be sane to set the row
+          // index, but it may be confusing; the calculation may have
+          // selected a value from a different row or it may have aggregated
+          // the values from multiple rows, so to make just the first row
+          // available would be arbitrary. For now, the users will have to
+          // ensure that the data frame has just one row if they want data
+          // link referencing other fields to work.
+          //
+          // TODO: A more complete solution here would be to allow the
+          // calculation to report a relevant row and use that value. For
+          // example, a common calculation is 'lastNotNull'. It'd be nifty to
+          // know which row the display value corresponds to in that case if
+          // there were potentially many
+          const valueRowIndex = dataFrame.length === 1 ? 0 : undefined;
+
           values.push({
             name: calc,
             field: config,
@@ -225,6 +227,7 @@ export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): Fi
               ? () =>
                   fieldLinksSupplier({
                     calculatedValue: displayValue,
+                    valueRowIndex,
                   })
               : () => [],
             hasLinks: hasLinks(field),
@@ -246,17 +249,21 @@ function getSmartDisplayNameForRow(
   field: Field,
   rowIndex: number,
   replaceVariables: InterpolateFunction,
-  scopedVars: ScopedVars
+  scopedVars: ScopedVars | undefined
 ): string {
+  const displayName = field.config.displayName;
+
+  if (displayName) {
+    // Handle old __cell_n syntax
+    if (displayName.indexOf(VAR_CELL_PREFIX)) {
+      return replaceVariables(fixCellTemplateExpressions(displayName), scopedVars);
+    }
+
+    return replaceVariables(displayName, scopedVars);
+  }
+
   let parts: string[] = [];
   let otherNumericFields = 0;
-
-  if (field.config.displayName) {
-    return replaceVariables(field.config.displayName, {
-      ...field.state?.scopedVars, // series and field scoped vars
-      ...scopedVars,
-    });
-  }
 
   for (const otherField of frame.fields) {
     if (otherField === field) {
@@ -264,7 +271,7 @@ function getSmartDisplayNameForRow(
     }
 
     if (otherField.type === FieldType.string) {
-      const value = otherField.values.get(rowIndex) ?? '';
+      const value = otherField.values[rowIndex] ?? '';
       const mappedValue = otherField.display ? otherField.display(value).text : value;
       if (mappedValue.length > 0) {
         parts.push(mappedValue);
@@ -314,36 +321,32 @@ export function hasLinks(field: Field): boolean {
 }
 
 export function getDisplayValueAlignmentFactors(values: FieldDisplay[]): DisplayValueAlignmentFactors {
-  const info: DisplayValueAlignmentFactors = {
-    title: '',
-    text: '',
-  };
-
-  let prefixLength = 0;
-  let suffixLength = 0;
+  let maxTitle = '';
+  let maxText = '';
+  let maxPrefix = '';
+  let maxSuffix = '';
 
   for (let i = 0; i < values.length; i++) {
     const v = values[i].display;
 
-    if (v.text && v.text.length > info.text.length) {
-      info.text = v.text;
+    if (v.text && v.text.length > maxText.length) {
+      maxText = v.text;
     }
 
-    if (v.title && v.title.length > info.title.length) {
-      info.title = v.title;
+    if (v.title && v.title.length > maxTitle.length) {
+      maxTitle = v.title;
     }
 
-    if (v.prefix && v.prefix.length > prefixLength) {
-      info.prefix = v.prefix;
-      prefixLength = v.prefix.length;
+    if (v.prefix && v.prefix.length > maxPrefix.length) {
+      maxPrefix = v.prefix;
     }
 
-    if (v.suffix && v.suffix.length > suffixLength) {
-      info.suffix = v.suffix;
-      suffixLength = v.suffix.length;
+    if (v.suffix && v.suffix.length > maxSuffix.length) {
+      maxSuffix = v.suffix;
     }
   }
-  return info;
+
+  return { text: maxText, title: maxTitle, suffix: maxSuffix, prefix: maxPrefix };
 }
 
 function createNoValuesFieldDisplay(options: GetFieldDisplayValuesOptions): FieldDisplay {
@@ -384,4 +387,32 @@ function getDisplayText(display: DisplayValue, fallback: string): string {
     return fallback;
   }
   return display.text;
+}
+
+export function fixCellTemplateExpressions(str: string) {
+  return str.replace(
+    /\${__cell_(\d+)(.*?)}|\[\[__cell_(\d+)(.*?)\]\]|\$__cell_(\d+)(\S*)/g,
+    (match, cellNum1, fmt1, cellNum2, fmt2, cellNum3, fmt3) => {
+      return `\${__data.fields[${cellNum1 ?? cellNum2 ?? cellNum3}]${fmt1 ?? fmt2 ?? fmt3}}`;
+    }
+  );
+}
+
+/**
+ * Clones the existing dataContext and adds rowIndex to it
+ */
+function getFieldScopedVarsWithDataContexAndRowIndex(field: Field, rowIndex: number): ScopedVars | undefined {
+  if (field.state?.scopedVars?.__dataContext) {
+    return {
+      ...field.state?.scopedVars,
+      __dataContext: {
+        value: {
+          ...field.state?.scopedVars?.__dataContext.value,
+          rowIndex,
+        },
+      },
+    };
+  }
+
+  return field.state?.scopedVars;
 }

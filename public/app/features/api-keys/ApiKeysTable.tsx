@@ -1,17 +1,20 @@
-import React, { FC } from 'react';
-import { DeleteButton, Icon, IconName, Tooltip, useTheme2 } from '@grafana/ui';
+import { css } from '@emotion/css';
+
 import { dateTimeFormat, GrafanaTheme2, TimeZone } from '@grafana/data';
+import { Button, DeleteButton, Icon, Stack, Tooltip, useTheme2 } from '@grafana/ui';
+import { contextSrv } from 'app/core/core';
+import { AccessControlAction } from 'app/types';
 
 import { ApiKey } from '../../types';
-import { css } from '@emotion/css';
 
 interface Props {
   apiKeys: ApiKey[];
   timeZone: TimeZone;
   onDelete: (apiKey: ApiKey) => void;
+  onMigrate: (apiKey: ApiKey) => void;
 }
 
-export const ApiKeysTable: FC<Props> = ({ apiKeys, timeZone, onDelete }) => {
+export const ApiKeysTable = ({ apiKeys, timeZone, onDelete, onMigrate }: Props) => {
   const theme = useTheme2();
   const styles = getStyles(theme);
 
@@ -22,6 +25,7 @@ export const ApiKeysTable: FC<Props> = ({ apiKeys, timeZone, onDelete }) => {
           <th>Name</th>
           <th>Role</th>
           <th>Expires</th>
+          <th>Last used at</th>
           <th style={{ width: '34px' }} />
         </tr>
       </thead>
@@ -38,13 +42,24 @@ export const ApiKeysTable: FC<Props> = ({ apiKeys, timeZone, onDelete }) => {
                   {isExpired && (
                     <span className={styles.tooltipContainer}>
                       <Tooltip content="This API key has expired.">
-                        <Icon name={'exclamation-triangle' as IconName} />
+                        <Icon name="exclamation-triangle" />
                       </Tooltip>
                     </span>
                   )}
                 </td>
+                <td>{formatLastUsedAtDate(timeZone, key.lastUsedAt)}</td>
                 <td>
-                  <DeleteButton aria-label="Delete API key" size="sm" onConfirm={() => onDelete(key)} />
+                  <Stack justifyContent="flex-end">
+                    <Button size="sm" onClick={() => onMigrate(key)}>
+                      Migrate to service account
+                    </Button>
+                    <DeleteButton
+                      aria-label="Delete API key"
+                      size="sm"
+                      onConfirm={() => onDelete(key)}
+                      disabled={!contextSrv.hasPermissionInMetadata(AccessControlAction.ActionAPIKeysDelete, key)}
+                    />
+                  </Stack>
                 </td>
               </tr>
             );
@@ -55,6 +70,13 @@ export const ApiKeysTable: FC<Props> = ({ apiKeys, timeZone, onDelete }) => {
   );
 };
 
+function formatLastUsedAtDate(timeZone: TimeZone, lastUsedAt?: string): string {
+  if (!lastUsedAt) {
+    return 'Never';
+  }
+  return dateTimeFormat(lastUsedAt, { timeZone });
+}
+
 function formatDate(expiration: string | undefined, timeZone: TimeZone): string {
   if (!expiration) {
     return 'No expiration date';
@@ -63,10 +85,11 @@ function formatDate(expiration: string | undefined, timeZone: TimeZone): string 
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  tableRow: (isExpired: boolean) => css`
-    color: ${isExpired ? theme.colors.text.secondary : theme.colors.text.primary};
-  `,
-  tooltipContainer: css`
-    margin-left: ${theme.spacing(1)};
-  `,
+  tableRow: (isExpired: boolean) =>
+    css({
+      color: isExpired ? theme.colors.text.secondary : theme.colors.text.primary,
+    }),
+  tooltipContainer: css({
+    marginLeft: theme.spacing(1),
+  }),
 });

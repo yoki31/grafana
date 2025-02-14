@@ -1,13 +1,16 @@
+import { CustomVariableModel, VariableOption } from '@grafana/data';
+
+import { reduxTester } from '../../../../test/core/redux/reduxTester';
 import { variableAdapters } from '../adapters';
+import { getRootReducer, RootReducerType } from '../state/helpers';
+import { toKeyedAction } from '../state/keyedVariablesReducer';
+import { addVariable, setCurrentVariableValue } from '../state/sharedReducer';
+import { initialVariableModelState } from '../types';
+import { toKeyedVariableIdentifier, toVariablePayload } from '../utils';
+
 import { updateCustomVariableOptions } from './actions';
 import { createCustomVariableAdapter } from './adapter';
-import { reduxTester } from '../../../../test/core/redux/reduxTester';
-import { getRootReducer, RootReducerType } from '../state/helpers';
-import { CustomVariableModel, initialVariableModelState, VariableOption } from '../types';
-import { addVariable, setCurrentVariableValue } from '../state/sharedReducer';
 import { createCustomOptionsFromQuery } from './reducer';
-import { toKeyedAction } from '../state/keyedVariablesReducer';
-import { toKeyedVariableIdentifier, toVariablePayload } from '../utils';
 
 describe('custom actions', () => {
   variableAdapters.setInit(() => [createCustomVariableAdapter()]);
@@ -57,7 +60,7 @@ describe('custom actions', () => {
         .whenAsyncActionIsDispatched(updateCustomVariableOptions(toKeyedVariableIdentifier(variable)), true);
 
       tester.thenDispatchedActionsShouldEqual(
-        toKeyedAction('key', createCustomOptionsFromQuery(toVariablePayload(variable))),
+        toKeyedAction('key', createCustomOptionsFromQuery(toVariablePayload(variable, variable.query))),
         toKeyedAction('key', setCurrentVariableValue(toVariablePayload(variable, { option })))
       );
     });

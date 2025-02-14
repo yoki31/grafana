@@ -1,12 +1,15 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { cloneDeep, defaults as lodashDefaults } from 'lodash';
-import { LoadingState, VariableType } from '@grafana/data';
-import { VariableModel, VariableOption, VariableWithOptions } from '../types';
-import { AddVariable, initialVariablesState, VariablePayload, VariablesState } from './types';
+
+import { LoadingState, VariableType, TypedVariableModel, VariableOption } from '@grafana/data';
+
 import { variableAdapters } from '../adapters';
 import { changeVariableNameSucceeded } from '../editor/reducer';
+import { hasOptions } from '../guard';
 import { ensureStringValues } from '../utils';
+
 import { getInstanceState, getNextVariableIndex } from './selectors';
+import { AddVariable, initialVariablesState, VariablePayload, VariablesState } from './types';
 
 const sharedReducerSlice = createSlice({
   name: 'templating/shared',
@@ -48,7 +51,7 @@ const sharedReducerSlice = createSlice({
       instanceState.state = LoadingState.Done;
       instanceState.error = null;
     },
-    variableStateFailed: (state: VariablesState, action: PayloadAction<VariablePayload<{ error: any }>>) => {
+    variableStateFailed: (state: VariablesState, action: PayloadAction<VariablePayload<{ error: unknown }>>) => {
       const instanceState = getInstanceState(state, action.payload.id);
       if (!instanceState) {
         // we might have cancelled a batch so then this state has been removed
@@ -63,14 +66,35 @@ const sharedReducerSlice = createSlice({
         return;
       }
 
-      const variableStates = Object.values(state);
-      for (let index = 0; index < variableStates.length; index++) {
-        variableStates[index].index = index;
+      const variableStates = Object.values(state).sort((a, b) => a.index - b.index);
+      for (let i = 0; i < variableStates.length; i++) {
+        variableStates[i].index = i;
       }
     },
     duplicateVariable: (state: VariablesState, action: PayloadAction<VariablePayload<{ newId: string }>>) => {
-      const original = cloneDeep<VariableModel>(state[action.payload.id]);
-      const name = `copy_of_${original.name}`;
+      function escapeRegExp(string: string): string {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }
+
+      const original = cloneDeep<TypedVariableModel>(state[action.payload.id]);
+      const copyRegex = new RegExp(`^copy_of_${escapeRegExp(original.name)}(_(\\d+))?$`);
+
+      const copies = Object.values(state)
+        .map(({ name }) => name.match(copyRegex))
+        .filter((v): v is RegExpMatchArray => v != null);
+      const numberedCopies = copies.map((match) => match[2]).filter((v): v is string => v != null);
+
+      const suffix = ((): number | null => {
+        if (copies.length === 0) {
+          return null;
+        }
+        if (numberedCopies.length === 0) {
+          return 1;
+        }
+        return numberedCopies.map((v) => +v).sort((a, b) => b - a)[0] + 1;
+      })();
+
+      const name = `copy_of_${original.name}${suffix ? `_${suffix}` : ''}`;
       const newId = action.payload.data?.newId ?? name;
       const index = getNextVariableIndex(Object.values(state));
       state[newId] = {
@@ -120,13 +144,18 @@ const sharedReducerSlice = createSlice({
         return;
       }
 
-      const instanceState = getInstanceState<VariableWithOptions>(state, action.payload.id);
+      const instanceState = getInstanceState(state, action.payload.id);
+      if (!hasOptions(instanceState)) {
+        return;
+      }
+
       const { option } = action.payload.data;
       const current = { ...option, text: ensureStringValues(option?.text), value: ensureStringValues(option?.value) };
 
       instanceState.current = current;
       instanceState.options = instanceState.options.map((option) => {
         option.value = ensureStringValues(option.value);
+        option.text = ensureStringValues(option.text);
         let selected = false;
         if (Array.isArray(current.value)) {
           for (let index = 0; index < current.value.length; index++) {

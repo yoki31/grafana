@@ -5,24 +5,21 @@ import (
 	"errors"
 
 	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/plugins"
-	"github.com/grafana/grafana/pkg/services/pluginsettings"
+	"github.com/grafana/grafana/pkg/services/org"
+	"github.com/grafana/grafana/pkg/services/pluginsintegration/pluginsettings"
+	"github.com/grafana/grafana/pkg/services/pluginsintegration/pluginstore"
 )
-
-type Store interface {
-	GetOrgByNameHandler(ctx context.Context, query *models.GetOrgByNameQuery) error
-}
 
 // Provision scans a directory for provisioning config files
 // and provisions the app in those files.
-func Provision(ctx context.Context, configDirectory string, store Store, pluginStore plugins.Store, pluginSettings pluginsettings.Service) error {
+func Provision(ctx context.Context, configDirectory string, pluginStore pluginstore.Store, pluginSettings pluginsettings.Service, orgService org.Service) error {
 	logger := log.New("provisioning.plugins")
 	ap := PluginProvisioner{
 		log:            logger,
 		cfgProvider:    newConfigReader(logger, pluginStore),
-		store:          store,
 		pluginSettings: pluginSettings,
+		orgService:     orgService,
+		pluginStore:    pluginStore,
 	}
 	return ap.applyChanges(ctx, configDirectory)
 }
@@ -32,43 +29,54 @@ func Provision(ctx context.Context, configDirectory string, store Store, pluginS
 type PluginProvisioner struct {
 	log            log.Logger
 	cfgProvider    configReader
-	store          Store
 	pluginSettings pluginsettings.Service
+	orgService     org.Service
+	pluginStore    pluginstore.Store
 }
 
 func (ap *PluginProvisioner) apply(ctx context.Context, cfg *pluginsAsConfig) error {
 	for _, app := range cfg.Apps {
 		if app.OrgID == 0 && app.OrgName != "" {
-			getOrgQuery := &models.GetOrgByNameQuery{Name: app.OrgName}
-			if err := ap.store.GetOrgByNameHandler(ctx, getOrgQuery); err != nil {
+			getOrgQuery := &org.GetOrgByNameQuery{Name: app.OrgName}
+			res, err := ap.orgService.GetByName(ctx, getOrgQuery)
+			if err != nil {
 				return err
 			}
-			app.OrgID = getOrgQuery.Result.Id
+			app.OrgID = res.ID
 		} else if app.OrgID < 0 {
 			app.OrgID = 1
 		}
 
-		query := &models.GetPluginSettingByIdQuery{OrgId: app.OrgID, PluginId: app.PluginID}
-		err := ap.pluginSettings.GetPluginSettingById(ctx, query)
+		p, found := ap.pluginStore.Plugin(ctx, app.PluginID)
+		if !found {
+			return errors.New("plugin not found")
+		}
+		if p.AutoEnabled && !app.Enabled {
+			return errors.New("plugin is auto enabled and cannot be disabled")
+		}
+
+		ps, err := ap.pluginSettings.GetPluginSettingByPluginID(ctx, &pluginsettings.GetByPluginIDArgs{
+			OrgID:    app.OrgID,
+			PluginID: app.PluginID,
+		})
 		if err != nil {
-			if !errors.Is(err, models.ErrPluginSettingNotFound) {
+			if !errors.Is(err, pluginsettings.ErrPluginSettingNotFound) {
 				return err
 			}
 		} else {
-			app.PluginVersion = query.Result.PluginVersion
+			app.PluginVersion = ps.PluginVersion
 		}
 
 		ap.log.Info("Updating app from configuration ", "type", app.PluginID, "enabled", app.Enabled)
-		cmd := &models.UpdatePluginSettingCmd{
-			OrgId:          app.OrgID,
-			PluginId:       app.PluginID,
+		if err := ap.pluginSettings.UpdatePluginSetting(ctx, &pluginsettings.UpdateArgs{
+			OrgID:          app.OrgID,
+			PluginID:       app.PluginID,
 			Enabled:        app.Enabled,
 			Pinned:         app.Pinned,
-			JsonData:       app.JSONData,
-			SecureJsonData: app.SecureJSONData,
+			JSONData:       app.JSONData,
+			SecureJSONData: app.SecureJSONData,
 			PluginVersion:  app.PluginVersion,
-		}
-		if err := ap.pluginSettings.UpdatePluginSetting(ctx, cmd); err != nil {
+		}); err != nil {
 			return err
 		}
 	}

@@ -1,3 +1,5 @@
+import { isEqual } from 'lodash';
+
 import { DataFrame } from '../types/dataFrame';
 
 /**
@@ -8,10 +10,6 @@ import { DataFrame } from '../types/dataFrame';
  * ```
  * compareArrayValues(a, b, framesHaveSameStructure);
  * ```
- * NOTE: this does a shallow check on the FieldConfig properties, when using the query
- * editor, this should be sufficient, however if applications are mutating properties
- * deep in the FieldConfig this will not recognize a change
- *
  * @beta
  */
 export function compareDataFrameStructures(a: DataFrame, b: DataFrame, skipConfig?: boolean): boolean {
@@ -45,17 +43,15 @@ export function compareDataFrameStructures(a: DataFrame, b: DataFrame, skipConfi
       return false;
     }
 
-    const cfgA = fA.config as any;
-    const cfgB = fB.config as any;
+    const cfgA = fA.config;
+    const cfgB = fB.config;
 
-    let aKeys = Object.keys(cfgA);
-    let bKeys = Object.keys(cfgB);
-
-    if (aKeys.length !== bKeys.length) {
+    if (Object.keys(cfgA).length !== Object.keys(cfgB).length) {
       return false;
     }
 
-    for (const key of aKeys) {
+    let key: keyof typeof cfgA;
+    for (key in cfgA) {
       if (!(key in cfgB)) {
         return false;
       }
@@ -63,11 +59,9 @@ export function compareDataFrameStructures(a: DataFrame, b: DataFrame, skipConfi
       if (key === 'interval') {
         continue;
       }
-      if (key === 'custom') {
-        if (!shallowCompare(cfgA[key], cfgB[key])) {
-          return false;
-        }
-      } else if (cfgA[key] !== cfgB[key]) {
+
+      // Deep comparison on all object properties
+      if (!isEqual(cfgA[key], cfgB[key])) {
         return false;
       }
     }
@@ -77,7 +71,7 @@ export function compareDataFrameStructures(a: DataFrame, b: DataFrame, skipConfi
 }
 
 /**
- * Check if all values in two arrays match the compare funciton
+ * Check if all values in two arrays match the compare function
  *
  * @beta
  */
@@ -96,7 +90,7 @@ export function compareArrayValues<T>(a: T[], b: T[], cmp: (a: T, b: T) => boole
   return true;
 }
 
-type Cmp = (valA: any, valB: any) => boolean;
+type Cmp = (valA: unknown, valB: unknown) => boolean;
 
 const defaultCmp: Cmp = (a, b) => a === b;
 
@@ -110,15 +104,12 @@ export function shallowCompare<T extends {}>(a: T, b: T, cmp: Cmp = defaultCmp) 
     return true;
   }
 
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-
-  if (aKeys.length !== bKeys.length) {
+  if (Object.keys(a).length !== Object.keys(b).length) {
     return false;
   }
 
-  for (let key of aKeys) {
-    //@ts-ignore
+  let key: keyof typeof a;
+  for (key in a) {
     if (!cmp(a[key], b[key])) {
       return false;
     }

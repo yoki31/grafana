@@ -1,57 +1,55 @@
-import React from 'react';
-import { selectors } from '@grafana/e2e-selectors';
-import { HorizontalGroup, InfoBox, List, PluginSignatureBadge, useTheme } from '@grafana/ui';
-import { useGetErrors, useFetchStatus } from '../admin/state/hooks';
-import { PluginErrorCode, PluginSignatureStatus } from '@grafana/data';
 import { css } from '@emotion/css';
 
-export function PluginsErrorsInfo(): React.ReactElement | null {
-  const errors = useGetErrors();
+import { GrafanaTheme2, PluginErrorCode, PluginSignatureStatus, PluginType } from '@grafana/data';
+import { selectors } from '@grafana/e2e-selectors';
+import { Alert, Icon, List, PluginSignatureBadge, Stack, useStyles2 } from '@grafana/ui';
+
+import { useGetErrors, useFetchStatus } from '../admin/state/hooks';
+
+type PluginsErrorInfoProps = {
+  filterByPluginType?: PluginType;
+};
+
+export function PluginsErrorsInfo({ filterByPluginType }: PluginsErrorInfoProps) {
+  let errors = useGetErrors(filterByPluginType);
   const { isLoading } = useFetchStatus();
-  const theme = useTheme();
+  const styles = useStyles2(getStyles);
 
   if (isLoading || errors.length === 0) {
     return null;
   }
 
   return (
-    <InfoBox
-      aria-label={selectors.pages.PluginsList.signatureErrorNotice}
+    <Alert
+      title="Unsigned plugins were found during plugin initialization. Grafana Labs cannot guarantee the integrity of these plugins. We recommend only using signed plugins."
+      data-testid={selectors.pages.PluginsList.signatureErrorNotice}
       severity="warning"
-      urlTitle="Read more about plugin signing"
-      url="https://grafana.com/docs/grafana/latest/plugins/plugin-signatures/"
     >
-      <div>
-        <p>
-          Unsigned plugins were found during plugin initialization. Grafana Labs cannot guarantee the integrity of these
-          plugins. We recommend only using signed plugins.
-        </p>
-        The following plugins are disabled and not shown in the list below:
-        <List
-          items={errors}
-          className={css`
-            list-style-type: circle;
-          `}
-          renderItem={(error) => (
-            <div
-              className={css`
-                margin-top: ${theme.spacing.sm};
-              `}
-            >
-              <HorizontalGroup spacing="sm" justify="flex-start" align="center">
-                <strong>{error.pluginId}</strong>
-                <PluginSignatureBadge
-                  status={mapPluginErrorCodeToSignatureStatus(error.errorCode)}
-                  className={css`
-                    margin-top: 0;
-                  `}
-                />
-              </HorizontalGroup>
-            </div>
-          )}
-        />
-      </div>
-    </InfoBox>
+      <p>The following plugins are disabled and not shown in the list below:</p>
+      <List
+        items={errors}
+        className={styles.list}
+        renderItem={(error) => (
+          <div className={styles.wrapper}>
+            <Stack justifyContent="flex-start" alignItems="center">
+              <strong>{error.pluginId}</strong>
+              <PluginSignatureBadge
+                status={mapPluginErrorCodeToSignatureStatus(error.errorCode)}
+                className={styles.badge}
+              />
+            </Stack>
+          </div>
+        )}
+      />
+      <a
+        href="https://grafana.com/docs/grafana/latest/plugins/plugin-signatures/"
+        className={styles.docsLink}
+        target="_blank"
+        rel="noreferrer"
+      >
+        <Icon name="book" /> Read more about plugin signing
+      </a>
+    </Alert>
   );
 }
 
@@ -66,4 +64,23 @@ function mapPluginErrorCodeToSignatureStatus(code: PluginErrorCode) {
     default:
       return PluginSignatureStatus.missing;
   }
+}
+
+function getStyles(theme: GrafanaTheme2) {
+  return {
+    list: css({
+      listStyleType: 'circle',
+    }),
+    wrapper: css({
+      marginTop: theme.spacing(1),
+    }),
+    badge: css({
+      marginTop: 0,
+    }),
+    docsLink: css({
+      display: 'inline-block',
+      color: theme.colors.text.link,
+      marginTop: theme.spacing(2),
+    }),
+  };
 }

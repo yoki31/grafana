@@ -1,8 +1,10 @@
-import React from 'react';
-import { Button, Modal } from '@grafana/ui';
-import { SaveDashboardButton } from './SaveDashboardButton';
-import { DashboardModel } from '../../state';
 import { css } from '@emotion/css';
+
+import { Button, Modal } from '@grafana/ui';
+
+import { DashboardModel } from '../../state/DashboardModel';
+
+import { SaveDashboardButton } from './SaveDashboardButton';
 
 interface UnsavedChangesModalProps {
   dashboard: DashboardModel;
@@ -11,21 +13,16 @@ interface UnsavedChangesModalProps {
   onSaveSuccess?: () => void;
 }
 
-export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
-  dashboard,
-  onSaveSuccess,
-  onDiscard,
-  onDismiss,
-}) => {
+export const UnsavedChangesModal = ({ dashboard, onSaveSuccess, onDiscard, onDismiss }: UnsavedChangesModalProps) => {
   return (
     <Modal
       isOpen={true}
       title="Unsaved changes"
       onDismiss={onDismiss}
       icon="exclamation-triangle"
-      className={css`
-        width: 500px;
-      `}
+      className={css({
+        width: '500px',
+      })}
     >
       <h5>Do you want to save your changes?</h5>
       <Modal.ButtonRow>

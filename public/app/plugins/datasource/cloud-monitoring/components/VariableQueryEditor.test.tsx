@@ -1,14 +1,16 @@
-import React from 'react';
-// @ts-ignore
-import renderer from 'react-test-renderer';
-import { CloudMonitoringVariableQueryEditor, Props } from './VariableQueryEditor';
-import { CloudMonitoringVariableQuery, MetricFindQueryTypes } from '../types';
-import CloudMonitoringDatasource from '../datasource';
+import { render, screen, waitFor } from '@testing-library/react';
+
 import { VariableModel } from '@grafana/data';
 
+import CloudMonitoringDatasource from '../datasource';
+import { MetricFindQueryTypes } from '../types/query';
+import { CloudMonitoringVariableQuery } from '../types/types';
+
+import { CloudMonitoringVariableQueryEditor, Props } from './VariableQueryEditor';
+
 jest.mock('../functions', () => ({
-  getMetricTypes: (): any => ({ metricTypes: [], selectedMetricType: '' }),
-  extractServicesFromMetricDescriptors: (): any[] => [],
+  getMetricTypes: () => ({ metricTypes: [], selectedMetricType: '' }),
+  extractServicesFromMetricDescriptors: () => [],
 }));
 
 jest.mock('@grafana/runtime', () => {
@@ -31,14 +33,19 @@ const props: Props = {
     getMetricTypes: async (projectName: string) => Promise.resolve([]),
     getSLOServices: async (projectName: string) => Promise.resolve([]),
     getServiceLevelObjectives: (projectName: string, serviceId: string) => Promise.resolve([]),
+    ensureGCEDefaultProject: async () => Promise.resolve(''),
   } as unknown as CloudMonitoringDatasource,
   onRunQuery: () => {},
 };
 
 describe('VariableQueryEditor', () => {
-  it('renders correctly', () => {
-    const tree = renderer.create(<CloudMonitoringVariableQueryEditor {...props} />).toJSON();
-    expect(tree).toMatchSnapshot();
+  it('renders correctly', async () => {
+    const { container } = render(<CloudMonitoringVariableQueryEditor {...props} />);
+    const select = await screen.findByRole('combobox');
+    waitFor(() => {
+      expect(select).toHaveValue('projects');
+    });
+    expect(container).toMatchSnapshot();
   });
 
   describe('and a new variable is created', () => {
@@ -47,7 +54,7 @@ describe('VariableQueryEditor', () => {
         expect(query.selectedQueryType).toBe('projects');
         done();
       };
-      renderer.create(<CloudMonitoringVariableQueryEditor {...props} />).toJSON();
+      render(<CloudMonitoringVariableQueryEditor {...props} />);
     });
   });
 
@@ -58,7 +65,7 @@ describe('VariableQueryEditor', () => {
         expect(query.selectedQueryType).toBe('labelKeys');
         done();
       };
-      renderer.create(<CloudMonitoringVariableQueryEditor {...props} />).toJSON();
+      render(<CloudMonitoringVariableQueryEditor {...props} />);
     });
   });
 });

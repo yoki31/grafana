@@ -1,13 +1,16 @@
-import { InlineField, Input, QueryField } from '@grafana/ui';
 import { css } from '@emotion/css';
-import React, { useEffect, useRef } from 'react';
-import { AddRemove } from '../../../../AddRemove';
+import { uniqueId } from 'lodash';
+import { useEffect, useRef } from 'react';
+
+import { InlineField, Input, QueryField } from '@grafana/ui';
+
 import { useDispatch, useStatelessReducer } from '../../../../../hooks/useStatelessReducer';
-import { Filters } from '../../aggregations';
+import { Filters } from '../../../../../types';
+import { AddRemove } from '../../../../AddRemove';
 import { changeBucketAggregationSetting } from '../../state/actions';
+
 import { addFilter, changeFilter, removeFilter } from './state/actions';
 import { reducer as filtersReducer } from './state/reducer';
-import { uniqueId } from 'lodash';
 
 interface Props {
   bucketAgg: Filters;
@@ -35,28 +38,27 @@ export const FiltersSettingsEditor = ({ bucketAgg }: Props) => {
   return (
     <>
       <div
-        className={css`
-          display: flex;
-          flex-direction: column;
-        `}
+        className={css({
+          display: 'flex',
+          flexDirection: 'column',
+        })}
       >
         {bucketAgg.settings?.filters!.map((filter, index) => (
           <div
             key={index}
-            className={css`
-              display: flex;
-            `}
+            className={css({
+              display: 'flex',
+            })}
           >
             <InlineField label="Query" labelWidth={8}>
               <div
-                className={css`
-                  width: 150px;
-                `}
+                className={css({
+                  width: '150px',
+                })}
               >
                 <QueryField
                   placeholder="Lucene Query"
                   portalOrigin="elasticsearch"
-                  onBlur={() => {}}
                   onChange={(query) => dispatch(changeFilter({ index, filter: { ...filter, query } }))}
                   query={filter.query}
                 />

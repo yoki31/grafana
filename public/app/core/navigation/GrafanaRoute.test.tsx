@@ -1,8 +1,32 @@
-import React from 'react';
-import { render } from '@testing-library/react';
-import { GrafanaRoute } from './GrafanaRoute';
+import { screen } from '@testing-library/react';
+import { lazy, ComponentType } from 'react';
+import { render } from 'test/test-utils';
+
 import { setEchoSrv } from '@grafana/runtime';
+
 import { Echo } from '../services/echo/Echo';
+
+import { GrafanaRoute, Props } from './GrafanaRoute';
+import { GrafanaRouteComponentProps } from './types';
+
+const mockLocation = {
+  search: '?query=hello&test=asd',
+  pathname: '',
+  state: undefined,
+  hash: '',
+};
+function setup(overrides: Partial<Props>) {
+  const props: Props = {
+    location: mockLocation,
+    route: {
+      path: '/',
+      component: () => <div />,
+    },
+    ...overrides,
+  };
+
+  render(<GrafanaRoute {...props} />);
+}
 
 describe('GrafanaRoute', () => {
   beforeEach(() => {
@@ -10,20 +34,37 @@ describe('GrafanaRoute', () => {
   });
 
   it('Parses search', () => {
-    let capturedProps: any;
-    const PageComponent = (props: any) => {
+    let capturedProps: GrafanaRouteComponentProps;
+    const PageComponent = (props: GrafanaRouteComponentProps) => {
       capturedProps = props;
       return <div />;
     };
 
-    const location = { search: '?query=hello&test=asd' } as any;
-    const history = {} as any;
-    const match = {} as any;
+    setup({ route: { component: PageComponent, path: '' } });
+    expect(capturedProps!.queryParams.query).toBe('hello');
+  });
 
-    render(
-      <GrafanaRoute location={location} history={history} match={match} route={{ component: PageComponent } as any} />
-    );
+  it('Shows loading on lazy load', async () => {
+    const PageComponent = lazy(() => {
+      return new Promise<{ default: ComponentType }>(() => {});
+    });
 
-    expect(capturedProps.queryParams.query).toBe('hello');
+    setup({ route: { component: PageComponent, path: '' } });
+
+    expect(await screen.findByLabelText('Loading')).toBeInTheDocument();
+  });
+
+  it('Shows error on page error', async () => {
+    const PageComponent = () => {
+      throw new Error('Page threw error');
+    };
+
+    const consoleError = jest.fn();
+    jest.spyOn(console, 'error').mockImplementation(consoleError);
+
+    setup({ route: { component: PageComponent, path: '' } });
+
+    expect(await screen.findByRole('heading', { name: 'An unexpected error happened' })).toBeInTheDocument();
+    expect(consoleError).toHaveBeenCalled();
   });
 });

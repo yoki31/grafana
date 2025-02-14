@@ -5,19 +5,19 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 )
 
 var sqlIDAcceptList = map[string]struct{}{
-	"org_user.user_id":    {},
-	"role.id":             {},
-	"t.id":                {},
-	"team.id":             {},
-	"u.id":                {},
-	"\"user\".\"id\"":     {}, // For Postgres
-	"`user`.`id`":         {}, // For MySQL and SQLite
-	"dashboard.id":        {},
-	"dashboard.folder_id": {},
+	"id":               {},
+	"org_user.user_id": {},
+	"role.uid":         {},
+	"t.id":             {},
+	"team.id":          {},
+	"u.id":             {},
+	"\"user\".\"id\"":  {}, // For Postgres
+	"`user`.`id`":      {}, // For MySQL and SQLite
+	"dashboard.uid":    {},
 }
 
 var (
@@ -27,23 +27,25 @@ var (
 
 type SQLFilter struct {
 	Where string
-	Args  []interface{}
+	Args  []any
 }
 
 // Filter creates a where clause to restrict the view of a query based on a users permissions
 // Scopes that exists for all actions will be parsed and compared against the supplied sqlID
-func Filter(user *models.SignedInUser, sqlID, prefix string, actions ...string) (SQLFilter, error) {
+// Prefix parameter is the prefix of the scope that we support (e.g. "users:id:")
+func Filter(user identity.Requester, sqlID, prefix string, actions ...string) (SQLFilter, error) {
 	if _, ok := sqlIDAcceptList[sqlID]; !ok {
 		return denyQuery, errors.New("sqlID is not in the accept list")
 	}
-	if user == nil || user.Permissions == nil || user.Permissions[user.OrgId] == nil {
+
+	if user == nil || user.IsNil() {
 		return denyQuery, errors.New("missing permissions")
 	}
 
 	wildcards := 0
-	result := make(map[int64]int)
+	result := make(map[any]int)
 	for _, a := range actions {
-		ids, hasWildcard := parseScopes(prefix, user.Permissions[user.OrgId][a])
+		ids, hasWildcard := ParseScopes(prefix, user.GetPermissions()[a])
 		if hasWildcard {
 			wildcards += 1
 			continue
@@ -51,7 +53,7 @@ func Filter(user *models.SignedInUser, sqlID, prefix string, actions ...string) 
 		if len(ids) == 0 {
 			return denyQuery, nil
 		}
-		for _, id := range ids {
+		for id := range ids {
 			result[id] += 1
 		}
 	}
@@ -61,7 +63,7 @@ func Filter(user *models.SignedInUser, sqlID, prefix string, actions ...string) 
 		return allowAllQuery, nil
 	}
 
-	var ids []interface{}
+	var ids []any
 	for id, count := range result {
 		// if an id exist for every action include it in the filter
 		if count+wildcards == len(actions) {
@@ -84,22 +86,36 @@ func Filter(user *models.SignedInUser, sqlID, prefix string, actions ...string) 
 	return SQLFilter{query.String(), ids}, nil
 }
 
-func parseScopes(prefix string, scopes []string) (ids []int64, hasWildcard bool) {
+func ParseScopes(prefix string, scopes []string) (ids map[any]struct{}, hasWildcard bool) {
+	ids = make(map[any]struct{})
+
+	parser := parseStringAttribute
+	if strings.HasSuffix(prefix, ":id:") {
+		parser = parseIntAttribute
+	}
+
+	wildcards := WildcardsFromPrefix(prefix)
+
 	for _, scope := range scopes {
-		if strings.HasPrefix(scope, prefix) || scope == "*" {
-			if id := strings.TrimPrefix(scope, prefix); id == "*" || id == ":*" || id == ":id:*" {
-				return nil, true
-			}
-			if id, err := parseScopeID(scope); err == nil {
-				ids = append(ids, id)
+		if wildcards.Contains(scope) {
+			return nil, true
+		}
+
+		if strings.HasPrefix(scope, prefix) {
+			if id, err := parser(scope); err == nil {
+				ids[id] = struct{}{}
 			}
 		}
 	}
 	return ids, false
 }
 
-func parseScopeID(scope string) (int64, error) {
+func parseIntAttribute(scope string) (any, error) {
 	return strconv.ParseInt(scope[strings.LastIndex(scope, ":")+1:], 10, 64)
+}
+
+func parseStringAttribute(scope string) (any, error) {
+	return scope[strings.LastIndex(scope, ":")+1:], nil
 }
 
 // SetAcceptListForTest allow us to mutate the list for blackbox testing
@@ -109,4 +125,70 @@ func SetAcceptListForTest(list map[string]struct{}) func() {
 	return func() {
 		sqlIDAcceptList = original
 	}
+}
+
+func UserRolesFilter(orgID, userID int64, teamIDs []int64, roles []string) (string, []any) {
+	var params []any
+	builder := strings.Builder{}
+
+	// This is an additional security. We should never have permissions granted to userID 0.
+	// Only allow real users to get user/team permissions (anonymous/apikeys)
+	if userID > 0 {
+		builder.WriteString(`
+			SELECT ur.role_id
+			FROM user_role AS ur
+			WHERE ur.user_id = ?
+			AND (ur.org_id = ? OR ur.org_id = ?)
+		`)
+		params = []any{userID, orgID, GlobalOrgID}
+	}
+
+	if len(teamIDs) > 0 {
+		if builder.Len() > 0 {
+			builder.WriteString("UNION")
+		}
+		builder.WriteString(`
+			SELECT tr.role_id FROM team_role as tr
+			WHERE tr.team_id IN(?` + strings.Repeat(", ?", len(teamIDs)-1) + `)
+			AND tr.org_id = ?
+		`)
+		for _, id := range teamIDs {
+			params = append(params, id)
+		}
+		params = append(params, orgID)
+	}
+
+	if len(roles) != 0 {
+		if builder.Len() > 0 {
+			builder.WriteString("UNION")
+		}
+
+		builder.WriteString(`
+			SELECT br.role_id FROM builtin_role AS br
+			WHERE br.role IN (?` + strings.Repeat(", ?", len(roles)-1) + `)
+			AND (br.org_id = ? OR br.org_id = ?)
+		`)
+		for _, role := range roles {
+			params = append(params, role)
+		}
+
+		params = append(params, orgID, GlobalOrgID)
+	}
+
+	return "INNER JOIN (" + builder.String() + ") as all_role ON role.id = all_role.role_id", params
+}
+
+func RolePrefixesFilter(rolePrefixes []string) (string, []any) {
+	query := ""
+	params := make([]any, 0)
+
+	if len(rolePrefixes) > 0 {
+		query += " WHERE ( " + strings.Repeat("role.name LIKE ? OR ", len(rolePrefixes)-1)
+		query += "role.name LIKE ? )"
+		for i := range rolePrefixes {
+			params = append(params, rolePrefixes[i]+"%")
+		}
+	}
+
+	return query, params
 }

@@ -1,10 +1,8 @@
 import { PanelPlugin, PluginError, PluginMeta } from '@grafana/data';
-import { TemplateSrv } from '@grafana/runtime';
 
 export interface PluginDashboard {
   dashboardId: number;
   description: string;
-  folderId: number;
   imported: boolean;
   importedRevision: number;
   importedUri: string;
@@ -30,14 +28,4 @@ export interface PluginsState {
   dashboards: PluginDashboard[];
   isLoadingPluginDashboards: boolean;
   panels: PanelPluginsIndex;
-}
-
-/**
- * @deprecated use VariableQueryEditorProps instead
- */
-export interface VariableQueryProps {
-  query: any;
-  onChange: (query: any, definition: string) => void;
-  datasource: any;
-  templateSrv: TemplateSrv;
 }

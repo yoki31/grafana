@@ -1,4 +1,5 @@
-import { FALLBACK_COLOR } from '../types';
+import { FALLBACK_COLOR } from '../types/fieldColor';
+
 import { ThemeColors } from './createColors';
 
 /**
@@ -35,13 +36,7 @@ export interface ThemeVizHue {
  * @internal
  */
 export function createVisualizationColors(colors: ThemeColors): ThemeVisualizationColors {
-  let hues: ThemeVizHue[] = [];
-
-  if (colors.mode === 'dark') {
-    hues = getDarkHues();
-  } else if (colors.mode === 'light') {
-    hues = getLightHues();
-  }
+  const hues = colors.mode === 'light' ? getLightHues() : getDarkHues();
 
   const byNameIndex: Record<string, string> = {};
 
@@ -57,7 +52,7 @@ export function createVisualizationColors(colors: ThemeColors): ThemeVisualizati
   }
 
   // special colors
-  byNameIndex['transparent'] = 'rgba(0,0,0,0)';
+  byNameIndex['transparent'] = colors.mode === 'light' ? 'rgba(255, 255, 255, 0)' : 'rgba(0,0,0,0)';
   byNameIndex['panel-bg'] = colors.background.primary;
   byNameIndex['text'] = colors.text.primary;
 

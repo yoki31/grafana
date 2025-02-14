@@ -1,7 +1,9 @@
-import React from 'react';
-import { selectors } from '@grafana/e2e-selectors';
+import * as React from 'react';
+
 import { PluginErrorCode, PluginSignatureStatus } from '@grafana/data';
+import { selectors } from '@grafana/e2e-selectors';
 import { Alert } from '@grafana/ui';
+
 import { CatalogPlugin } from '../types';
 
 type Props = {
@@ -24,7 +26,7 @@ export function PluginDetailsSignature({ className, plugin }: Props): React.Reac
     <Alert
       severity="warning"
       title="Invalid plugin signature"
-      aria-label={selectors.pages.PluginPage.signatureInfo}
+      data-testid={selectors.pages.PluginPage.signatureInfo}
       className={className}
     >
       <p>

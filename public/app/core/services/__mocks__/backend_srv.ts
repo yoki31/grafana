@@ -1,7 +1,7 @@
-import 'whatwg-fetch'; // fetch polyfill needed for Headers
+import { of } from 'rxjs';
 
 import { BackendSrvRequest, FetchResponse } from '@grafana/runtime';
-import { of } from 'rxjs';
+
 import { BackendSrv } from '../backend_srv';
 
 /**
@@ -28,11 +28,14 @@ function makePromResponse() {
 
 export const backendSrv = {
   get: jest.fn(),
-  getDashboardByUid: jest.fn(),
   getFolderByUid: jest.fn(),
   post: jest.fn(),
   resolveCancelerIfExists: jest.fn(),
+  search: jest.fn(),
   datasourceRequest: jest.fn(() => Promise.resolve(makePromResponse())),
+
+  /** @deprecated Use getDashboardAPI().getDashboardDTO(uid) */
+  getDashboardByUid: jest.fn(),
 
   // Observable support
   fetch: (options: BackendSrvRequest) => {

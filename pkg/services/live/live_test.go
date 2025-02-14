@@ -7,10 +7,40 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grafana/grafana/pkg/setting"
-
 	"github.com/stretchr/testify/require"
+
+	"github.com/grafana/grafana/pkg/api/routing"
+	"github.com/grafana/grafana/pkg/infra/db"
+	"github.com/grafana/grafana/pkg/infra/usagestats"
+	"github.com/grafana/grafana/pkg/services/accesscontrol/acimpl"
+	"github.com/grafana/grafana/pkg/services/annotations/annotationstest"
+	"github.com/grafana/grafana/pkg/services/dashboards"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
+	"github.com/grafana/grafana/pkg/setting"
+	"github.com/grafana/grafana/pkg/tests/testsuite"
 )
+
+func TestMain(m *testing.M) {
+	testsuite.Run(m)
+}
+
+func Test_provideLiveService_RedisUnavailable(t *testing.T) {
+	cfg := setting.NewCfg()
+
+	cfg.LiveHAEngine = "testredisunavailable"
+
+	_, err := ProvideService(nil, cfg,
+		routing.NewRouteRegister(),
+		nil, nil, nil, nil,
+		db.InitTestDB(t),
+		nil,
+		&usagestats.UsageStatsMock{T: t},
+		nil,
+		featuremgmt.WithFeatures(), acimpl.ProvideAccessControl(featuremgmt.WithFeatures()), &dashboards.FakeDashboardService{}, annotationstest.NewFakeAnnotationsRepo(), nil)
+
+	// Proceeds without live HA if redis is unavaialble
+	require.NoError(t, err)
+}
 
 func Test_runConcurrentlyIfNeeded_Concurrent(t *testing.T) {
 	doneCh := make(chan struct{})
@@ -154,6 +184,48 @@ func TestCheckOrigin(t *testing.T) {
 			require.Equal(t, tc.success, checkOrigin(r),
 				"origin %s, appURL: %s", tc.origin, tc.appURL,
 			)
+		})
+	}
+}
+
+func Test_getHistogramMetric(t *testing.T) {
+	type args struct {
+		val          int
+		bounds       []int
+		metricPrefix string
+	}
+
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			"zero",
+			args{0, []int{0, 10, 100, 1000, 10000, 100000}, "live_users_"},
+			"live_users_le_0",
+		},
+		{
+			"equal_to_bound",
+			args{10, []int{0, 10, 100, 1000, 10000, 100000}, "live_users_"},
+			"live_users_le_10",
+		},
+		{
+			"in_the_middle",
+			args{30000, []int{0, 10, 100, 1000, 10000, 100000}, "live_users_"},
+			"live_users_le_100000",
+		},
+		{
+			"more_than_upper_bound",
+			args{300000, []int{0, 10, 100, 1000, 10000, 100000}, "live_users_"},
+			"live_users_le_inf",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := getHistogramMetric(tt.args.val, tt.args.bounds, tt.args.metricPrefix); got != tt.want {
+				t.Errorf("getHistogramMetric() = %v, want %v", got, tt.want)
+			}
 		})
 	}
 }

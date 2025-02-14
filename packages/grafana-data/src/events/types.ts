@@ -1,3 +1,4 @@
+import { IScope } from 'angular';
 import { Unsubscribable, Observable } from 'rxjs';
 
 /**
@@ -7,7 +8,7 @@ import { Unsubscribable, Observable } from 'rxjs';
 export interface BusEvent {
   readonly type: string;
   readonly payload?: any;
-  readonly origin?: EventBus;
+  origin?: EventBus;
 }
 
 /**
@@ -19,9 +20,21 @@ export abstract class BusEventBase implements BusEvent {
   readonly payload?: any;
   readonly origin?: EventBus;
 
+  /** @internal */
+  tags?: Set<string>;
+
   constructor() {
     //@ts-ignore
     this.type = this.__proto__.constructor.type;
+  }
+
+  /**
+   * @internal
+   * Tag event for finer-grained filtering in subscribers
+   */
+  setTags(tags: string[]) {
+    this.tags = new Set(tags);
+    return this;
   }
 }
 
@@ -68,7 +81,7 @@ export interface EventFilterOptions {
  */
 export interface EventBus {
   /**
-   * Publish single vent
+   * Publish single event
    */
   publish<T extends BusEvent>(event: T): void;
 
@@ -116,12 +129,12 @@ export interface LegacyEmitter {
   /**
    * @deprecated use $on
    */
-  on<T>(event: AppEvent<T> | string, handler: LegacyEventHandler<T>, scope?: any): void;
+  on<T>(event: AppEvent<T> | string, handler: LegacyEventHandler<T>, scope?: IScope): void;
 
   /**
    * @deprecated use $on
    */
-  off<T>(event: AppEvent<T> | string, handler: (payload?: T | any) => void): void;
+  off<T>(event: AppEvent<T> | string, handler: (payload?: T) => void): void;
 }
 
 /** @public */

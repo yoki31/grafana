@@ -1,17 +1,16 @@
-import React, { useState } from 'react';
+import { css } from '@emotion/css';
+import { useState } from 'react';
 
-import { AlertManagerPicker } from '../AlertManagerPicker';
-import { MatcherFilter } from './MatcherFilter';
-import { AlertStateFilter } from './AlertStateFilter';
-import { GroupBy } from './GroupBy';
-import { AlertmanagerGroup, AlertState } from 'app/plugins/datasource/alertmanager/types';
 import { GrafanaTheme2 } from '@grafana/data';
 import { Button, useStyles2 } from '@grafana/ui';
-
-import { useAlertManagerSourceName } from '../../hooks/useAlertManagerSourceName';
-import { css } from '@emotion/css';
-import { getFiltersFromUrlParams } from '../../utils/misc';
 import { useQueryParams } from 'app/core/hooks/useQueryParams';
+import { AlertState, AlertmanagerGroup } from 'app/plugins/datasource/alertmanager/types';
+
+import { getFiltersFromUrlParams } from '../../utils/misc';
+
+import { AlertStateFilter } from './AlertStateFilter';
+import { GroupBy } from './GroupBy';
+import { MatcherFilter } from './MatcherFilter';
 
 interface Props {
   groups: AlertmanagerGroup[];
@@ -23,7 +22,6 @@ export const AlertGroupFilter = ({ groups }: Props) => {
   const { groupBy = [], queryString, alertState } = getFiltersFromUrlParams(queryParams);
   const matcherFilterKey = `matcher-${filterKey}`;
 
-  const [alertManagerSourceName, setAlertManagerSourceName] = useAlertManagerSourceName();
   const styles = useStyles2(getStyles);
 
   const clearFilters = () => {
@@ -31,6 +29,7 @@ export const AlertGroupFilter = ({ groups }: Props) => {
       groupBy: null,
       queryString: null,
       alertState: null,
+      contactPoint: null,
     });
     setTimeout(() => setFilterKey(filterKey + 1), 100);
   };
@@ -39,16 +38,13 @@ export const AlertGroupFilter = ({ groups }: Props) => {
 
   return (
     <div className={styles.wrapper}>
-      <AlertManagerPicker current={alertManagerSourceName} onChange={setAlertManagerSourceName} />
       <div className={styles.filterSection}>
         <MatcherFilter
-          className={styles.filterInput}
           key={matcherFilterKey}
           defaultQueryString={queryString}
           onFilterChange={(value) => setQueryParams({ queryString: value ? value : null })}
         />
         <GroupBy
-          className={styles.filterInput}
           groups={groups}
           groupBy={groupBy}
           onGroupingChange={(keys) => setQueryParams({ groupBy: keys.length ? keys.join(',') : null })}
@@ -68,23 +64,18 @@ export const AlertGroupFilter = ({ groups }: Props) => {
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  wrapper: css`
-    border-bottom: 1px solid ${theme.colors.border.medium};
-    margin-bottom: ${theme.spacing(3)};
-  `,
-  filterSection: css`
-    display: flex;
-    flex-direction: row;
-    margin-bottom: ${theme.spacing(3)};
-  `,
-  filterInput: css`
-    width: 340px;
-    & + & {
-      margin-left: ${theme.spacing(1)};
-    }
-  `,
-  clearButton: css`
-    margin-left: ${theme.spacing(1)};
-    margin-top: 19px;
-  `,
+  wrapper: css({
+    borderBottom: `1px solid ${theme.colors.border.medium}`,
+    marginBottom: theme.spacing(3),
+  }),
+  filterSection: css({
+    display: 'flex',
+    flexDirection: 'row',
+    marginBottom: theme.spacing(3),
+    gap: theme.spacing(1),
+  }),
+  clearButton: css({
+    marginLeft: theme.spacing(1),
+    marginTop: '19px',
+  }),
 });

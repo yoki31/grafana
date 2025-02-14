@@ -1,12 +1,15 @@
-import React, { PureComponent } from 'react';
 import { css } from '@emotion/css';
 import { uniqueId } from 'lodash';
+import { PureComponent } from 'react';
+
 import { DataSourceSettings } from '@grafana/data';
+
+import { useStyles2 } from '../../themes';
+import { Trans } from '../../utils/i18n';
 import { Button } from '../Button';
 import { FormField } from '../FormField/FormField';
 import { Icon } from '../Icon/Icon';
 import { SecretFormField } from '../SecretFormField/SecretFormField';
-import { stylesFactory } from '../../themes';
 
 export interface CustomHeader {
   id: string;
@@ -34,27 +37,25 @@ interface CustomHeaderRowProps {
   onBlur: () => void;
 }
 
-const getCustomHeaderRowStyles = stylesFactory(() => {
-  return {
-    layout: css`
-      display: flex;
-      align-items: center;
-      margin-bottom: 4px;
-      > * {
-        margin-left: 4px;
-        margin-bottom: 0;
-        height: 100%;
-        &:first-child,
-        &:last-child {
-          margin-left: 0;
-        }
-      }
-    `,
-  };
+const getCustomHeaderRowStyles = () => ({
+  layout: css({
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: '4px',
+    '> *': {
+      marginLeft: '4px',
+      marginBottom: 0,
+      height: '100%',
+      '&:first-child, &:last-child': {
+        marginLeft: 0,
+      },
+    },
+  }),
 });
 
-const CustomHeaderRow: React.FC<CustomHeaderRowProps> = ({ header, onBlur, onChange, onRemove, onReset }) => {
-  const styles = getCustomHeaderRowStyles();
+const CustomHeaderRow = ({ header, onBlur, onChange, onRemove, onReset }: CustomHeaderRowProps) => {
+  const styles = useStyles2(getCustomHeaderRowStyles);
+
   return (
     <div className={styles.layout}>
       <FormField
@@ -194,10 +195,14 @@ export class CustomHeadersSettings extends PureComponent<Props, State> {
 
   render() {
     const { headers } = this.state;
+    const { dataSourceConfig } = this.props;
+
     return (
       <div className={'gf-form-group'}>
         <div className="gf-form">
-          <h6>Custom HTTP Headers</h6>
+          <h6>
+            <Trans i18nKey="grafana-ui.data-source-settings.custom-headers-title">Custom HTTP Headers</Trans>
+          </h6>
         </div>
         <div>
           {headers.map((header, i) => (
@@ -213,18 +218,20 @@ export class CustomHeadersSettings extends PureComponent<Props, State> {
             />
           ))}
         </div>
-        <div className="gf-form">
-          <Button
-            variant="secondary"
-            icon="plus"
-            type="button"
-            onClick={(e) => {
-              this.onHeaderAdd();
-            }}
-          >
-            Add header
-          </Button>
-        </div>
+        {!dataSourceConfig.readOnly && (
+          <div className="gf-form">
+            <Button
+              variant="secondary"
+              icon="plus"
+              type="button"
+              onClick={(e) => {
+                this.onHeaderAdd();
+              }}
+            >
+              <Trans i18nKey="grafana-ui.data-source-settings.custom-headers-add">Add header</Trans>
+            </Button>
+          </div>
+        )}
       </div>
     );
   }

@@ -1,61 +1,72 @@
-+++
-title = "Dashboards"
-aliases = ["/docs/grafana/latest/features/dashboard/dashboards/"]
-weight = 80
-+++
+---
+aliases:
+  - features/dashboard/dashboards/
+labels:
+  products:
+    - cloud
+    - enterprise
+    - oss
+title: Dashboards
+weight: 70
+description: Create and manage dashboards
+hero:
+  title: Dashboards
+  level: 1
+  width: 110
+  height: 110
+  description: >-
+    Dashboards allow you to query, transform, visualize, and understand your data no matter where it's stored.
+cards:
+  title_class: pt-0 lh-1
+  items:
+    - title: Build dashboards
+      href: ./build-dashboards/
+      description: Get step-by-step directions for how to create or import your first dashboard and modify dashboard settings. Learn about reusable library panels, dashboard links, annotations, and dashboard JSON.
+      height: 24
+    - title: Manage dashboards
+      href: ./manage-dashboards/
+      description: Learn about dashboard and folder management, as well as generative AI features for dashboards.
+      height: 24
+    - title: Variables
+      href: ./variables/
+      description: Add variables to metric queries and panel titles to create interactive and dynamic dashboards.
+      height: 24
+    - title: Reporting
+      href: ./create-reports/
+      description: Automatically generate and share PDF reports from your Grafana dashboards.
+      height: 24
+    - title: Sharing
+      href: ./share-dashboards-panels/
+      description: Share Grafana dashboards and panels using links, snapshots, embeds, and exports.
+      height: 24
+    - title: Shared dashboards
+      href: ./share-dashboards-panels/shared-dashboards/
+      description: Share your dashboards with anyone without requiring access to your Grafana organization.
+      height: 24
+refs:
+  panels:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/panels-visualizations/panel-overview/
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/visualizations/panels-visualizations/panel-overview/
+---
 
-# Dashboard overview
+{{< docs/hero-simple key="hero" >}}
 
-A _dashboard_ is a set of one or more panels organized and arranged into one or more rows. Grafana ships with a variety of Panels. Grafana makes it easy to construct the right queries, and customize the display properties so that you can create the perfect dashboard for your need. Each panel can interact with data from any configured Grafana Data Source (currently Graphite, Prometheus, Elasticsearch, InfluxDB, OpenTSDB, MySQL, PostgreSQL, Microsoft SQL Server and AWS Cloudwatch).
+---
 
-## Dashboard UI
+## Overview
 
-<img src="/static/img/docs/v50/dashboard_annotated.png" class="no-shadow" width="700px">
+A Grafana dashboard is a set of one or more [panels](ref:panels), organized and arranged into one or more rows, that provide an at-a-glance view of related information. These panels are created using components that query and transform raw data from a data source into charts, graphs, and other visualizations.
 
-1. Zoom out time range
-1. Time picker dropdown. Here you can access relative time range options, auto refresh options and set custom absolute time ranges.
-1. Manual refresh button. Will cause all panels to refresh (fetch new data).
-1. Dashboard panel. Click the panel title to edit panels.
-1. Graph legend. You can change series colors, y-axis and series visibility directly from the legend.
+A data source can be an SQL database, Grafana Loki, Grafana Mimir, or a JSON-based API. It can even be a basic CSV file. Data source plugins take a query you want answered, retrieve the data from the data source, and reconcile the differences between the data model of the data source and the data model of Grafana dashboards.
 
-## Dashboard header
+Queries allow you to reduce the entirety of your data to a specific dataset, providing a more manageable visualization. Since data sources have their own distinct query languages, Grafana dashboards provide you with a query editor to accommodate these differences.
 
-Click the new Dashboard link on the right side of the Dashboard picker. You now have a blank Dashboard.
+A panel is the container that displays the visualization and provides you with various controls to manipulate it. Panel options let you customize many aspects of a visualization and the options differ based on which visualization you select. When the data format in a visualization doesn't meet your requirements, you can apply a transformation that manipulates the data returned by a query.
 
-<img class="no-shadow" src="/static/img/docs/v50/top_nav_annotated.png" width="580px">
+With 150+ data source plugins, you can unify all your data sources into a single dashboard to streamline data monitoring and troubleshooting. With Grafana, you can translate, transform, and visualize data in flexible and versatile dashboards.
 
-The image above shows you the top header for a Dashboard.
+## Explore
 
-1. Side menubar toggle: This toggles the side menu, allowing you to focus on the data presented in the dashboard. The side menu provides access to features unrelated to a Dashboard such as Users, Organizations, and Data Sources.
-1. Dashboard dropdown: This dropdown shows you which Dashboard you are currently viewing, and allows you to easily switch to a new Dashboard. From here you can also create a new Dashboard or folder, import existing Dashboards, and manage Dashboard playlists.
-1. Add Panel: Adds a new panel to the current Dashboard.
-1. Star Dashboard: Star (or unstar) the current Dashboard. Starred Dashboards will show up on your own Home Dashboard by default, and are a convenient way to mark Dashboards that you're interested in.
-1. Share Dashboard: Share the current dashboard by creating a link or create a static Snapshot of it. Make sure the Dashboard is saved before sharing.
-1. Save dashboard: The current Dashboard will be saved with the current Dashboard name.
-1. Settings: Manage Dashboard settings and features such as Templating and Annotations.
-
-## Manage dashboards
-
-The time period for the dashboard can be controlled by the [Time range controls]({{< relref "time-range-controls.md" >}}) in the upper right of the dashboard.
-
-Dashboards can use [templating]({{< relref "../variables/_index.md" >}}) to make them more dynamic and interactive.
-
-Dashboards can use [annotations]({{< relref "annotations.md" >}}) to display event data across panels. This can help correlate the time series data in the panel with other events.
-
-You can [share dashboards]({{< relref "../sharing/share-dashboard.md" >}}) in a variety of ways.
-
-Dashboards can be tagged, and the dashboard picker provides quick, searchable access to all dashboards in a particular organization.
-
-## Rows
-
-A _row_ is a logical divider within a dashboard. It is used to group panels together.
-
-Rows are always 12 “units” wide. These units are automatically scaled dependent on the horizontal resolution of your browser. You can control the relative width of panels within a row by setting their specific width.
-
-We use a unit abstraction so that Grafana looks great on all screen sizes.
-
-> **Note:** With MaxDataPoint functionality, Grafana can show you the perfect number of data points, regardless of resolution or time range.
-
-Collapse a row by clicking on the row title. If you save a dashboard with a row collapsed, then it saves in that state and does not load those graphs until you expand the row.
-
-Use the [repeating rows]({{< relref "../variables/_index.md#repeating-rows" >}}) functionality to dynamically create or remove entire rows, which can be filled with panels, based on the template variables selected.
+{{< card-grid key="cards" type="simple" >}}

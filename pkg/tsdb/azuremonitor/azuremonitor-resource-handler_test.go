@@ -1,14 +1,16 @@
 package azuremonitor
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/grafana/grafana/pkg/setting"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+
 	"github.com/grafana/grafana/pkg/tsdb/azuremonitor/metrics"
 	"github.com/grafana/grafana/pkg/tsdb/azuremonitor/types"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,12 +66,15 @@ func Test_proxyRequest(t *testing.T) {
 			}
 			rw := httptest.NewRecorder()
 			proxy := httpServiceProxy{}
-			res := proxy.Do(rw, req, srv.Client())
+			res, err := proxy.Do(rw, req, srv.Client())
+			if err != nil {
+				t.Error(err)
+			}
 			if res.Header().Get("foo") != "bar" {
 				t.Errorf("Unexpected headers: %v", res.Header())
 			}
 			result := rw.Result()
-			body, err := ioutil.ReadAll(result.Body)
+			body, err := io.ReadAll(result.Body)
 			if err != nil {
 				t.Error(err)
 			}
@@ -88,9 +93,9 @@ type fakeProxy struct {
 	requestedURL string
 }
 
-func (s *fakeProxy) Do(rw http.ResponseWriter, req *http.Request, cli *http.Client) http.ResponseWriter {
+func (s *fakeProxy) Do(rw http.ResponseWriter, req *http.Request, cli *http.Client) (http.ResponseWriter, error) {
 	s.requestedURL = req.URL.String()
-	return nil
+	return nil, nil
 }
 
 func Test_handleResourceReq(t *testing.T) {
@@ -99,8 +104,9 @@ func Test_handleResourceReq(t *testing.T) {
 		im: &fakeInstance{
 			services: map[string]types.DatasourceService{
 				azureMonitor: {
-					URL:        routes[setting.AzurePublic][azureMonitor].URL,
+					URL:        "https://management.azure.com",
 					HTTPClient: &http.Client{},
+					Logger:     log.DefaultLogger,
 				},
 			},
 		},
@@ -109,6 +115,7 @@ func Test_handleResourceReq(t *testing.T) {
 				Proxy: proxy,
 			},
 		},
+		logger: log.DefaultLogger,
 	}
 	rw := httptest.NewRecorder()
 	req, err := http.NewRequest(http.MethodGet, "http://foo/azuremonitor/subscriptions/44693801", nil)

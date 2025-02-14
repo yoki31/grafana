@@ -1,34 +1,68 @@
-import React, { FC, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useAsyncFn } from 'react-use';
+
 import { contextSrv } from 'app/core/core';
 import { Role, OrgRole, AccessControlAction } from 'app/types';
+
 import { RolePicker } from './RolePicker';
 import { fetchUserRoles, updateUserRoles } from './api';
 
 export interface Props {
-  builtInRole: OrgRole;
+  basicRole: OrgRole;
+  roles?: Role[];
   userId: number;
   orgId?: number;
-  onBuiltinRoleChange: (newRole: OrgRole) => void;
+  onBasicRoleChange: (newRole: OrgRole) => void;
   roleOptions: Role[];
-  builtInRoles?: { [key: string]: Role[] };
   disabled?: boolean;
-  builtinRolesDisabled?: boolean;
+  basicRoleDisabled?: boolean;
+  basicRoleDisabledMessage?: string;
+  /**
+   * Set whether the component should send a request with the new roles to the
+   * backend in UserRolePicker.onRolesChange (apply=false), or call {@link onApplyRoles}
+   * with the updated list of roles (apply=true).
+   *
+   * Besides it sets the RolePickerMenu's Button title to
+   *   * `Update` in case apply equals false
+   *   * `Apply` in case apply equals true
+   *
+   * @default false
+   */
+  apply?: boolean;
+  onApplyRoles?: (newRoles: Role[], userId: number, orgId: number | undefined) => void;
+  pendingRoles?: Role[];
+  maxWidth?: string | number;
+  width?: string | number;
+  isLoading?: boolean;
 }
 
-export const UserRolePicker: FC<Props> = ({
-  builtInRole,
+export const UserRolePicker = ({
+  basicRole,
+  roles,
   userId,
   orgId,
-  onBuiltinRoleChange,
+  onBasicRoleChange,
   roleOptions,
-  builtInRoles,
   disabled,
-  builtinRolesDisabled,
-}) => {
-  const [{ loading, value: appliedRoles = [] }, getUserRoles] = useAsyncFn(async () => {
+  basicRoleDisabled,
+  basicRoleDisabledMessage,
+  apply = false,
+  onApplyRoles,
+  pendingRoles,
+  maxWidth,
+  width,
+  isLoading,
+}: Props) => {
+  const [{ loading, value: appliedRoles = roles || [] }, getUserRoles] = useAsyncFn(async () => {
     try {
-      if (contextSrv.hasPermission(AccessControlAction.ActionUserRolesList)) {
+      if (roles) {
+        return roles;
+      }
+      if (apply && Boolean(pendingRoles?.length)) {
+        return pendingRoles;
+      }
+
+      if (contextSrv.hasPermission(AccessControlAction.ActionUserRolesList) && userId > 0) {
         return await fetchUserRoles(userId, orgId);
       }
     } catch (e) {
@@ -36,29 +70,44 @@ export const UserRolePicker: FC<Props> = ({
       console.error('Error loading options');
     }
     return [];
-  }, [orgId, userId]);
+  }, [orgId, userId, pendingRoles, roles]);
 
   useEffect(() => {
-    getUserRoles();
-  }, [orgId, userId, getUserRoles]);
+    // only load roles when there is an Org selected
+    if (orgId) {
+      getUserRoles();
+    }
+  }, [getUserRoles, orgId]);
 
-  const onRolesChange = async (roles: string[]) => {
-    await updateUserRoles(roles, userId, orgId);
-    await getUserRoles();
+  const onRolesChange = async (roles: Role[]) => {
+    if (!apply) {
+      await updateUserRoles(roles, userId, orgId);
+      await getUserRoles();
+    } else if (onApplyRoles) {
+      onApplyRoles(roles, userId, orgId);
+    }
   };
+
+  const canUpdateRoles =
+    contextSrv.hasPermission(AccessControlAction.ActionUserRolesAdd) &&
+    contextSrv.hasPermission(AccessControlAction.ActionUserRolesRemove);
 
   return (
     <RolePicker
-      builtInRole={builtInRole}
-      onRolesChange={onRolesChange}
-      onBuiltinRoleChange={onBuiltinRoleChange}
-      roleOptions={roleOptions}
       appliedRoles={appliedRoles}
-      builtInRoles={builtInRoles}
-      isLoading={loading}
+      basicRole={basicRole}
+      onRolesChange={onRolesChange}
+      onBasicRoleChange={onBasicRoleChange}
+      roleOptions={roleOptions}
+      isLoading={loading || isLoading}
       disabled={disabled}
-      builtinRolesDisabled={builtinRolesDisabled}
-      showBuiltInRole
+      basicRoleDisabled={basicRoleDisabled}
+      basicRoleDisabledMessage={basicRoleDisabledMessage}
+      showBasicRole
+      apply={apply}
+      canUpdateRoles={canUpdateRoles}
+      maxWidth={maxWidth}
+      width={width}
     />
   );
 };

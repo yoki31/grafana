@@ -13,15 +13,10 @@
 
 'use strict';
 
-// accessible variables in this scope
-var window, document, ARGS, $, jQuery, moment, kbn;
+// accessible variables in this scope: window, document, $, jQuery, moment, kbn;
 
 // Setup some variables
-var dashboard;
-
-// All url parameters are available via the ARGS object
-// eslint-disable-next-line no-redeclare
-var ARGS;
+let dashboard;
 
 // Initialize a skeleton with nothing but a rows array and service object
 dashboard = {
@@ -39,8 +34,8 @@ dashboard.time = {
   to: 'now',
 };
 
-var rows = 1;
-var seriesName = 'argName';
+let rows = 1;
+let seriesName = 'argName';
 
 if (!_.isUndefined(ARGS.rows)) {
   rows = parseInt(ARGS.rows, 10);
@@ -50,12 +45,13 @@ if (!_.isUndefined(ARGS.name)) {
   seriesName = ARGS.name;
 }
 
-for (var i = 0; i < rows; i++) {
+for (let i = 0; i < rows; i++) {
   dashboard.rows.push({
     title: 'Chart',
     height: '300px',
     panels: [
       {
+        id: 1,
         title: 'Events',
         type: 'graph',
         span: 12,
@@ -63,23 +59,17 @@ for (var i = 0; i < rows; i++) {
         linewidth: 2,
         targets: [
           {
-            target: "randomWalk('" + seriesName + "')",
+            scenarioId: 'random_walk',
+            refId: 'A',
+            seriesCount: 1,
+            alias: seriesName,
           },
           {
-            target: "randomWalk('random walk2')",
+            scenarioId: 'random_walk',
+            refId: 'B',
+            seriesCount: 1,
           },
         ],
-        seriesOverrides: [
-          {
-            alias: '/random/',
-            yaxis: 2,
-            fill: 0,
-            linewidth: 5,
-          },
-        ],
-        tooltip: {
-          shared: true,
-        },
       },
     ],
   });

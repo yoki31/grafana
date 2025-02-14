@@ -1,10 +1,11 @@
 import { toDataFrame } from '../../dataframe/processDataFrame';
-import { sortByTransformer, SortByTransformerOptions } from './sortBy';
+import { Field, FieldType } from '../../types/dataFrame';
+import { DataTransformerConfig } from '../../types/transformations';
 import { mockTransformationsRegistry } from '../../utils/tests/mockTransformationsRegistry';
 import { transformDataFrame } from '../transformDataFrame';
-import { Field, FieldType } from '../../types';
+
 import { DataTransformerID } from './ids';
-import { DataTransformerConfig } from '@grafana/data';
+import { sortByTransformer, SortByTransformerOptions } from './sortBy';
 
 const testFrame = toDataFrame({
   name: 'A',
@@ -48,9 +49,9 @@ describe('SortBy transformer', () => {
 
     await expect(transformDataFrame([cfg], [testFrame])).toEmitValuesWith((received) => {
       expect(getFieldSnapshot(received[0][0].fields[0])).toMatchInlineSnapshot(`
-        Object {
+        {
           "name": "time",
-          "values": Array [
+          "values": [
             5,
             6,
             7,
@@ -78,9 +79,9 @@ describe('SortBy transformer', () => {
 
     await expect(transformDataFrame([cfg], [testFrame])).toEmitValuesWith((received) => {
       expect(getFieldSnapshot(received[0][0].fields[0])).toMatchInlineSnapshot(`
-        Object {
+        {
           "name": "time",
-          "values": Array [
+          "values": [
             10,
             9,
             8,
@@ -95,5 +96,5 @@ describe('SortBy transformer', () => {
 });
 
 function getFieldSnapshot(f: Field): Object {
-  return { name: f.name, values: f.values.toArray() };
+  return { name: f.name, values: f.values };
 }

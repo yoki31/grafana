@@ -1,31 +1,35 @@
-import { lastValueFrom, Observable, of } from 'rxjs';
+import { Observable, of } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { BackendSrvRequest, FetchResponse, getBackendSrv } from '@grafana/runtime';
+
 import {
   DataQueryRequest,
   DataQueryResponse,
-  DataSourceApi,
   DataSourceInstanceSettings,
   DataSourceJsonData,
   FieldType,
-  MutableDataFrame,
+  createDataFrame,
+  ScopedVars,
+  toDataFrame,
 } from '@grafana/data';
+import { createNodeGraphFrames, NodeGraphOptions, SpanBarOptions } from '@grafana/o11y-ds-frontend';
+import { DataSourceWithBackend, getTemplateSrv, TemplateSrv } from '@grafana/runtime';
 
-import { serializeParams } from '../../../core/utils/fetch';
-import { apiPrefix } from './constants';
 import { ZipkinQuery, ZipkinSpan } from './types';
 import { createGraphFrames } from './utils/graphTransform';
 import { transformResponse } from './utils/transforms';
-import { NodeGraphOptions } from 'app/core/components/NodeGraphSettings';
 
 export interface ZipkinJsonData extends DataSourceJsonData {
   nodeGraph?: NodeGraphOptions;
 }
 
-export class ZipkinDatasource extends DataSourceApi<ZipkinQuery, ZipkinJsonData> {
+export class ZipkinDatasource extends DataSourceWithBackend<ZipkinQuery, ZipkinJsonData> {
   uploadedJson: string | ArrayBuffer | null = null;
   nodeGraph?: NodeGraphOptions;
-  constructor(private instanceSettings: DataSourceInstanceSettings<ZipkinJsonData>) {
+  spanBar?: SpanBarOptions;
+  constructor(
+    instanceSettings: DataSourceInstanceSettings<ZipkinJsonData>,
+    private readonly templateSrv: TemplateSrv = getTemplateSrv()
+  ) {
     super(instanceSettings);
     this.nodeGraph = instanceSettings.jsonData.nodeGraph;
   }
@@ -46,40 +50,51 @@ export class ZipkinDatasource extends DataSourceApi<ZipkinQuery, ZipkinJsonData>
     }
 
     if (target.query) {
-      return this.request<ZipkinSpan[]>(`${apiPrefix}/trace/${encodeURIComponent(target.query)}`).pipe(
-        map((res) => responseToDataQueryResponse(res, this.nodeGraph?.enabled))
+      return super.query(options).pipe(
+        map((response) => {
+          if (this.nodeGraph?.enabled) {
+            return addNodeGraphFramesToResponse(response);
+          }
+          return response;
+        })
       );
     }
     return of(emptyDataQueryResponse);
   }
 
-  async metadataRequest(url: string, params?: Record<string, any>): Promise<any> {
-    const res = await lastValueFrom(this.request(url, params, { hideFromInspector: true }));
-    return res.data;
+  async metadataRequest(url: string, params?: Record<string, unknown>) {
+    return await this.getResource(url, params);
   }
 
   async testDatasource(): Promise<{ status: string; message: string }> {
-    await this.metadataRequest(`${apiPrefix}/services`);
-    return { status: 'success', message: 'Data source is working' };
+    return await super.testDatasource();
   }
 
   getQueryDisplayText(query: ZipkinQuery): string {
     return query.query;
   }
 
-  private request<T = any>(
-    apiUrl: string,
-    data?: any,
-    options?: Partial<BackendSrvRequest>
-  ): Observable<FetchResponse<T>> {
-    const params = data ? serializeParams(data) : '';
-    const url = `${this.instanceSettings.url}${apiUrl}${params.length ? `?${params}` : ''}`;
-    const req = {
-      ...options,
-      url,
-    };
+  interpolateVariablesInQueries(queries: ZipkinQuery[], scopedVars: ScopedVars): ZipkinQuery[] {
+    if (!queries || queries.length === 0) {
+      return [];
+    }
 
-    return getBackendSrv().fetch<T>(req);
+    return queries.map((query) => {
+      return {
+        ...query,
+        datasource: this.getRef(),
+        ...this.applyTemplateVariables(query, scopedVars),
+      };
+    });
+  }
+
+  applyTemplateVariables(query: ZipkinQuery, scopedVars: ScopedVars) {
+    const expandedQuery = { ...query };
+
+    return {
+      ...expandedQuery,
+      query: this.templateSrv.replace(query.query ?? '', scopedVars),
+    };
   }
 }
 
@@ -93,9 +108,24 @@ function responseToDataQueryResponse(response: { data: ZipkinSpan[] }, nodeGraph
   };
 }
 
+export function addNodeGraphFramesToResponse(response: DataQueryResponse): DataQueryResponse {
+  if (!response.data || response.data.length === 0) {
+    return response;
+  }
+
+  // This is frame, but it is not typed, so we use toDataFrame to convert it to DataFrame
+  const frame = toDataFrame(response.data[0]);
+  const data = [...response.data];
+  data.push(...createNodeGraphFrames(frame));
+  return {
+    ...response,
+    data,
+  };
+}
+
 const emptyDataQueryResponse = {
   data: [
-    new MutableDataFrame({
+    createDataFrame({
       fields: [
         {
           name: 'trace',

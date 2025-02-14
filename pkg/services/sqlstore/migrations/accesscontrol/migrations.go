@@ -1,6 +1,10 @@
 package accesscontrol
 
-import "github.com/grafana/grafana/pkg/services/sqlstore/migrator"
+import (
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
+)
+
+const CodeMigrationSQL = "code migration"
 
 func AddMigration(mg *migrator.Migrator) {
 	permissionV1 := migrator.Table{
@@ -165,5 +169,45 @@ func AddMigration(mg *migrator.Migrator) {
 
 	mg.AddMigration("add column hidden to role table", migrator.NewAddColumnMigration(roleV1, &migrator.Column{
 		Name: "hidden", Type: migrator.DB_Bool, Nullable: false, Default: "0",
+	}))
+
+	mg.AddMigration("permission kind migration", migrator.NewAddColumnMigration(permissionV1, &migrator.Column{
+		Name: "kind", Type: migrator.DB_NVarchar, Length: 40, Default: "''",
+	}))
+
+	mg.AddMigration("permission attribute migration", migrator.NewAddColumnMigration(permissionV1, &migrator.Column{
+		Name: "attribute", Type: migrator.DB_NVarchar, Length: 40, Default: "''",
+	}))
+
+	mg.AddMigration("permission identifier migration", migrator.NewAddColumnMigration(permissionV1, &migrator.Column{
+		Name: "identifier", Type: migrator.DB_NVarchar, Length: 40, Default: "''",
+	}))
+
+	mg.AddMigration("add permission identifier index", migrator.NewAddIndexMigration(permissionV1, &migrator.Index{
+		Cols: []string{"identifier"},
+	}))
+
+	mg.AddMigration("add permission action scope role_id index", migrator.NewAddIndexMigration(permissionV1, &migrator.Index{
+		Type: migrator.UniqueIndex,
+		Cols: []string{"action", "scope", "role_id"},
+	}))
+
+	mg.AddMigration("remove permission role_id action scope index", migrator.NewDropIndexMigration(permissionV1, &migrator.Index{
+		Type: migrator.UniqueIndex,
+		Cols: []string{"role_id", "action", "scope"},
+	}))
+
+	mg.AddMigration("add group mapping UID column to user_role table", migrator.NewAddColumnMigration(userRoleV1, &migrator.Column{
+		Name: "group_mapping_uid", Type: migrator.DB_NVarchar, Length: 40, Default: "''", Nullable: true,
+	}))
+
+	mg.AddMigration("add user_role org ID, user ID, role ID, group mapping UID index", migrator.NewAddIndexMigration(userRoleV1, &migrator.Index{
+		Type: migrator.UniqueIndex,
+		Cols: []string{"org_id", "user_id", "role_id", "group_mapping_uid"},
+	}))
+
+	mg.AddMigration("remove user_role org ID, user ID, role ID index", migrator.NewDropIndexMigration(userRoleV1, &migrator.Index{
+		Type: migrator.UniqueIndex,
+		Cols: []string{"org_id", "user_id", "role_id"},
 	}))
 }

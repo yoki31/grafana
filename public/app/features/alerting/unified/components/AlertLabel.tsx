@@ -1,7 +1,7 @@
-import React, { FC } from 'react';
-import { IconButton, useStyles } from '@grafana/ui';
-import { GrafanaTheme } from '@grafana/data';
 import { css } from '@emotion/css';
+
+import { GrafanaTheme2 } from '@grafana/data';
+import { IconButton, useStyles2 } from '@grafana/ui';
 
 interface Props {
   labelKey: string;
@@ -10,23 +10,29 @@ interface Props {
   onRemoveLabel?: () => void;
 }
 
-export const AlertLabel: FC<Props> = ({ labelKey, value, operator = '=', onRemoveLabel }) => (
-  <div className={useStyles(getStyles)}>
-    {labelKey}
-    {operator}
-    {value}
-    {!!onRemoveLabel && <IconButton name="times" size="xs" onClick={onRemoveLabel} />}
-  </div>
-);
+export const AlertLabel = ({ labelKey, value, operator = '=', onRemoveLabel }: Props) => {
+  const styles = useStyles2(getStyles);
 
-export const getStyles = (theme: GrafanaTheme) => css`
-  padding: ${theme.spacing.xs} ${theme.spacing.sm};
-  border-radius: ${theme.border.radius.sm};
-  border: solid 1px ${theme.colors.border2};
-  font-size: ${theme.typography.size.sm};
-  background-color: ${theme.colors.bg2};
-  font-weight: ${theme.typography.weight.bold};
-  color: ${theme.colors.formLabel};
-  display: inline-block;
-  line-height: 1.2;
-`;
+  return (
+    <div className={styles.wrapper}>
+      {labelKey}
+      {operator}
+      {value}
+      {!!onRemoveLabel && <IconButton name="times" size="xs" onClick={onRemoveLabel} tooltip="Remove label" />}
+    </div>
+  );
+};
+
+export const getStyles = (theme: GrafanaTheme2) => ({
+  wrapper: css({
+    padding: theme.spacing(0.5, 1),
+    borderRadius: theme.shape.radius.default,
+    border: `solid 1px ${theme.colors.border.medium}`,
+    fontSize: theme.typography.bodySmall.fontSize,
+    backgroundColor: theme.colors.background.secondary,
+    fontWeight: theme.typography.fontWeightBold,
+    color: theme.colors.text.primary,
+    display: 'inline-block',
+    lineHeight: '1.2',
+  }),
+});

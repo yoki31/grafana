@@ -1,25 +1,21 @@
-import React, { CSSProperties } from 'react';
-
-import { CanvasElementItem, CanvasElementProps } from '../element';
-import {
-  ColorDimensionConfig,
-  ResourceDimensionConfig,
-  ResourceDimensionMode,
-  getPublicOrAbsoluteUrl,
-} from 'app/features/dimensions';
-import { ColorDimensionEditor, ResourceDimensionEditor } from 'app/features/dimensions/editors';
-import SVG from 'react-inlinesvg';
 import { css } from '@emotion/css';
 import { isString } from 'lodash';
-import { LineConfig } from '../types';
+import { CSSProperties } from 'react';
+
+import { LinkModel } from '@grafana/data';
+import { ColorDimensionConfig, ResourceDimensionConfig, ResourceDimensionMode } from '@grafana/schema';
+import { SanitizedSVG } from 'app/core/components/SVG/SanitizedSVG';
+import { getPublicOrAbsoluteUrl } from 'app/features/dimensions';
 import { DimensionContext } from 'app/features/dimensions/context';
-import { APIEditor, APIEditorConfig, callApi } from 'app/plugins/panel/canvas/editor/APIEditor';
+import { ColorDimensionEditor, ResourceDimensionEditor } from 'app/features/dimensions/editors';
+import { LineConfig } from 'app/plugins/panel/canvas/panelcfg.gen';
+
+import { CanvasElementItem, CanvasElementOptions, CanvasElementProps, defaultBgColor } from '../element';
 
 export interface IconConfig {
   path?: ResourceDimensionConfig;
   fill?: ColorDimensionConfig;
   stroke?: LineConfig;
-  api?: APIEditorConfig;
 }
 
 interface IconData {
@@ -27,43 +23,32 @@ interface IconData {
   fill: string;
   strokeColor?: string;
   stroke?: number;
-  api?: APIEditorConfig;
+  links?: LinkModel[];
 }
 
 // When a stoke is defined, we want the path to be in page units
-const svgStrokePathClass = css`
-  path {
-    vector-effect: non-scaling-stroke;
-  }
-`;
+const svgStrokePathClass = css({
+  path: {
+    vectorEffect: 'non-scaling-stroke',
+  },
+});
 
-export function IconDisplay(props: CanvasElementProps) {
-  const { width, height, data } = props;
+export function IconDisplay(props: CanvasElementProps<IconConfig, IconData>) {
+  const { data } = props;
   if (!data?.path) {
     return null;
   }
-
-  const onClick = () => {
-    if (data?.api) {
-      callApi(data.api);
-    }
-  };
 
   const svgStyle: CSSProperties = {
     fill: data?.fill,
     stroke: data?.strokeColor,
     strokeWidth: data?.stroke,
+    height: '100%',
+    width: '100%',
   };
 
   return (
-    <SVG
-      onClick={onClick}
-      src={data.path}
-      width={width}
-      height={height}
-      style={svgStyle}
-      className={svgStyle.strokeWidth ? svgStrokePathClass : undefined}
-    />
+    <SanitizedSVG src={data.path} style={svgStyle} className={svgStyle.strokeWidth ? svgStrokePathClass : undefined} />
   );
 }
 
@@ -75,25 +60,36 @@ export const iconItem: CanvasElementItem<IconConfig, IconData> = {
   display: IconDisplay,
 
   getNewOptions: (options) => ({
-    placement: {
-      width: 50,
-      height: 50,
-    },
     ...options,
     config: {
       path: {
         mode: ResourceDimensionMode.Fixed,
         fixed: 'img/icons/unicons/question-circle.svg',
       },
-      fill: { fixed: '#FFF899' },
+      fill: { fixed: defaultBgColor },
     },
+    background: {
+      color: {
+        fixed: 'transparent',
+      },
+    },
+    placement: {
+      width: options?.placement?.width ?? 100,
+      height: options?.placement?.height ?? 100,
+      top: options?.placement?.top ?? 100,
+      left: options?.placement?.left ?? 100,
+      rotation: options?.placement?.rotation ?? 0,
+    },
+    links: options?.links ?? [],
   }),
 
   // Called when data changes
-  prepareData: (ctx: DimensionContext, cfg: IconConfig) => {
+  prepareData: (dimensionContext: DimensionContext, elementOptions: CanvasElementOptions<IconConfig>) => {
+    const iconConfig = elementOptions.config;
+
     let path: string | undefined = undefined;
-    if (cfg.path) {
-      path = ctx.getResource(cfg.path).value();
+    if (iconConfig?.path) {
+      path = dimensionContext.getResource(iconConfig.path).value();
     }
     if (!path || !isString(path)) {
       path = getPublicOrAbsoluteUrl('img/icons/unicons/question-circle.svg');
@@ -101,16 +97,16 @@ export const iconItem: CanvasElementItem<IconConfig, IconData> = {
 
     const data: IconData = {
       path,
-      fill: cfg.fill ? ctx.getColor(cfg.fill).value() : '#CCC',
-      api: cfg?.api ?? undefined,
+      fill: iconConfig?.fill ? dimensionContext.getColor(iconConfig.fill).value() : defaultBgColor,
     };
 
-    if (cfg.stroke?.width && cfg.stroke.color) {
-      if (cfg.stroke.width > 0) {
-        data.stroke = cfg.stroke?.width;
-        data.strokeColor = ctx.getColor(cfg.stroke.color).value();
+    if (iconConfig?.stroke?.width && iconConfig?.stroke.color) {
+      if (iconConfig.stroke.width > 0) {
+        data.stroke = iconConfig.stroke?.width;
+        data.strokeColor = dimensionContext.getColor(iconConfig.stroke.color).value();
       }
     }
+
     return data;
   },
 
@@ -126,6 +122,7 @@ export const iconItem: CanvasElementItem<IconConfig, IconData> = {
         editor: ResourceDimensionEditor,
         settings: {
           resourceType: 'icon',
+          maxFiles: 2000,
         },
       })
       .addCustomEditor({
@@ -139,36 +136,29 @@ export const iconItem: CanvasElementItem<IconConfig, IconData> = {
           // Configured values
           fixed: 'grey',
         },
-      })
-      .addSliderInput({
-        category,
-        path: 'config.stroke.width',
-        name: 'Stroke',
-        defaultValue: 0,
-        settings: {
-          min: 0,
-          max: 10,
-        },
-      })
-      .addCustomEditor({
-        category,
-        id: 'config.stroke.color',
-        path: 'config.stroke.color',
-        name: 'Stroke color',
-        editor: ColorDimensionEditor,
-        settings: {},
-        defaultValue: {
-          // Configured values
-          fixed: 'grey',
-        },
-        showIf: (cfg) => Boolean(cfg?.config?.stroke?.width),
-      })
-      .addCustomEditor({
-        category,
-        id: 'apiSelector',
-        path: 'config.api',
-        name: 'API',
-        editor: APIEditor,
       });
+    // .addSliderInput({
+    //   category,
+    //   path: 'config.stroke.width',
+    //   name: 'Stroke',
+    //   defaultValue: 0,
+    //   settings: {
+    //     min: 0,
+    //     max: 10,
+    //   },
+    // })
+    // .addCustomEditor({
+    //   category,
+    //   id: 'config.stroke.color',
+    //   path: 'config.stroke.color',
+    //   name: 'Stroke color',
+    //   editor: ColorDimensionEditor,
+    //   settings: {},
+    //   defaultValue: {
+    //     // Configured values
+    //     fixed: 'grey',
+    //   },
+    //   showIf: (cfg) => Boolean(cfg?.config?.stroke?.width),
+    // })
   },
 };

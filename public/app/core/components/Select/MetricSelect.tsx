@@ -1,10 +1,9 @@
-import React, { useMemo, useCallback, FC } from 'react';
 import { flatten } from 'lodash';
+import { useCallback, useMemo } from 'react';
 
-import { LegacyForms } from '@grafana/ui';
 import { SelectableValue } from '@grafana/data';
+import { Select } from '@grafana/ui';
 import { Variable } from 'app/types/templates';
-const { Select } = LegacyForms;
 
 export interface Props {
   onChange: (value: string | undefined) => void;
@@ -16,7 +15,7 @@ export interface Props {
   variables?: Variable[];
 }
 
-export const MetricSelect: FC<Props> = (props) => {
+export const MetricSelect = (props: Props) => {
   const { value, placeholder, className, isSearchable, onChange } = props;
   const options = useSelectOptions(props);
   const selected = useSelectedOption(options, value);
@@ -24,7 +23,6 @@ export const MetricSelect: FC<Props> = (props) => {
 
   return (
     <Select
-      menuShouldPortal
       className={className}
       isMulti={false}
       isClearable={false}
@@ -34,7 +32,7 @@ export const MetricSelect: FC<Props> = (props) => {
       isSearchable={isSearchable}
       maxMenuHeight={500}
       placeholder={placeholder}
-      noOptionsMessage={() => 'No options found'}
+      noOptionsMessage="No options found"
       value={selected}
     />
   );

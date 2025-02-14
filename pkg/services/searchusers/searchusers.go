@@ -1,45 +1,77 @@
 package searchusers
 
 import (
+	"net/http"
+
 	"github.com/grafana/grafana/pkg/api/dtos"
 	"github.com/grafana/grafana/pkg/api/response"
-	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/sqlstore"
+	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
+	"github.com/grafana/grafana/pkg/services/login"
+	"github.com/grafana/grafana/pkg/services/searchusers/sortopts"
+	"github.com/grafana/grafana/pkg/services/user"
+	"github.com/grafana/grafana/pkg/setting"
 )
 
 type Service interface {
-	SearchUsers(c *models.ReqContext) response.Response
-	SearchUsersWithPaging(c *models.ReqContext) response.Response
+	SearchUsers(c *contextmodel.ReqContext) response.Response
+	SearchUsersWithPaging(c *contextmodel.ReqContext) response.Response
 }
 
 type OSSService struct {
-	sqlStore         sqlstore.Store
-	searchUserFilter models.SearchUserFilter
+	cfg              *setting.Cfg
+	searchUserFilter user.SearchUserFilter
+	userService      user.Service
 }
 
-func ProvideUsersService(sqlStore sqlstore.Store, searchUserFilter models.SearchUserFilter) *OSSService {
-	return &OSSService{sqlStore: sqlStore, searchUserFilter: searchUserFilter}
+func ProvideUsersService(cfg *setting.Cfg, searchUserFilter user.SearchUserFilter, userService user.Service,
+) *OSSService {
+	return &OSSService{
+		cfg:              cfg,
+		searchUserFilter: searchUserFilter,
+		userService:      userService,
+	}
 }
 
-func (s *OSSService) SearchUsers(c *models.ReqContext) response.Response {
-	query, err := s.SearchUser(c)
+// swagger:route GET /users users searchUsers
+//
+// Get users.
+//
+// Returns all users that the authenticated user has permission to view, admin permission required.
+//
+// Responses:
+// 200: searchUsersResponse
+// 401: unauthorisedError
+// 403: forbiddenError
+// 500: internalServerError
+func (s *OSSService) SearchUsers(c *contextmodel.ReqContext) response.Response {
+	result, err := s.SearchUser(c)
 	if err != nil {
-		return response.Error(500, "Failed to fetch users", err)
+		return response.ErrOrFallback(http.StatusInternalServerError, "Failed to fetch users", err)
 	}
 
-	return response.JSON(200, query.Result.Users)
+	return response.JSON(http.StatusOK, result.Users)
 }
 
-func (s *OSSService) SearchUsersWithPaging(c *models.ReqContext) response.Response {
-	query, err := s.SearchUser(c)
+// swagger:route GET /users/search users searchUsersWithPaging
+//
+// Get users with paging.
+//
+// Responses:
+// 200: searchUsersWithPagingResponse
+// 401: unauthorisedError
+// 403: forbiddenError
+// 404: notFoundError
+// 500: internalServerError
+func (s *OSSService) SearchUsersWithPaging(c *contextmodel.ReqContext) response.Response {
+	result, err := s.SearchUser(c)
 	if err != nil {
-		return response.Error(500, "Failed to fetch users", err)
+		return response.ErrOrFallback(http.StatusInternalServerError, "Failed to fetch users", err)
 	}
 
-	return response.JSON(200, query.Result)
+	return response.JSON(http.StatusOK, result)
 }
 
-func (s *OSSService) SearchUser(c *models.ReqContext) (*models.SearchUsersQuery, error) {
+func (s *OSSService) SearchUser(c *contextmodel.ReqContext) (*user.SearchUserQueryResult, error) {
 	perPage := c.QueryInt("perpage")
 	if perPage <= 0 {
 		perPage = 1000
@@ -51,7 +83,7 @@ func (s *OSSService) SearchUser(c *models.ReqContext) (*models.SearchUsersQuery,
 	}
 
 	searchQuery := c.Query("query")
-	filters := make([]models.Filter, 0)
+	filters := []user.Filter{}
 	for filterName := range s.searchUserFilter.GetFilterList() {
 		filter := s.searchUserFilter.GetFilter(filterName, c.QueryStrings(filterName))
 		if filter != nil {
@@ -59,46 +91,49 @@ func (s *OSSService) SearchUser(c *models.ReqContext) (*models.SearchUsersQuery,
 		}
 	}
 
-	query := &models.SearchUsersQuery{Query: searchQuery, Filters: filters, Page: page, Limit: perPage}
-	if err := s.sqlStore.SearchUsers(c.Req.Context(), query); err != nil {
+	sortOpts, err := sortopts.ParseSortQueryParam(c.Query("sort"))
+	if err != nil {
 		return nil, err
 	}
 
-	for _, user := range query.Result.Users {
-		user.AvatarUrl = dtos.GetGravatarUrl(user.Email)
-		user.AuthLabels = make([]string, 0)
-		if user.AuthModule != nil && len(user.AuthModule) > 0 {
-			for _, authModule := range user.AuthModule {
-				user.AuthLabels = append(user.AuthLabels, GetAuthProviderLabel(authModule))
-			}
+	query := &user.SearchUsersQuery{
+		// added SignedInUser to the query, as to only list the users that the user has permission to read
+		SignedInUser: c.SignedInUser,
+		Query:        searchQuery,
+		Filters:      filters,
+		Page:         page,
+		Limit:        perPage,
+		SortOpts:     sortOpts,
+	}
+	res, err := s.userService.Search(c.Req.Context(), query)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, user := range res.Users {
+		user.AvatarURL = dtos.GetGravatarUrl(s.cfg, user.Email)
+		user.AuthLabels = make([]string, 0, len(user.AuthModule))
+		for _, authModule := range user.AuthModule {
+			user.AuthLabels = append(user.AuthLabels, login.GetAuthProviderLabel(authModule))
 		}
 	}
 
-	query.Result.Page = page
-	query.Result.PerPage = perPage
+	res.Page = page
+	res.PerPage = perPage
 
-	return query, nil
+	return res, nil
 }
 
-func GetAuthProviderLabel(authModule string) string {
-	switch authModule {
-	case "oauth_github":
-		return "GitHub"
-	case "oauth_google":
-		return "Google"
-	case "oauth_azuread":
-		return "AzureAD"
-	case "oauth_gitlab":
-		return "GitLab"
-	case "oauth_grafana_com", "oauth_grafananet":
-		return "grafana.com"
-	case "auth.saml":
-		return "SAML"
-	case "ldap", "":
-		return "LDAP"
-	case "jwt":
-		return "JWT"
-	default:
-		return "OAuth"
-	}
+// swagger:response searchUsersResponse
+type SearchUsersResponse struct {
+	// The response message
+	// in: body
+	Body []*user.UserSearchHitDTO `json:"body"`
+}
+
+// swagger:response searchUsersWithPagingResponse
+type SearchUsersWithPagingResponse struct {
+	// The response message
+	// in: body
+	Body *user.SearchUserQueryResult `json:"body"`
 }

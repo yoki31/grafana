@@ -1,57 +1,41 @@
 import { isArray, isEqual } from 'lodash';
-import { ScopedVars, UrlQueryMap, UrlQueryValue, VariableType } from '@grafana/data';
-import { getTemplateSrv } from '@grafana/runtime';
 
-import { ALL_VARIABLE_TEXT, ALL_VARIABLE_VALUE } from './constants';
-import { QueryVariableModel, TransactionStatus, VariableModel, VariableRefresh } from './types';
-import { getTimeSrv } from '../dashboard/services/TimeSrv';
-import { variableAdapters } from './adapters';
+import {
+  LegacyMetricFindQueryOptions,
+  ScopedVars,
+  UrlQueryMap,
+  UrlQueryValue,
+  VariableType,
+  VariableRefresh,
+  VariableWithOptions,
+  QueryVariableModel,
+} from '@grafana/data';
+import { getTemplateSrv, locationService } from '@grafana/runtime';
 import { safeStringifyValue } from 'app/core/utils/explore';
-import { StoreState } from '../../types';
+
 import { getState } from '../../store/store';
+import { StoreState } from '../../types';
+import { TimeSrv } from '../dashboard/services/TimeSrv';
+
+import { variableAdapters } from './adapters';
+import { ALL_VARIABLE_TEXT, ALL_VARIABLE_VALUE, VARIABLE_PREFIX } from './constants';
 import { getVariablesState } from './state/selectors';
 import { KeyedVariableIdentifier, VariableIdentifier, VariablePayload } from './state/types';
+import { TransactionStatus, VariableModel } from './types';
 
 /*
  * This regex matches 3 types of variable reference with an optional format specifier
- * \$(\w+)                          $var1
- * \[\[([\s\S]+?)(?::(\w+))?\]\]    [[var2]] or [[var2:fmt2]]
- * \${(\w+)(?::(\w+))?}             ${var3} or ${var3:fmt3}
+ * There are 6 capture groups that replace will return
+ * \$(\w+)                                    $var1
+ * \[\[(\w+?)(?::(\w+))?\]\]                  [[var2]] or [[var2:fmt2]]
+ * \${(\w+)(?:\.([^:^\}]+))?(?::([^\}]+))?}   ${var3} or ${var3.fieldPath} or ${var3:fmt3} (or ${var3.fieldPath:fmt3} but that is not a separate capture group)
  */
-export const variableRegex = /\$(\w+)|\[\[([\s\S]+?)(?::(\w+))?\]\]|\${(\w+)(?:\.([^:^\}]+))?(?::([^\}]+))?}/g;
+export const variableRegex = /\$(\w+)|\[\[(\w+?)(?::(\w+))?\]\]|\${(\w+)(?:\.([^:^\}]+))?(?::([^\}]+))?}/g;
 
 // Helper function since lastIndex is not reset
 export const variableRegexExec = (variableString: string) => {
   variableRegex.lastIndex = 0;
   return variableRegex.exec(variableString);
-};
-
-export const SEARCH_FILTER_VARIABLE = '__searchFilter';
-
-export const containsSearchFilter = (query: string | unknown): boolean =>
-  query && typeof query === 'string' ? query.indexOf(SEARCH_FILTER_VARIABLE) !== -1 : false;
-
-export const getSearchFilterScopedVar = (args: {
-  query: string;
-  wildcardChar: string;
-  options: { searchFilter?: string };
-}): ScopedVars => {
-  const { query, wildcardChar } = args;
-  if (!containsSearchFilter(query)) {
-    return {};
-  }
-
-  let { options } = args;
-
-  options = options || { searchFilter: '' };
-  const value = options.searchFilter ? `${options.searchFilter}${wildcardChar}` : `${wildcardChar}`;
-
-  return {
-    __searchFilter: {
-      value,
-      text: '',
-    },
-  };
 };
 
 export function containsVariable(...args: any[]) {
@@ -128,6 +112,22 @@ export const getCurrentText = (variable: any): string => {
   return variable.current.text;
 };
 
+export const getCurrentValue = (variable: VariableWithOptions): string | null => {
+  if (!variable || !variable.current || variable.current.value === undefined || variable.current.value === null) {
+    return null;
+  }
+
+  if (Array.isArray(variable.current.value)) {
+    return variable.current.value.toString();
+  }
+
+  if (typeof variable.current.value !== 'string') {
+    return null;
+  }
+
+  return variable.current.value;
+};
+
 export function getTemplatedRegex(variable: QueryVariableModel, templateSrv = getTemplateSrv()): string {
   if (!variable) {
     return '';
@@ -140,8 +140,14 @@ export function getTemplatedRegex(variable: QueryVariableModel, templateSrv = ge
   return templateSrv.replace(variable.regex, {}, 'regex');
 }
 
-export function getLegacyQueryOptions(variable: QueryVariableModel, searchFilter?: string, timeSrv = getTimeSrv()) {
-  const queryOptions: any = { range: undefined, variable, searchFilter };
+export function getLegacyQueryOptions(
+  variable: QueryVariableModel,
+  searchFilter: string | undefined,
+  timeSrv: TimeSrv,
+  scopedVars: ScopedVars | undefined
+): LegacyMetricFindQueryOptions {
+  const queryOptions: LegacyMetricFindQueryOptions = { range: undefined, variable, searchFilter, scopedVars };
+
   if (variable.refresh === VariableRefresh.onTimeRangeChanged || variable.refresh === VariableRefresh.onDashboardLoad) {
     queryOptions.range = timeSrv.timeRange();
   }
@@ -150,34 +156,33 @@ export function getLegacyQueryOptions(variable: QueryVariableModel, searchFilter
 }
 
 export function getVariableRefresh(variable: VariableModel): VariableRefresh {
-  if (!variable || !variable.hasOwnProperty('refresh')) {
-    return VariableRefresh.never;
+  if (variable?.type === 'custom') {
+    return VariableRefresh.onDashboardLoad;
   }
 
-  const queryVariable = variable as QueryVariableModel;
-
   if (
-    queryVariable.refresh !== VariableRefresh.onTimeRangeChanged &&
-    queryVariable.refresh !== VariableRefresh.onDashboardLoad &&
-    queryVariable.refresh !== VariableRefresh.never
+    !variable ||
+    !('refresh' in variable) ||
+    (variable.refresh !== VariableRefresh.onTimeRangeChanged && variable.refresh !== VariableRefresh.onDashboardLoad)
   ) {
     return VariableRefresh.never;
   }
 
-  return queryVariable.refresh;
+  return variable.refresh;
 }
 
 export function getVariableTypes(): Array<{ label: string; value: VariableType }> {
   return variableAdapters
     .list()
     .filter((v) => v.id !== 'system')
-    .map(({ id, name }) => ({
+    .map(({ id, name, description }) => ({
       label: name,
       value: id,
+      description,
     }));
 }
 
-function getUrlValueForComparison(value: any): any {
+function getUrlValueForComparison(value: unknown) {
   if (isArray(value)) {
     if (value.length === 0) {
       value = undefined;
@@ -201,7 +206,7 @@ export function findTemplateVarChanges(query: UrlQueryMap, old: UrlQueryMap): Ex
   const changes: ExtendedUrlQueryMap = {};
 
   for (const key in query) {
-    if (!key.startsWith('var-')) {
+    if (!key.startsWith(VARIABLE_PREFIX)) {
       continue;
     }
 
@@ -215,7 +220,7 @@ export function findTemplateVarChanges(query: UrlQueryMap, old: UrlQueryMap): Ex
   }
 
   for (const key in old) {
-    if (!key.startsWith('var-')) {
+    if (!key.startsWith(VARIABLE_PREFIX)) {
       continue;
     }
 
@@ -234,7 +239,7 @@ export function findTemplateVarChanges(query: UrlQueryMap, old: UrlQueryMap): Ex
   return count ? changes : undefined;
 }
 
-export function ensureStringValues(value: any | any[]): string | string[] {
+export function ensureStringValues(value: unknown | unknown[]): string | string[] {
   if (Array.isArray(value)) {
     return value.map(String);
   }
@@ -278,12 +283,26 @@ export function toVariablePayload<T extends any = undefined>(
   identifier: VariableIdentifier,
   data?: T
 ): VariablePayload<T>;
-// eslint-disable-next-line
 export function toVariablePayload<T extends any = undefined>(model: VariableModel, data?: T): VariablePayload<T>;
-// eslint-disable-next-line
 export function toVariablePayload<T extends any = undefined>(
   obj: VariableIdentifier | VariableModel,
   data?: T
 ): VariablePayload<T> {
   return { type: obj.type, id: obj.id, data: data as T };
+}
+
+export function getVariablesFromUrl() {
+  const variables = getTemplateSrv().getVariables();
+  const queryParams = locationService.getSearchObject();
+
+  return Object.keys(queryParams)
+    .filter(
+      (key) => key.indexOf(VARIABLE_PREFIX) !== -1 && variables.some((v) => v.name === key.replace(VARIABLE_PREFIX, ''))
+    )
+    .reduce<UrlQueryMap>((obj, key) => {
+      const variableName = key.replace(VARIABLE_PREFIX, '');
+      obj[variableName] = queryParams[key];
+
+      return obj;
+    }, {});
 }

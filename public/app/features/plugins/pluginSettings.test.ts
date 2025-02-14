@@ -1,5 +1,6 @@
-import { getPluginSettings, clearPluginSettingsCache } from './pluginSettings';
 import { getBackendSrv } from '@grafana/runtime';
+
+import { getPluginSettings, clearPluginSettingsCache } from './pluginSettings';
 
 jest.mock('@grafana/runtime', () => ({
   getBackendSrv: jest.fn().mockReturnValue({
@@ -28,7 +29,7 @@ describe('PluginSettings', () => {
     // assert
     expect(response).toEqual(testPluginResponse);
     expect(getRequestSpy).toHaveBeenCalledTimes(1);
-    expect(getRequestSpy).toHaveBeenCalledWith('/api/plugins/test/settings');
+    expect(getRequestSpy).toHaveBeenCalledWith('/api/plugins/test/settings', undefined, undefined, undefined);
   });
 
   it('should fetch settings from cache when it has a hit', async () => {

@@ -1,4 +1,5 @@
-import { PanelModel } from '../dashboard/state';
+import { PanelModel } from '../dashboard/state/PanelModel';
+
 import { PanelModelWithLibraryPanel } from './types';
 
 export function isPanelModelLibraryPanel(panel: PanelModel): panel is PanelModelWithLibraryPanel {

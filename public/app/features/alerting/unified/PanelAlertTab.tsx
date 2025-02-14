@@ -1,6 +1,7 @@
-import { Tab, TabProps } from '@grafana/ui/src/components/Tabs/Tab';
-import { DashboardModel, PanelModel } from 'app/features/dashboard/state';
-import React, { FC } from 'react';
+import { Tab, TabProps } from '@grafana/ui';
+import { DashboardModel } from 'app/features/dashboard/state/DashboardModel';
+import { PanelModel } from 'app/features/dashboard/state/PanelModel';
+
 import { usePanelCombinedRules } from './hooks/usePanelCombinedRules';
 
 interface Props extends Omit<TabProps, 'counter' | 'ref'> {
@@ -9,7 +10,7 @@ interface Props extends Omit<TabProps, 'counter' | 'ref'> {
 }
 
 // it will load rule count from backend
-export const PanelAlertTab: FC<Props> = ({ panel, dashboard, ...otherProps }) => {
-  const { rules, loading } = usePanelCombinedRules({ panel, dashboard });
+export const PanelAlertTab = ({ panel, dashboard, ...otherProps }: Props) => {
+  const { rules, loading } = usePanelCombinedRules({ panelId: panel.id, dashboardUID: dashboard.uid });
   return <Tab {...otherProps} counter={loading ? null : rules.length} />;
 };

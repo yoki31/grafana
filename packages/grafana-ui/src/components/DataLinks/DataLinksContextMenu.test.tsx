@@ -1,11 +1,12 @@
-import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { DataLinksContextMenu } from './DataLinksContextMenu';
+
 import { selectors } from '@grafana/e2e-selectors';
+
+import { DataLinksContextMenu } from './DataLinksContextMenu';
 
 const fakeAriaLabel = 'fake aria label';
 describe('DataLinksContextMenu', () => {
-  it('renders context menu when there are more than one data links', () => {
+  it('renders context menu when there are more than one data links or actions', () => {
     render(
       <DataLinksContextMenu
         links={() => [
@@ -22,18 +23,7 @@ describe('DataLinksContextMenu', () => {
             origin: {},
           },
         ]}
-        config={{
-          links: [
-            {
-              title: 'Link1',
-              url: '/link1',
-            },
-            {
-              title: 'Link2',
-              url: '/link2',
-            },
-          ],
-        }}
+        actions={[{ title: 'Action1', onClick: () => {} }]}
       >
         {() => {
           return <div aria-label="fake aria label" />;
@@ -45,7 +35,7 @@ describe('DataLinksContextMenu', () => {
     expect(screen.queryAllByLabelText(selectors.components.DataLinksContextMenu.singleLink)).toHaveLength(0);
   });
 
-  it('renders link when there is a single data link', () => {
+  it('renders context menu when there are actions and one data link', () => {
     render(
       <DataLinksContextMenu
         links={() => [
@@ -56,14 +46,7 @@ describe('DataLinksContextMenu', () => {
             origin: {},
           },
         ]}
-        config={{
-          links: [
-            {
-              title: 'Link1',
-              url: '/link1',
-            },
-          ],
-        }}
+        actions={[{ title: 'Action1', onClick: () => {} }]}
       >
         {() => {
           return <div aria-label="fake aria label" />;
@@ -72,6 +55,41 @@ describe('DataLinksContextMenu', () => {
     );
 
     expect(screen.getByLabelText(fakeAriaLabel)).toBeInTheDocument();
-    expect(screen.getByLabelText(selectors.components.DataLinksContextMenu.singleLink)).toBeInTheDocument();
+    expect(screen.queryAllByLabelText(selectors.components.DataLinksContextMenu.singleLink)).toHaveLength(0);
+  });
+
+  it('renders context menu when there are only actions', () => {
+    render(
+      <DataLinksContextMenu links={() => []} actions={[{ title: 'Action1', onClick: () => {} }]}>
+        {() => {
+          return <div aria-label="fake aria label" />;
+        }}
+      </DataLinksContextMenu>
+    );
+
+    expect(screen.getByLabelText(fakeAriaLabel)).toBeInTheDocument();
+    expect(screen.queryAllByLabelText(selectors.components.DataLinksContextMenu.singleLink)).toHaveLength(0);
+  });
+
+  it('renders link when there is a single data link and no actions', () => {
+    render(
+      <DataLinksContextMenu
+        links={() => [
+          {
+            href: '/link1',
+            title: 'Link1',
+            target: '_blank',
+            origin: {},
+          },
+        ]}
+      >
+        {() => {
+          return <div aria-label="fake aria label" />;
+        }}
+      </DataLinksContextMenu>
+    );
+
+    expect(screen.getByLabelText(fakeAriaLabel)).toBeInTheDocument();
+    expect(screen.getByTestId(selectors.components.DataLinksContextMenu.singleLink)).toBeInTheDocument();
   });
 });

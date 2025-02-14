@@ -1,5 +1,7 @@
 import { isArray, reduce } from 'lodash';
-import { QueryPartDef, QueryPart } from 'app/features/alerting/state/query_part';
+
+import { IconName } from '@grafana/ui';
+import { QueryPart, QueryPartDef } from 'app/features/alerting/state/query_part';
 
 const alertQueryDef = new QueryPartDef({
   type: 'query',
@@ -46,6 +48,7 @@ const evalFunctions = [
 const evalOperators = [
   { text: 'OR', value: 'or' },
   { text: 'AND', value: 'and' },
+  { text: 'LOGIC OR', value: 'logic-or' },
 ];
 
 const reducerTypes = [
@@ -61,7 +64,7 @@ const reducerTypes = [
   { text: 'percent_diff()', value: 'percent_diff' },
   { text: 'percent_diff_abs()', value: 'percent_diff_abs' },
   { text: 'count_non_null()', value: 'count_non_null' },
-];
+] as const;
 
 const noDataModes = [
   { text: 'Alerting', value: 'alerting' },
@@ -80,8 +83,20 @@ function createReducerPart(model: any) {
   return new QueryPart(model, def);
 }
 
-function getStateDisplayModel(state: string) {
-  const normalizedState = state.toLowerCase().replace(/_/g, '');
+// state can also contain a "Reason", ie. "Alerting (NoData)" which indicates that the actual state is "Alerting" but
+// the reason it is set to "Alerting" is "NoData"; a lack of data points to evaluate.
+function normalizeAlertState(state: string) {
+  return state.toLowerCase().replace(/_/g, '').split(' ')[0];
+}
+
+interface AlertStateDisplayModel {
+  text: string;
+  iconClass: IconName;
+  stateClass: string;
+}
+
+function getStateDisplayModel(state: string): AlertStateDisplayModel {
+  const normalizedState = normalizeAlertState(state);
 
   switch (normalizedState) {
     case 'normal':
@@ -120,13 +135,6 @@ function getStateDisplayModel(state: string) {
         stateClass: 'alert-state-warning',
       };
     }
-    case 'unknown': {
-      return {
-        text: 'UNKNOWN',
-        iconClass: 'question-circle',
-        stateClass: '.alert-state-paused',
-      };
-    }
 
     case 'firing': {
       return {
@@ -151,9 +159,16 @@ function getStateDisplayModel(state: string) {
         stateClass: 'alert-state-critical',
       };
     }
-  }
 
-  throw { message: 'Unknown alert state' };
+    case 'unknown':
+    default: {
+      return {
+        text: 'UNKNOWN',
+        iconClass: 'question-circle',
+        stateClass: '.alert-state-paused',
+      };
+    }
+  }
 }
 
 function joinEvalMatches(matches: any, separator: string) {
@@ -193,6 +208,25 @@ function getAlertAnnotationInfo(ah: any) {
   return '';
 }
 
+// Copy of getAlertAnnotationInfo, used in annotation tooltip
+function getAlertAnnotationText(annotationData: any) {
+  // backward compatibility, can be removed in grafana 5.x
+  // old way stored evalMatches in data property directly,
+  // new way stores it in evalMatches property on new data object
+
+  if (isArray(annotationData)) {
+    return joinEvalMatches(annotationData, ', ');
+  } else if (isArray(annotationData.evalMatches)) {
+    return joinEvalMatches(annotationData.evalMatches, ', ');
+  }
+
+  if (annotationData.error) {
+    return 'Error: ' + annotationData.error;
+  }
+
+  return '';
+}
+
 export default {
   alertQueryDef: alertQueryDef,
   getStateDisplayModel: getStateDisplayModel,
@@ -204,5 +238,6 @@ export default {
   reducerTypes: reducerTypes,
   createReducerPart: createReducerPart,
   getAlertAnnotationInfo: getAlertAnnotationInfo,
+  getAlertAnnotationText: getAlertAnnotationText,
   alertStateSortScore: alertStateSortScore,
 };

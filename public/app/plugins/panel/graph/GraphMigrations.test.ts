@@ -1,4 +1,5 @@
-import { PanelModel, FieldConfigSource, DataQuery } from '@grafana/data';
+import { PanelModel, DataQuery } from '@grafana/data';
+
 import { graphPanelMigrationHandler } from './GraphMigrations';
 
 describe('Graph Panel Migrations', () => {
@@ -118,7 +119,7 @@ describe('Graph Panel Migrations', () => {
     } as Omit<PanelModel, 'fieldConfig'>;
 
     const result = graphPanelMigrationHandler(panel as PanelModel);
-    const fieldSource = (panel as any).fieldConfig as FieldConfigSource;
+    const fieldSource = (panel as PanelModel).fieldConfig;
 
     expect(result.dataLinks).toBeUndefined();
     expect(fieldSource.defaults.links).toHaveLength(1);
@@ -144,7 +145,7 @@ describe('Graph Panel Migrations', () => {
     } as unknown as PanelModel;
 
     graphPanelMigrationHandler(panel as PanelModel);
-    const fieldConfig = (panel as any).fieldConfig as FieldConfigSource;
+    const fieldConfig = (panel as PanelModel).fieldConfig;
     expect(fieldConfig.defaults.links).toHaveLength(1);
   });
 });

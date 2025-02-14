@@ -1,15 +1,16 @@
-import React, { FC } from 'react';
-import Page from 'app/core/components/Page/Page';
-import { config } from '@grafana/runtime';
-import { StoreState, UserOrg } from 'app/types';
-import { useEffectOnce } from 'react-use';
-import { Button, HorizontalGroup } from '@grafana/ui';
-import { getUserOrganizations, setUserOrganization } from './state/actions';
 import { connect, ConnectedProps } from 'react-redux';
+import { useEffectOnce } from 'react-use';
+
+import { config } from '@grafana/runtime';
+import { Button, Stack } from '@grafana/ui';
+import { Page } from 'app/core/components/Page/Page';
+import { StoreState, UserOrg } from 'app/types';
+
+import { getUserOrganizations, setUserOrganization } from './state/actions';
 
 const navModel = {
   main: {
-    icon: 'grafana',
+    icon: 'grafana' as const,
     subTitle: 'Preferences',
     text: 'Select active organization',
   },
@@ -33,7 +34,7 @@ const connector = connect(mapStateToProps, mapDispatchToProps);
 
 type Props = ConnectedProps<typeof connector>;
 
-export const SelectOrgPage: FC<Props> = ({ setUserOrganization, getUserOrganizations, userOrgs }) => {
+export const SelectOrgPage = ({ setUserOrganization, getUserOrganizations, userOrgs }: Props) => {
   const setUserOrg = async (org: UserOrg) => {
     await setUserOrganization(org.orgId);
     window.location.href = config.appSubUrl + '/';
@@ -51,14 +52,14 @@ export const SelectOrgPage: FC<Props> = ({ setUserOrganization, getUserOrganizat
             You have been invited to another organization! Please select which organization that you want to use right
             now. You can change this later at any time.
           </p>
-          <HorizontalGroup wrap>
+          <Stack wrap="wrap">
             {userOrgs &&
               userOrgs.map((org) => (
                 <Button key={org.orgId} icon="signin" onClick={() => setUserOrg(org)}>
                   {org.name}
                 </Button>
               ))}
-          </HorizontalGroup>
+          </Stack>
         </div>
       </Page.Contents>
     </Page>

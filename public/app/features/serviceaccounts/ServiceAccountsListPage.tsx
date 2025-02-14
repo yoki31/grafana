@@ -1,324 +1,295 @@
-import React, { memo, useEffect } from 'react';
+import pluralize from 'pluralize';
+import { useEffect, useState } from 'react';
 import { connect, ConnectedProps } from 'react-redux';
-import { Button, ConfirmModal, FilterInput, Icon, LinkButton, RadioButtonGroup, useStyles2 } from '@grafana/ui';
-import { css, cx } from '@emotion/css';
 
-import Page from 'app/core/components/Page/Page';
-import { StoreState, ServiceAccountDTO, AccessControlAction, Role } from 'app/types';
+import { OrgRole } from '@grafana/data';
+import { ConfirmModal, FilterInput, LinkButton, RadioButtonGroup, InlineField, EmptyState, Box } from '@grafana/ui';
+import { Page } from 'app/core/components/Page/Page';
+import config from 'app/core/config';
+import { contextSrv } from 'app/core/core';
+import { Trans, t } from 'app/core/internationalization';
+import { StoreState, ServiceAccountDTO, AccessControlAction, ServiceAccountStateFilter } from 'app/types';
+
+import { ServiceAccountTable } from './ServiceAccountTable';
+import { CreateTokenModal, ServiceAccountToken } from './components/CreateTokenModal';
 import {
-  changeFilter,
   changeQuery,
+  changePage,
   fetchACOptions,
   fetchServiceAccounts,
-  removeServiceAccount,
+  deleteServiceAccount,
   updateServiceAccount,
-  setServiceAccountToRemove,
+  changeStateFilter,
+  createServiceAccountToken,
 } from './state/actions';
-import { getNavModel } from 'app/core/selectors/navModel';
-import PageLoader from 'app/core/components/PageLoader/PageLoader';
-import { GrafanaTheme2, OrgRole } from '@grafana/data';
-import { contextSrv } from 'app/core/core';
-import { UserRolePicker } from 'app/core/components/RolePicker/UserRolePicker';
-import { OrgRolePicker } from '../admin/OrgRolePicker';
-import pluralize from 'pluralize';
 
 interface OwnProps {}
 
-type Props = OwnProps & ConnectedProps<typeof connector>;
+export type Props = OwnProps & ConnectedProps<typeof connector>;
 
 function mapStateToProps(state: StoreState) {
   return {
-    navModel: getNavModel(state.navIndex, 'serviceaccounts'),
     ...state.serviceAccounts,
   };
 }
 
 const mapDispatchToProps = {
-  fetchServiceAccounts,
-  fetchACOptions,
-  updateServiceAccount,
-  removeServiceAccount,
-  setServiceAccountToRemove,
-  changeFilter,
+  changePage,
   changeQuery,
+  fetchACOptions,
+  fetchServiceAccounts,
+  deleteServiceAccount,
+  updateServiceAccount,
+  changeStateFilter,
+  createServiceAccountToken,
 };
 
 const connector = connect(mapStateToProps, mapDispatchToProps);
 
-const ServiceAccountsListPage = ({
-  fetchServiceAccounts,
-  removeServiceAccount,
-  fetchACOptions,
-  updateServiceAccount,
-  setServiceAccountToRemove,
-  navModel,
+const availableFilters = [
+  { label: 'All', value: ServiceAccountStateFilter.All },
+  { label: 'With expired tokens', value: ServiceAccountStateFilter.WithExpiredTokens },
+  { label: 'Disabled', value: ServiceAccountStateFilter.Disabled },
+];
+
+if (config.featureToggles.externalServiceAccounts) {
+  availableFilters.push({ label: 'Managed', value: ServiceAccountStateFilter.External });
+}
+
+export const ServiceAccountsListPageUnconnected = ({
+  page,
+  changePage,
+  totalPages,
   serviceAccounts,
   isLoading,
   roleOptions,
-  builtInRoles,
-  changeFilter,
-  changeQuery,
   query,
-  filters,
-  serviceAccountToRemove,
-}: Props) => {
-  const styles = useStyles2(getStyles);
+  serviceAccountStateFilter,
+  changeQuery,
+  fetchACOptions,
+  fetchServiceAccounts,
+  deleteServiceAccount,
+  updateServiceAccount,
+  changeStateFilter,
+  createServiceAccountToken,
+}: Props): JSX.Element => {
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isRemoveModalOpen, setIsRemoveModalOpen] = useState(false);
+  const [isDisableModalOpen, setIsDisableModalOpen] = useState(false);
+  const [newToken, setNewToken] = useState('');
+  const [currentServiceAccount, setCurrentServiceAccount] = useState<ServiceAccountDTO | null>(null);
 
   useEffect(() => {
-    fetchServiceAccounts();
-    if (contextSrv.accessControlEnabled()) {
+    fetchServiceAccounts({ withLoadingIndicator: true });
+    if (contextSrv.licensedAccessControlEnabled()) {
       fetchACOptions();
     }
-  }, [fetchServiceAccounts, fetchACOptions]);
+  }, [fetchACOptions, fetchServiceAccounts]);
 
-  const onRoleChange = (role: OrgRole, serviceAccount: ServiceAccountDTO) => {
+  const noServiceAccountsCreated =
+    serviceAccounts.length === 0 && serviceAccountStateFilter === ServiceAccountStateFilter.All && !query;
+
+  const onRoleChange = async (role: OrgRole, serviceAccount: ServiceAccountDTO) => {
     const updatedServiceAccount = { ...serviceAccount, role: role };
     updateServiceAccount(updatedServiceAccount);
+    if (contextSrv.licensedAccessControlEnabled()) {
+      fetchACOptions();
+    }
   };
+
+  const onQueryChange = (value: string) => {
+    changeQuery(value);
+  };
+
+  const onStateFilterChange = (value: ServiceAccountStateFilter) => {
+    changeStateFilter(value);
+  };
+
+  const onRemoveButtonClick = (serviceAccount: ServiceAccountDTO) => {
+    setCurrentServiceAccount(serviceAccount);
+    setIsRemoveModalOpen(true);
+  };
+
+  const onServiceAccountRemove = async () => {
+    if (currentServiceAccount) {
+      deleteServiceAccount(currentServiceAccount.uid);
+    }
+    onRemoveModalClose();
+  };
+
+  const onDisableButtonClick = (serviceAccount: ServiceAccountDTO) => {
+    setCurrentServiceAccount(serviceAccount);
+    setIsDisableModalOpen(true);
+  };
+
+  const onDisable = () => {
+    if (currentServiceAccount) {
+      updateServiceAccount({ ...currentServiceAccount, isDisabled: true });
+    }
+    onDisableModalClose();
+  };
+
+  const onEnable = (serviceAccount: ServiceAccountDTO) => {
+    updateServiceAccount({ ...serviceAccount, isDisabled: false });
+  };
+
+  const onTokenAdd = (serviceAccount: ServiceAccountDTO) => {
+    setCurrentServiceAccount(serviceAccount);
+    setIsAddModalOpen(true);
+  };
+
+  const onTokenCreate = async (token: ServiceAccountToken) => {
+    if (currentServiceAccount) {
+      createServiceAccountToken(currentServiceAccount.uid, token, setNewToken);
+    }
+  };
+
+  const onAddModalClose = () => {
+    setIsAddModalOpen(false);
+    setCurrentServiceAccount(null);
+    setNewToken('');
+  };
+
+  const onRemoveModalClose = () => {
+    setIsRemoveModalOpen(false);
+    setCurrentServiceAccount(null);
+  };
+
+  const onDisableModalClose = () => {
+    setIsDisableModalOpen(false);
+    setCurrentServiceAccount(null);
+  };
+
+  const docsLink = (
+    <a
+      className="external-link"
+      href="https://grafana.com/docs/grafana/latest/administration/service-accounts/"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      documentation.
+    </a>
+  );
+  const subTitle = (
+    <span>
+      Service accounts and their tokens can be used to authenticate against the Grafana API. Find out more in our{' '}
+      {docsLink}
+    </span>
+  );
+
   return (
-    <Page navModel={navModel}>
+    <Page
+      navId="serviceaccounts"
+      subTitle={subTitle}
+      actions={
+        <>
+          {!noServiceAccountsCreated && contextSrv.hasPermission(AccessControlAction.ServiceAccountsCreate) && (
+            <LinkButton href="org/serviceaccounts/create" variant="primary">
+              Add service account
+            </LinkButton>
+          )}
+        </>
+      }
+    >
       <Page.Contents>
-        <h2>Service accounts</h2>
-        <div className="page-action-bar" style={{ justifyContent: 'flex-end' }}>
-          <FilterInput
-            placeholder="Search service account by name."
-            autoFocus={true}
-            value={query}
-            onChange={changeQuery}
-          />
-          <RadioButtonGroup
-            options={[
-              { label: 'All service accounts', value: false },
-              { label: 'Expired tokens', value: true },
-            ]}
-            onChange={(value) => changeFilter({ name: 'Expired', value })}
-            value={filters.find((f) => f.name === 'Expired')?.value}
-            className={styles.filter}
-          />
+        <div className="page-action-bar">
+          <InlineField grow>
+            <FilterInput
+              placeholder="Search service account by name"
+              value={query}
+              onChange={onQueryChange}
+              width={50}
+            />
+          </InlineField>
+          <Box marginBottom={1}>
+            <RadioButtonGroup
+              options={availableFilters}
+              onChange={onStateFilterChange}
+              value={serviceAccountStateFilter}
+            />
+          </Box>
         </div>
-        {contextSrv.hasPermission(AccessControlAction.ServiceAccountsCreate) && (
-          <LinkButton href="org/serviceaccounts/create" variant="primary">
-            New service account
-          </LinkButton>
-        )}
-        {isLoading ? (
-          <PageLoader />
-        ) : (
-          <>
-            <div className={cx(styles.table, 'admin-list-table')}>
-              <table className="filter-table form-inline filter-table--hover">
-                <thead>
-                  <tr>
-                    <th></th>
-                    <th>Display name</th>
-                    <th>ID</th>
-                    <th>Roles</th>
-                    <th>Status</th>
-                    <th>Tokens</th>
-                    <th style={{ width: '34px' }} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {serviceAccounts.map((serviceAccount: ServiceAccountDTO) => (
-                    <ServiceAccountListItem
-                      serviceAccount={serviceAccount}
-                      key={serviceAccount.id}
-                      builtInRoles={builtInRoles}
-                      roleOptions={roleOptions}
-                      onRoleChange={onRoleChange}
-                      onSetToRemove={setServiceAccountToRemove}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-        {serviceAccountToRemove && (
-          <ConfirmModal
-            body={
-              <div>
-                Are you sure you want to delete &apos;{serviceAccountToRemove.name}&apos;
-                {Boolean(serviceAccountToRemove.tokens) &&
-                  ` and ${serviceAccountToRemove.tokens} accompanying ${pluralize(
-                    'token',
-                    serviceAccountToRemove.tokens
-                  )}`}
-                ?
-              </div>
-            }
-            confirmText="Delete"
-            title="Delete service account"
-            onDismiss={() => {
-              setServiceAccountToRemove(null);
-            }}
-            isOpen={true}
-            onConfirm={() => {
-              removeServiceAccount(serviceAccountToRemove.id);
-              setServiceAccountToRemove(null);
-            }}
+        {!isLoading && !noServiceAccountsCreated && serviceAccounts.length === 0 && (
+          <EmptyState
+            variant="not-found"
+            message={t('service-accounts.empty-state.message', 'No services accounts found')}
           />
+        )}
+        {!isLoading && noServiceAccountsCreated && (
+          <EmptyState
+            variant="call-to-action"
+            button={
+              <LinkButton
+                disabled={!contextSrv.hasPermission(AccessControlAction.ServiceAccountsCreate)}
+                href="org/serviceaccounts/create"
+                icon="key-skeleton-alt"
+                size="lg"
+              >
+                <Trans i18nKey="service-accounts.empty-state.button-title">Add service account</Trans>
+              </LinkButton>
+            }
+            message={t('service-accounts.empty-state.title', "You haven't created any service accounts yet")}
+          >
+            <Trans i18nKey="service-accounts.empty-state.more-info">
+              Remember, you can provide specific permissions for API access to other applications
+            </Trans>
+          </EmptyState>
+        )}
+
+        {(isLoading || serviceAccounts.length !== 0) && (
+          <ServiceAccountTable
+            services={serviceAccounts}
+            showPaging={true}
+            totalPages={totalPages}
+            onChangePage={changePage}
+            currentPage={page}
+            onRoleChange={onRoleChange}
+            roleOptions={roleOptions}
+            onRemoveButtonClick={onRemoveButtonClick}
+            onDisable={onDisableButtonClick}
+            onEnable={onEnable}
+            onAddTokenClick={onTokenAdd}
+            isLoading={isLoading}
+          />
+        )}
+        {currentServiceAccount && (
+          <>
+            <ConfirmModal
+              isOpen={isRemoveModalOpen}
+              body={`Are you sure you want to delete '${currentServiceAccount.name}'${
+                !!currentServiceAccount.tokens
+                  ? ` and ${currentServiceAccount.tokens} accompanying ${pluralize(
+                      'token',
+                      currentServiceAccount.tokens
+                    )}`
+                  : ''
+              }?`}
+              confirmText="Delete"
+              title="Delete service account"
+              onConfirm={onServiceAccountRemove}
+              onDismiss={onRemoveModalClose}
+            />
+            <ConfirmModal
+              isOpen={isDisableModalOpen}
+              title="Disable service account"
+              body={`Are you sure you want to disable '${currentServiceAccount.name}'?`}
+              confirmText="Disable service account"
+              onConfirm={onDisable}
+              onDismiss={onDisableModalClose}
+            />
+            <CreateTokenModal
+              isOpen={isAddModalOpen}
+              token={newToken}
+              serviceAccountLogin={currentServiceAccount.login}
+              onCreateToken={onTokenCreate}
+              onClose={onAddModalClose}
+            />
+          </>
         )}
       </Page.Contents>
     </Page>
   );
 };
 
-type ServiceAccountListItemProps = {
-  serviceAccount: ServiceAccountDTO;
-  onRoleChange: (role: OrgRole, serviceAccount: ServiceAccountDTO) => void;
-  roleOptions: Role[];
-  builtInRoles: Record<string, Role[]>;
-  onSetToRemove: (serviceAccount: ServiceAccountDTO) => void;
-};
-
-const getServiceAccountsAriaLabel = (name: string) => {
-  return `Edit service account's ${name} details`;
-};
-const getServiceAccountsEnabledStatus = (disabled: boolean) => {
-  return disabled ? 'Disabled' : 'Enabled';
-};
-
-const ServiceAccountListItem = memo(
-  ({ serviceAccount, onRoleChange, roleOptions, builtInRoles, onSetToRemove }: ServiceAccountListItemProps) => {
-    const editUrl = `org/serviceaccounts/${serviceAccount.id}`;
-    const styles = useStyles2(getStyles);
-    const canUpdateRole = contextSrv.hasPermissionInMetadata(AccessControlAction.ServiceAccountsWrite, serviceAccount);
-    const rolePickerDisabled = !canUpdateRole;
-
-    return (
-      <tr key={serviceAccount.id}>
-        <td className="width-4 text-center link-td">
-          <a href={editUrl} aria-label={getServiceAccountsAriaLabel(serviceAccount.name)}>
-            <img
-              className="filter-table__avatar"
-              src={serviceAccount.avatarUrl}
-              alt={`Avatar for user ${serviceAccount.name}`}
-            />
-          </a>
-        </td>
-        <td className="link-td max-width-10">
-          <a
-            className="ellipsis"
-            href={editUrl}
-            title={serviceAccount.name}
-            aria-label={getServiceAccountsAriaLabel(serviceAccount.name)}
-          >
-            {serviceAccount.name}
-          </a>
-        </td>
-        <td className="link-td max-width-10">
-          <a
-            className="ellipsis"
-            href={editUrl}
-            title={serviceAccount.login}
-            aria-label={getServiceAccountsAriaLabel(serviceAccount.name)}
-          >
-            {serviceAccount.login}
-          </a>
-        </td>
-        <td className={cx('link-td', styles.iconRow)}>
-          {contextSrv.licensedAccessControlEnabled() ? (
-            <UserRolePicker
-              userId={serviceAccount.id}
-              orgId={serviceAccount.orgId}
-              builtInRole={serviceAccount.role}
-              onBuiltinRoleChange={(newRole) => onRoleChange(newRole, serviceAccount)}
-              roleOptions={roleOptions}
-              builtInRoles={builtInRoles}
-              disabled={rolePickerDisabled}
-            />
-          ) : (
-            <OrgRolePicker
-              aria-label="Role"
-              value={serviceAccount.role}
-              disabled={!canUpdateRole}
-              onChange={(newRole) => onRoleChange(newRole, serviceAccount)}
-            />
-          )}
-        </td>
-        <td className="link-td max-width-10">
-          <a
-            className="ellipsis"
-            href={editUrl}
-            title={getServiceAccountsEnabledStatus(serviceAccount.isDisabled)}
-            aria-label={getServiceAccountsAriaLabel(serviceAccount.name)}
-          >
-            {getServiceAccountsEnabledStatus(serviceAccount.isDisabled)}
-          </a>
-        </td>
-        <td className="link-td max-width-10">
-          <a
-            className="ellipsis"
-            href={editUrl}
-            title="Tokens"
-            aria-label={getServiceAccountsAriaLabel(serviceAccount.name)}
-          >
-            <span>
-              <Icon name={'key-skeleton-alt'}></Icon>
-            </span>
-            {serviceAccount.tokens}
-          </a>
-        </td>
-        {contextSrv.hasPermissionInMetadata(AccessControlAction.ServiceAccountsDelete, serviceAccount) && (
-          <td>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => {
-                onSetToRemove(serviceAccount);
-              }}
-              icon="times"
-              aria-label="Delete service account"
-            />
-          </td>
-        )}
-      </tr>
-    );
-  }
-);
-ServiceAccountListItem.displayName = 'ServiceAccountListItem';
-
-const getStyles = (theme: GrafanaTheme2) => {
-  return {
-    table: css`
-      margin-top: ${theme.spacing(3)};
-    `,
-    filter: css`
-      margin: 0 ${theme.spacing(1)};
-    `,
-    iconRow: css`
-      svg {
-        margin-left: ${theme.spacing(0.5)};
-      }
-    `,
-    row: css`
-      display: flex;
-      align-items: center;
-      height: 100% !important;
-
-      a {
-        padding: ${theme.spacing(0.5)} 0 !important;
-      }
-    `,
-    unitTooltip: css`
-      display: flex;
-      flex-direction: column;
-    `,
-    unitItem: css`
-      cursor: pointer;
-      padding: ${theme.spacing(0.5)} 0;
-      margin-right: ${theme.spacing(1)};
-    `,
-    disabled: css`
-      color: ${theme.colors.text.disabled};
-    `,
-    link: css`
-      color: inherit;
-      cursor: pointer;
-      text-decoration: underline;
-    `,
-  };
-};
-
-export default connector(ServiceAccountsListPage);
+const ServiceAccountsListPage = connector(ServiceAccountsListPageUnconnected);
+export default ServiceAccountsListPage;

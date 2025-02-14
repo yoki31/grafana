@@ -1,16 +1,18 @@
-import { e2e } from '@grafana/e2e';
+import { e2e } from '../utils';
 
-e2e.scenario({
-  describeName: 'Dashboard templating',
-  itName: 'Verify variable interpolation works',
-  addScenarioDataSource: false,
-  addScenarioDashBoard: false,
-  skipScenario: false,
-  scenario: () => {
+describe('Dashboard templating', () => {
+  beforeEach(() => {
+    e2e.flows.login(Cypress.env('USERNAME'), Cypress.env('PASSWORD'));
+  });
+
+  it('Verify variable interpolation works', () => {
     // Open dashboard global variables and interpolation
     e2e.flows.openDashboard({ uid: 'HYaGDGIMk' });
 
-    const items: any = [];
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const example = `Example: from=now-6h&to=now&timezone=${encodeURIComponent(timeZone)}`;
+
+    const items: string[] = [];
     const expectedItems: string[] = [
       '__dashboard = Templating - Global variables and interpolation',
       '__dashboard.name = Templating - Global variables and interpolation',
@@ -27,20 +29,21 @@ e2e.scenario({
       `Server:pipe = A'A"A|BB\\B|CCC`,
       `Server:distributed = A'A"A,Server=BB\\B,Server=CCC`,
       `Server:csv = A'A"A,BB\\B,CCC`,
-      `Server:html = A'A"A, BB\\B, CCC`,
+      `Server:html = A&#39;A&quot;A, BB\\B, CCC`,
       `Server:json = ["A'A\\"A","BB\\\\B","CCC"]`,
       `Server:percentencode = %7BA%27A%22A%2CBB%5CB%2CCCC%7D`,
       `Server:singlequote = 'A\\'A"A','BB\\B','CCC'`,
       `Server:doublequote = "A'A\\"A","BB\\B","CCC"`,
-      `Server:sqlstring = 'A''A"A','BB\\\B','CCC'`,
-      `Server:date = null`,
+      `Server:sqlstring = 'A''A\\"A','BB\\\B','CCC'`,
+      `Server:date = NaN`,
       `Server:text = All`,
-      `Server:queryparam = var-Server=All`,
+      `Server:queryparam = var-Server=$__all`,
+      `1 < 2`,
+      example,
     ];
 
-    e2e()
-      .get('.markdown-html li')
-      .should('have.length', 24)
+    cy.get('.markdown-html li')
+      .should('have.length', 26)
       .each((element) => {
         items.push(element.text());
       })
@@ -49,5 +52,12 @@ e2e.scenario({
           expect(items[index]).to.equal(expected);
         });
       });
-  },
+
+    // Check link interpolation is working correctly
+    cy.contains('a', example).should(
+      'have.attr',
+      'href',
+      `https://example.com/?from=now-6h&to=now&timezone=${encodeURIComponent(timeZone)}`
+    );
+  });
 });

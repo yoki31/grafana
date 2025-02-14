@@ -1,9 +1,9 @@
-import { e2e } from '@grafana/e2e';
+import { e2e } from '../utils';
 const PAGE_UNDER_TEST = 'dtpl2Ctnk/repeating-an-empty-row';
 
 describe('Repeating empty rows', () => {
   beforeEach(() => {
-    e2e.flows.login('admin', 'admin');
+    e2e.flows.login(Cypress.env('USERNAME'), Cypress.env('PASSWORD'));
   });
 
   it('should be able to repeat empty rows vertically', () => {
@@ -32,12 +32,17 @@ describe('Repeating empty rows', () => {
       e2e.components.DashboardRow.title(title).should('be.visible');
     });
 
-    // Change to only show rows 1 + 3
-    e2e.pages.Dashboard.SubMenu.submenuItemLabels('row').click();
+    e2e.pages.Dashboard.SubMenu.submenuItemLabels('row')
+      .parent()
+      .within(() => {
+        cy.get('input').click();
+      });
+
     e2e.pages.Dashboard.SubMenu.submenuItemValueDropDownOptionTexts('1').click();
     e2e.pages.Dashboard.SubMenu.submenuItemValueDropDownOptionTexts('3').click();
+
     // blur the dropdown
-    e2e().get('body').click();
+    cy.get('body').click();
 
     const rowsShown = ['Row title 1', 'Row title 3'];
     const rowsNotShown = ['Row title 2'];

@@ -31,11 +31,16 @@ func (v ValidationError) Error() string {
 
 // Provider is a settings provider abstraction
 // with thread-safety and runtime updates.
+//
+//go:generate mockery --name Provider --structname MockProvider --outpkg settingtest --filename provider_mock.go --output ./settingtest/
 type Provider interface {
 	// Current returns a SettingsBag with a static copy of
 	// the current configured pairs of key/values for each
 	// configuration section.
 	Current() SettingsBag
+
+	CurrentVerbose() VerboseSettingsBag
+
 	// Update receives a SettingsBag with the pairs of key/values
 	// to be updated per section and a SettingsRemovals with the
 	// section keys to be removed.
@@ -82,15 +87,23 @@ type KeyValue interface {
 // service that have support for configuration reloads.
 type ReloadHandler interface {
 	// Reload handles reloading of configuration changes.
-	Reload(section Section) error
+	ReloadSection(section Section) error
 
 	// Validate validates the configuration, if the validation
 	// fails the configuration will not be updated neither reloaded.
-	Validate(section Section) error
+	ValidateSection(section Section) error
 }
 
 type SettingsBag map[string]map[string]string
 type SettingsRemovals map[string][]string
+
+type VerboseSourceType string
+type VerboseSettingsBag map[string]map[string]map[VerboseSourceType]string
+
+const (
+	DB     VerboseSourceType = "db"
+	System VerboseSourceType = "system"
+)
 
 func ProvideProvider(cfg *Cfg) *OSSImpl {
 	return &OSSImpl{
@@ -102,7 +115,7 @@ type OSSImpl struct {
 	Cfg *Cfg
 }
 
-func (o OSSImpl) Current() SettingsBag {
+func (o *OSSImpl) Current() SettingsBag {
 	settingsCopy := make(SettingsBag)
 
 	for _, section := range o.Cfg.Raw.Sections() {
@@ -113,6 +126,10 @@ func (o OSSImpl) Current() SettingsBag {
 	}
 
 	return settingsCopy
+}
+
+func (o *OSSImpl) CurrentVerbose() VerboseSettingsBag {
+	return nil
 }
 
 func (OSSImpl) Update(SettingsBag, SettingsRemovals) error {
@@ -127,11 +144,7 @@ func (o *OSSImpl) Section(section string) Section {
 	return &sectionImpl{section: o.Cfg.Raw.Section(section)}
 }
 
-func (OSSImpl) RegisterReloadHandler(string, ReloadHandler) {}
-
-func (o OSSImpl) IsFeatureToggleEnabled(name string) bool {
-	return o.Cfg.IsFeatureToggleEnabled(name)
-}
+func (*OSSImpl) RegisterReloadHandler(string, ReloadHandler) {}
 
 type keyValImpl struct {
 	key *ini.Key

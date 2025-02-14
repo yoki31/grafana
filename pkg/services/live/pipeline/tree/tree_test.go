@@ -350,7 +350,7 @@ func TestUnescapeParameters(t *testing.T) {
 	checkPriorities(t, tree)
 }
 
-func catchPanic(testFunc func()) (recv interface{}) {
+func catchPanic(testFunc func()) (recv any) {
 	defer func() {
 		recv = recover()
 	}()
@@ -588,6 +588,7 @@ func TestTreeTrailingSlashRedirect(t *testing.T) {
 		"/blog/:p",
 		"/posts/:b/:c",
 		"/posts/b/:c/d/",
+		"/vendor/:x/*y",
 	}
 	for _, route := range routes {
 		recv := catchPanic(func() {
@@ -624,6 +625,7 @@ func TestTreeTrailingSlashRedirect(t *testing.T) {
 		"/api/world/abc/",
 		"/blog/pp/",
 		"/posts/b/c/d",
+		"/vendor/x",
 	}
 	for _, route := range tsrRoutes {
 		value := tree.GetValue(route, false)

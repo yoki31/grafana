@@ -1,5 +1,6 @@
-import React, { PropsWithChildren } from 'react';
-import { renderHook } from '@testing-library/react-hooks';
+import { renderHook } from '@testing-library/react';
+import { PropsWithChildren } from 'react';
+
 import { useStatelessReducer, useDispatch, DispatchContext, combineReducers } from './useStatelessReducer';
 
 describe('useStatelessReducer Hook', () => {
@@ -32,9 +33,11 @@ describe('useStatelessReducer Hook', () => {
 
 describe('useDispatch Hook', () => {
   it('Should throw when used outside of DispatchContext', () => {
-    const { result } = renderHook(() => useDispatch());
-
-    expect(result.error).toBeTruthy();
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => {
+      renderHook(() => useDispatch());
+    }).toThrow();
+    expect(console.error).toHaveBeenCalled();
   });
 
   it('Should return a dispatch function', () => {

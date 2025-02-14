@@ -5,14 +5,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/grafana/grafana/pkg/bus"
-	"github.com/grafana/grafana/pkg/infra/remotecache"
-	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/auth"
-	"github.com/grafana/grafana/pkg/setting"
-	"github.com/grafana/grafana/pkg/web"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/grafana/grafana/pkg/services/authn"
+	"github.com/grafana/grafana/pkg/services/authn/authntest"
+	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
+	"github.com/grafana/grafana/pkg/services/licensing"
+	"github.com/grafana/grafana/pkg/services/user/usertest"
+	"github.com/grafana/grafana/pkg/setting"
+	"github.com/grafana/grafana/pkg/web"
 )
 
 func TestRecoveryMiddleware(t *testing.T) {
@@ -24,7 +26,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 			sc.req.Header.Set("content-type", "application/json")
 
 			assert.Equal(t, 500, sc.resp.Code)
-			assert.Equal(t, "Internal Server Error - Check the Grafana server logs for the detailed error message.", sc.respJson["message"])
+			assert.Equal(t, "Internal Server Error - test error", sc.respJson["message"])
 			assert.True(t, strings.HasPrefix(sc.respJson["error"].(string), "Server Error"))
 		})
 	})
@@ -42,16 +44,15 @@ func TestRecoveryMiddleware(t *testing.T) {
 	})
 }
 
-func panicHandler(c *models.ReqContext) {
+func panicHandler(c *contextmodel.ReqContext) {
 	panic("Handler has panicked")
 }
 
 func recoveryScenario(t *testing.T, desc string, url string, fn scenarioFunc) {
 	t.Run(desc, func(t *testing.T) {
-		defer bus.ClearBusHandlers()
-
 		cfg := setting.NewCfg()
-		cfg.ErrTemplateName = "error-template"
+		cfg.ErrTemplateName = "error"
+		cfg.UserFacingDefaultError = "test error"
 		sc := &scenarioContext{
 			t:   t,
 			url: url,
@@ -62,20 +63,17 @@ func recoveryScenario(t *testing.T, desc string, url string, fn scenarioFunc) {
 		require.NoError(t, err)
 
 		sc.m = web.New()
-		sc.m.Use(Recovery(cfg))
+		sc.m.UseMiddleware(Recovery(cfg, &licensing.OSSLicensingService{}))
 
 		sc.m.Use(AddDefaultResponseHeaders(cfg))
 		sc.m.UseMiddleware(web.Renderer(viewsPath, "[[", "]]"))
 
-		sc.userAuthTokenService = auth.NewFakeUserAuthTokenService()
-		sc.remoteCacheService = remotecache.NewFakeStore(t)
-
-		contextHandler := getContextHandler(t, nil)
+		contextHandler := getContextHandler(t, setting.NewCfg(), &authntest.FakeService{ExpectedIdentity: &authn.Identity{}})
 		sc.m.Use(contextHandler.Middleware)
 		// mock out gc goroutine
-		sc.m.Use(OrgRedirect(cfg))
+		sc.m.Use(OrgRedirect(cfg, usertest.NewUserServiceFake()))
 
-		sc.defaultHandler = func(c *models.ReqContext) {
+		sc.defaultHandler = func(c *contextmodel.ReqContext) {
 			sc.context = c
 			if sc.handlerFunc != nil {
 				sc.handlerFunc(sc.context)

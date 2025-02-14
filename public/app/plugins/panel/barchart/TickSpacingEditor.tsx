@@ -1,4 +1,3 @@
-import React from 'react';
 import { SelectableValue, StandardEditorProps } from '@grafana/data';
 import { Checkbox, HorizontalGroup, RadioButtonGroup, Tooltip } from '@grafana/ui';
 
@@ -25,7 +24,7 @@ const GAPS_OPTIONS: Array<SelectableValue<number>> = [
   },
 ];
 
-export const TickSpacingEditor: React.FC<StandardEditorProps<number, any>> = (props) => {
+export const TickSpacingEditor = (props: StandardEditorProps<number>) => {
   let value = props.value ?? 0;
   const isRTL = value < 0;
   if (isRTL) {

@@ -1,3 +1,5 @@
+import { isArray } from 'lodash';
+
 import {
   anyToNumber,
   DataFrame,
@@ -12,12 +14,20 @@ import {
   Field,
   FieldType,
 } from '@grafana/data';
-import { isArray } from 'lodash';
+
+export interface ThresholdArguments {
+  color: string;
+}
+
+export interface HandlerArguments {
+  threshold?: ThresholdArguments;
+}
 
 export interface FieldToConfigMapping {
   fieldName: string;
   reducerId?: ReducerID;
   handlerKey: string | null;
+  handlerArguments?: HandlerArguments;
 }
 
 /**
@@ -52,13 +62,13 @@ export function getFieldConfigFromFrame(
       continue;
     }
 
-    const configValue = field.values.get(rowIndex);
+    const configValue = field.values[rowIndex];
 
     if (configValue === null || configValue === undefined) {
       continue;
     }
 
-    const newValue = handler.processor(configValue, config, context);
+    const newValue = handler.processor(configValue, config, context, mapping.handlerArguments);
     if (newValue != null) {
       (config as any)[handler.targetProperty ?? handler.key] = newValue;
     }
@@ -77,7 +87,12 @@ interface FieldToConfigContext {
   mappingTexts?: string[];
 }
 
-type FieldToConfigMapHandlerProcessor = (value: any, config: FieldConfig, context: FieldToConfigContext) => any;
+type FieldToConfigMapHandlerProcessor = (
+  value: any,
+  config: FieldConfig,
+  context: FieldToConfigContext,
+  handlerArguments: HandlerArguments
+) => any;
 
 export interface FieldToConfigMapHandler {
   key: string;
@@ -134,7 +149,7 @@ export const configMapHandlers: FieldToConfigMapHandler[] = [
   {
     key: 'displayName',
     name: 'Display name',
-    processor: (value: any) => value.toString(),
+    processor: (value) => value.toString(),
   },
   {
     key: 'color',
@@ -142,8 +157,9 @@ export const configMapHandlers: FieldToConfigMapHandler[] = [
   },
   {
     key: 'threshold1',
+    name: 'Threshold',
     targetProperty: 'thresholds',
-    processor: (value, config) => {
+    processor: (value, config, _, handlerArguments) => {
       const numeric = anyToNumber(value);
 
       if (isNaN(numeric)) {
@@ -153,13 +169,13 @@ export const configMapHandlers: FieldToConfigMapHandler[] = [
       if (!config.thresholds) {
         config.thresholds = {
           mode: ThresholdsMode.Absolute,
-          steps: [{ value: -Infinity, color: 'green' }],
+          steps: [],
         };
       }
 
       config.thresholds.steps.push({
         value: numeric,
-        color: 'red',
+        color: handlerArguments.threshold?.color ?? 'red',
       });
 
       return config.thresholds;
@@ -246,7 +262,7 @@ export function getConfigMapHandlersIndex() {
   return configMapHandlersIndex;
 }
 
-function toNumericOrUndefined(value: any) {
+function toNumericOrUndefined(value: unknown) {
   const numeric = anyToNumber(value);
 
   if (isNaN(numeric)) {
@@ -277,6 +293,7 @@ export function lookUpConfigHandler(key: string | null): FieldToConfigMapHandler
 export interface EvaluatedMapping {
   automatic: boolean;
   handler: FieldToConfigMapHandler | null;
+  handlerArguments: HandlerArguments;
   reducerId: ReducerID;
 }
 export interface EvaluatedMappingResult {
@@ -285,7 +302,7 @@ export interface EvaluatedMappingResult {
   valueField?: Field;
 }
 
-export function evaluteFieldMappings(
+export function evaluateFieldMappings(
   frame: DataFrame,
   mappings: FieldToConfigMapping[],
   withNameAndValue?: boolean
@@ -336,6 +353,7 @@ export function evaluteFieldMappings(
     result.index[fieldName] = {
       automatic: !mapping,
       handler: handler,
+      handlerArguments: mapping?.handlerArguments ?? {},
       reducerId: mapping?.reducerId ?? handler?.defaultReducer ?? ReducerID.lastNotNull,
     };
   }

@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,33 +9,39 @@ import (
 
 func TestProfilingDiagnostics(t *testing.T) {
 	tcs := []struct {
-		defaults   *profilingDiagnostics
-		enabledEnv string
-		addrEnv    string
-		portEnv    string
-		expected   *profilingDiagnostics
+		defaults     *profilingDiagnostics
+		enabledEnv   string
+		addrEnv      string
+		portEnv      string
+		blockRateEnv string
+		mutexRateEnv string
+		expected     *profilingDiagnostics
 	}{
-		{defaults: newProfilingDiagnostics(false, "localhost", 6060), enabledEnv: "", addrEnv: "", portEnv: "", expected: newProfilingDiagnostics(false, "localhost", 6060)},
-		{defaults: newProfilingDiagnostics(true, "0.0.0.0", 8080), enabledEnv: "", addrEnv: "", portEnv: "", expected: newProfilingDiagnostics(true, "0.0.0.0", 8080)},
-		{defaults: newProfilingDiagnostics(false, "", 6060), enabledEnv: "false", addrEnv: "", portEnv: "8080", expected: newProfilingDiagnostics(false, "", 8080)},
-		{defaults: newProfilingDiagnostics(false, "localhost", 6060), enabledEnv: "true", addrEnv: "0.0.0.0", portEnv: "8080", expected: newProfilingDiagnostics(true, "0.0.0.0", 8080)},
-		{defaults: newProfilingDiagnostics(false, "127.0.0.1", 6060), enabledEnv: "true", addrEnv: "", portEnv: "", expected: newProfilingDiagnostics(true, "127.0.0.1", 6060)},
+		{defaults: newProfilingDiagnostics(false, "localhost", 6060, 0, 0), enabledEnv: "", addrEnv: "", portEnv: "", expected: newProfilingDiagnostics(false, "localhost", 6060, 0, 0)},
+		{defaults: newProfilingDiagnostics(true, "0.0.0.0", 8080, 0, 0), enabledEnv: "", addrEnv: "", portEnv: "", expected: newProfilingDiagnostics(true, "0.0.0.0", 8080, 0, 0)},
+		{defaults: newProfilingDiagnostics(false, "", 6060, 0, 0), enabledEnv: "false", addrEnv: "", portEnv: "8080", expected: newProfilingDiagnostics(false, "", 8080, 0, 0)},
+		{defaults: newProfilingDiagnostics(false, "localhost", 6060, 0, 0), enabledEnv: "true", addrEnv: "0.0.0.0", portEnv: "8080", expected: newProfilingDiagnostics(true, "0.0.0.0", 8080, 0, 0)},
+		{defaults: newProfilingDiagnostics(false, "127.0.0.1", 6060, 0, 0), enabledEnv: "true", addrEnv: "", portEnv: "", expected: newProfilingDiagnostics(true, "127.0.0.1", 6060, 0, 0)},
+		{defaults: newProfilingDiagnostics(true, "localhost", 6060, 0, 0), enabledEnv: "", addrEnv: "", portEnv: "", blockRateEnv: "3", mutexRateEnv: "4", expected: newProfilingDiagnostics(true, "localhost", 6060, 3, 4)},
+		{defaults: newProfilingDiagnostics(true, "localhost", 6060, 0, 0), enabledEnv: "", addrEnv: "", portEnv: "", expected: newProfilingDiagnostics(true, "localhost", 6060, 0, 0)},
 	}
 
 	for i, tc := range tcs {
 		t.Run(fmt.Sprintf("testcase %d", i), func(t *testing.T) {
-			os.Clearenv()
 			if tc.enabledEnv != "" {
-				err := os.Setenv(profilingEnabledEnvName, tc.enabledEnv)
-				assert.NoError(t, err)
+				t.Setenv(profilingEnabledEnvName, tc.enabledEnv)
 			}
 			if tc.addrEnv != "" {
-				err := os.Setenv(profilingAddrEnvName, tc.addrEnv)
-				assert.NoError(t, err)
+				t.Setenv(profilingAddrEnvName, tc.addrEnv)
 			}
 			if tc.portEnv != "" {
-				err := os.Setenv(profilingPortEnvName, tc.portEnv)
-				assert.NoError(t, err)
+				t.Setenv(profilingPortEnvName, tc.portEnv)
+			}
+			if tc.blockRateEnv != "" {
+				t.Setenv(profilingBlockRateEnvName, tc.blockRateEnv)
+			}
+			if tc.mutexRateEnv != "" {
+				t.Setenv(profilingMutexRateEnvName, tc.mutexRateEnv)
 			}
 			err := tc.defaults.overrideWithEnv()
 			assert.NoError(t, err)
@@ -61,14 +66,11 @@ func TestTracingDiagnostics(t *testing.T) {
 
 	for i, tc := range tcs {
 		t.Run(fmt.Sprintf("testcase %d", i), func(t *testing.T) {
-			os.Clearenv()
 			if tc.enabledEnv != "" {
-				err := os.Setenv(tracingEnabledEnvName, tc.enabledEnv)
-				assert.NoError(t, err)
+				t.Setenv(tracingEnabledEnvName, tc.enabledEnv)
 			}
 			if tc.fileEnv != "" {
-				err := os.Setenv(tracingFileEnvName, tc.fileEnv)
-				assert.NoError(t, err)
+				t.Setenv(tracingFileEnvName, tc.fileEnv)
 			}
 			err := tc.defaults.overrideWithEnv()
 			assert.NoError(t, err)

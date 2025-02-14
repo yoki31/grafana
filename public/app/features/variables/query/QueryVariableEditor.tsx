@@ -1,27 +1,26 @@
-import React, { FormEvent, PureComponent } from 'react';
+import { FormEvent, PureComponent } from 'react';
 import { connect, ConnectedProps } from 'react-redux';
-import { css } from '@emotion/css';
-import { InlineField, InlineFieldRow, VerticalGroup } from '@grafana/ui';
-import { selectors } from '@grafana/e2e-selectors';
-import { DataSourcePicker, getTemplateSrv } from '@grafana/runtime';
-import { DataSourceInstanceSettings, getDataSourceRef, LoadingState, SelectableValue } from '@grafana/data';
 
-import { SelectionOptionsEditor } from '../editor/SelectionOptionsEditor';
-import { QueryVariableModel, VariableRefresh, VariableSort, VariableWithMultiSupport } from '../types';
-import { changeQueryVariableDataSource, changeQueryVariableQuery, initQueryVariableEditor } from './actions';
-import { initialVariableEditorState } from '../editor/reducer';
-import { OnPropChangeArguments, VariableEditorProps } from '../editor/types';
+import {
+  DataSourceInstanceSettings,
+  getDataSourceRef,
+  QueryVariableModel,
+  SelectableValue,
+  VariableRefresh,
+  VariableSort,
+} from '@grafana/data';
+import { QueryVariableEditorForm } from 'app/features/dashboard-scene/settings/variables/components/QueryVariableForm';
+
 import { StoreState } from '../../../types';
-import { changeVariableMultiValue } from '../state/actions';
 import { getTimeSrv } from '../../dashboard/services/TimeSrv';
-import { isLegacyQueryEditor, isQueryEditor } from '../guard';
-import { VariableSectionHeader } from '../editor/VariableSectionHeader';
-import { VariableTextField } from '../editor/VariableTextField';
-import { QueryVariableRefreshSelect } from './QueryVariableRefreshSelect';
-import { QueryVariableSortSelect } from './QueryVariableSortSelect';
+import { initialVariableEditorState } from '../editor/reducer';
 import { getQueryVariableEditorState } from '../editor/selectors';
+import { VariableEditorProps } from '../editor/types';
+import { changeVariableMultiValue } from '../state/actions';
 import { getVariablesState } from '../state/selectors';
 import { toKeyedVariableIdentifier } from '../utils';
+
+import { changeQueryVariableDataSource, changeQueryVariableQuery, initQueryVariableEditor } from './actions';
 
 const mapStateToProps = (state: StoreState, ownProps: OwnProps) => {
   const { rootStateKey } = ownProps.variable;
@@ -103,129 +102,62 @@ export class QueryVariableEditorUnConnected extends PureComponent<Props, State> 
     }
   };
 
-  onRegExChange = (event: FormEvent<HTMLInputElement>) => {
-    this.setState({ regex: event.currentTarget.value });
-  };
-
-  onRegExBlur = async (event: FormEvent<HTMLInputElement>) => {
+  onRegExBlur = async (event: FormEvent<HTMLTextAreaElement>) => {
     const regex = event.currentTarget.value;
     if (this.props.variable.regex !== regex) {
       this.props.onPropChange({ propName: 'regex', propValue: regex, updateOptions: true });
     }
   };
 
-  onRefreshChange = (option: SelectableValue<VariableRefresh>) => {
-    this.props.onPropChange({ propName: 'refresh', propValue: option.value });
+  onRefreshChange = (option: VariableRefresh) => {
+    this.props.onPropChange({ propName: 'refresh', propValue: option });
   };
 
   onSortChange = async (option: SelectableValue<VariableSort>) => {
     this.props.onPropChange({ propName: 'sort', propValue: option.value, updateOptions: true });
   };
 
-  onSelectionOptionsChange = async ({ propValue, propName }: OnPropChangeArguments<VariableWithMultiSupport>) => {
-    this.props.onPropChange({ propName, propValue, updateOptions: true });
+  onMultiChange = (event: FormEvent<HTMLInputElement>) => {
+    this.props.onPropChange({ propName: 'multi', propValue: event.currentTarget.checked });
   };
 
-  renderQueryEditor = () => {
-    const { extended, variable } = this.props;
+  onIncludeAllChange = (event: FormEvent<HTMLInputElement>) => {
+    this.props.onPropChange({ propName: 'includeAll', propValue: event.currentTarget.checked });
+  };
 
-    if (!extended || !extended.dataSource || !extended.VariableQueryEditor) {
-      return null;
-    }
-
-    const query = variable.query;
-    const datasource = extended.dataSource;
-    const VariableQueryEditor = extended.VariableQueryEditor;
-
-    if (isLegacyQueryEditor(VariableQueryEditor, datasource)) {
-      return (
-        <VariableQueryEditor
-          datasource={datasource}
-          query={query}
-          templateSrv={getTemplateSrv()}
-          onChange={this.onLegacyQueryChange}
-        />
-      );
-    }
-
-    const range = getTimeSrv().timeRange();
-
-    if (isQueryEditor(VariableQueryEditor, datasource)) {
-      return (
-        <VariableQueryEditor
-          datasource={datasource}
-          query={query}
-          onChange={this.onQueryChange}
-          onRunQuery={() => {}}
-          data={{ series: [], state: LoadingState.Done, timeRange: range }}
-          range={range}
-          onBlur={() => {}}
-          history={[]}
-        />
-      );
-    }
-
-    return null;
+  onAllValueChange = (event: FormEvent<HTMLInputElement>) => {
+    this.props.onPropChange({ propName: 'allValue', propValue: event.currentTarget.value });
   };
 
   render() {
-    return (
-      <VerticalGroup spacing="xs">
-        <VariableSectionHeader name="Query Options" />
-        <VerticalGroup spacing="lg">
-          <VerticalGroup spacing="none">
-            <InlineFieldRow>
-              <InlineField label="Data source" labelWidth={20} htmlFor="data-source-picker">
-                <DataSourcePicker
-                  current={this.props.variable.datasource}
-                  onChange={this.onDataSourceChange}
-                  variables={true}
-                />
-              </InlineField>
-              <QueryVariableRefreshSelect onChange={this.onRefreshChange} refresh={this.props.variable.refresh} />
-            </InlineFieldRow>
-            <div
-              className={css`
-                flex-direction: column;
-                width: 100%;
-              `}
-            >
-              {this.renderQueryEditor()}
-            </div>
-            <VariableTextField
-              value={this.state.regex ?? this.props.variable.regex}
-              name="Regex"
-              placeholder="/.*-(?<text>.*)-(?<value>.*)-.*/"
-              onChange={this.onRegExChange}
-              onBlur={this.onRegExBlur}
-              labelWidth={20}
-              tooltip={
-                <div>
-                  Optional, if you want to extract part of a series name or metric node segment. Named capture groups
-                  can be used to separate the display text and value (
-                  <a
-                    className="external-link"
-                    href="https://grafana.com/docs/grafana/latest/variables/filter-variables-with-regex#filter-and-modify-using-named-text-and-value-capture-groups"
-                    target="__blank"
-                  >
-                    see examples
-                  </a>
-                  ).
-                </div>
-              }
-              testId={selectors.pages.Dashboard.Settings.Variables.Edit.QueryVariable.queryOptionsRegExInputV2}
-              grow
-            />
-            <QueryVariableSortSelect onChange={this.onSortChange} sort={this.props.variable.sort} />
-          </VerticalGroup>
+    const { extended, variable } = this.props;
+    if (!extended || !extended.dataSource) {
+      return null;
+    }
 
-          <SelectionOptionsEditor
-            variable={this.props.variable}
-            onPropChange={this.onSelectionOptionsChange}
-            onMultiChanged={this.props.changeVariableMultiValue}
-          />
-        </VerticalGroup>
-      </VerticalGroup>
+    const timeRange = getTimeSrv().timeRange();
+
+    return (
+      <QueryVariableEditorForm
+        datasource={variable.datasource ?? undefined}
+        onDataSourceChange={this.onDataSourceChange}
+        query={variable.query}
+        onQueryChange={this.onQueryChange}
+        onLegacyQueryChange={this.onLegacyQueryChange}
+        timeRange={timeRange}
+        regex={variable.regex}
+        onRegExChange={this.onRegExBlur}
+        sort={variable.sort}
+        onSortChange={this.onSortChange}
+        refresh={variable.refresh}
+        onRefreshChange={this.onRefreshChange}
+        isMulti={variable.multi}
+        includeAll={variable.includeAll}
+        allValue={variable.allValue ?? ''}
+        onMultiChange={this.onMultiChange}
+        onIncludeAllChange={this.onIncludeAllChange}
+        onAllValueChange={this.onAllValueChange}
+      />
     );
   }
 }

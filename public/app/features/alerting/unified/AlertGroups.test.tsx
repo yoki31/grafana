@@ -1,18 +1,17 @@
-import React from 'react';
-import { locationService, setDataSourceSrv } from '@grafana/runtime';
-import { render, waitFor } from '@testing-library/react';
-import { Provider } from 'react-redux';
-import { Router } from 'react-router-dom';
-import { fetchAlertGroups } from './api/alertmanager';
+import { render, waitFor, waitForElementToBeRemoved } from 'test/test-utils';
 import { byRole, byTestId, byText } from 'testing-library-selector';
-import { configureStore } from 'app/store/configureStore';
+
+import { selectors } from '@grafana/e2e-selectors';
+import { setupDataSources } from 'app/features/alerting/unified/testSetup/datasources';
+import { AccessControlAction } from 'app/types';
+
 import AlertGroups from './AlertGroups';
-import { mockAlertGroup, mockAlertmanagerAlert, mockDataSource, MockDataSourceSrv } from './mocks';
+import { fetchAlertGroups } from './api/alertmanager';
+import { grantUserPermissions, mockAlertGroup, mockAlertmanagerAlert, mockDataSource } from './mocks';
+import { AlertmanagerProvider } from './state/AlertmanagerContext';
 import { DataSourceType } from './utils/datasource';
-import userEvent from '@testing-library/user-event';
 
 jest.mock('./api/alertmanager');
-
 const mocks = {
   api: {
     fetchAlertGroups: jest.mocked(fetchAlertGroups),
@@ -20,14 +19,10 @@ const mocks = {
 };
 
 const renderAmNotifications = () => {
-  const store = configureStore();
-
   return render(
-    <Provider store={store}>
-      <Router history={locationService.getHistory()}>
-        <AlertGroups />
-      </Router>
-    </Provider>
+    <AlertmanagerProvider accessType={'instance'}>
+      <AlertGroups />
+    </AlertmanagerProvider>
   );
 };
 
@@ -42,45 +37,57 @@ const ui = {
   group: byTestId('alert-group'),
   groupCollapseToggle: byTestId('alert-group-collapse-toggle'),
   groupTable: byTestId('alert-group-table'),
-  row: byTestId('row'),
-  collapseToggle: byTestId('collapse-toggle'),
+  collapseToggle: byTestId(selectors.components.AlertRules.toggle),
   silenceButton: byText('Silence'),
-  sourceButton: byText('See source'),
-  matcherInput: byTestId('search-query-input'),
+  sourceButton: byText('See alert rule'),
   groupByContainer: byTestId('group-by-container'),
   groupByInput: byRole('combobox', { name: /group by label keys/i }),
   clearButton: byRole('button', { name: 'Clear filters' }),
+  loadingIndicator: byText('Loading notifications'),
 };
 
 describe('AlertGroups', () => {
   beforeAll(() => {
+    grantUserPermissions([
+      AccessControlAction.AlertingInstanceRead,
+      AccessControlAction.AlertingInstanceCreate,
+      AccessControlAction.AlertingInstancesExternalRead,
+      AccessControlAction.AlertingRuleRead,
+    ]);
+  });
+
+  beforeEach(() => {
+    setupDataSources(dataSources.am);
+  });
+
+  afterEach(() => {
+    mocks.api.fetchAlertGroups.mockClear();
+  });
+
+  it('loads and shows groups', async () => {
     mocks.api.fetchAlertGroups.mockImplementation(() => {
       return Promise.resolve([
         mockAlertGroup({ labels: {}, alerts: [mockAlertmanagerAlert({ labels: { foo: 'bar' } })] }),
         mockAlertGroup(),
       ]);
     });
-  });
 
-  beforeEach(() => {
-    setDataSourceSrv(new MockDataSourceSrv(dataSources));
-  });
-
-  it('loads and shows groups', async () => {
-    renderAmNotifications();
+    const { user } = renderAmNotifications();
 
     await waitFor(() => expect(mocks.api.fetchAlertGroups).toHaveBeenCalled());
 
-    const groups = ui.group.getAll();
+    const groups = await ui.group.findAll();
 
     expect(groups).toHaveLength(2);
     expect(groups[0]).toHaveTextContent('No grouping');
-    expect(groups[1]).toHaveTextContent('severity=warningregion=US-Central');
+    const labels = byTestId('label-value').getAll();
+    expect(labels[0]).toHaveTextContent('severitywarning');
+    expect(labels[1]).toHaveTextContent('regionUS-Central');
 
-    userEvent.click(ui.groupCollapseToggle.get(groups[0]));
+    await user.click(ui.groupCollapseToggle.get(groups[0]));
     expect(ui.groupTable.get()).toBeDefined();
 
-    userEvent.click(ui.collapseToggle.get(ui.groupTable.get()));
+    await user.click(ui.collapseToggle.get(ui.groupTable.get()));
     expect(ui.silenceButton.get(ui.groupTable.get())).toBeDefined();
     expect(ui.sourceButton.get(ui.groupTable.get())).toBeDefined();
   });
@@ -92,60 +99,90 @@ describe('AlertGroups', () => {
         mockAlertGroup({
           labels: { region },
           alerts: [
-            mockAlertmanagerAlert({ labels: { region, appName: 'billing', env: 'production' } }),
-            mockAlertmanagerAlert({ labels: { region, appName: 'auth', env: 'staging', uniqueLabel: 'true' } }),
-            mockAlertmanagerAlert({ labels: { region, appName: 'frontend', env: 'production' } }),
+            mockAlertmanagerAlert({ fingerprint: '1', labels: { region, appName: 'billing', env: 'production' } }),
+            mockAlertmanagerAlert({
+              fingerprint: '2',
+              labels: { region, appName: 'auth', env: 'staging', uniqueLabel: 'true' },
+            }),
+            mockAlertmanagerAlert({ fingerprint: '3', labels: { region, appName: 'frontend', env: 'production' } }),
           ],
         })
       );
       return Promise.resolve(groups);
     });
 
-    renderAmNotifications();
+    const { user } = renderAmNotifications();
     await waitFor(() => expect(mocks.api.fetchAlertGroups).toHaveBeenCalled());
-    let groups = ui.group.getAll();
+    let groups = await ui.group.findAll();
     const groupByInput = ui.groupByInput.get();
     const groupByWrapper = ui.groupByContainer.get();
 
     expect(groups).toHaveLength(3);
-    expect(groups[0]).toHaveTextContent('region=NASA');
-    expect(groups[1]).toHaveTextContent('region=EMEA');
-    expect(groups[2]).toHaveTextContent('region=APAC');
+    expect(groups[0]).toHaveTextContent('regionNASA');
+    expect(groups[1]).toHaveTextContent('regionEMEA');
+    expect(groups[2]).toHaveTextContent('regionAPAC');
 
-    userEvent.type(groupByInput, 'appName{enter}');
+    await user.type(groupByInput, 'appName{enter}');
 
     await waitFor(() => expect(groupByWrapper).toHaveTextContent('appName'));
 
-    groups = ui.group.getAll();
+    groups = await ui.group.findAll();
 
     await waitFor(() => expect(ui.clearButton.get()).toBeInTheDocument());
     expect(groups).toHaveLength(3);
-    expect(groups[0]).toHaveTextContent('appName=billing');
-    expect(groups[1]).toHaveTextContent('appName=auth');
-    expect(groups[2]).toHaveTextContent('appName=frontend');
+    expect(groups[0]).toHaveTextContent('appNamebilling');
+    expect(groups[1]).toHaveTextContent('appNameauth');
+    expect(groups[2]).toHaveTextContent('appNamefrontend');
 
-    userEvent.click(ui.clearButton.get());
+    await user.click(ui.clearButton.get());
     await waitFor(() => expect(groupByWrapper).not.toHaveTextContent('appName'));
 
-    userEvent.type(groupByInput, 'env{enter}');
+    await user.type(groupByInput, 'env{enter}');
     await waitFor(() => expect(groupByWrapper).toHaveTextContent('env'));
 
-    groups = ui.group.getAll();
+    groups = await ui.group.findAll();
 
     expect(groups).toHaveLength(2);
-    expect(groups[0]).toHaveTextContent('env=production');
-    expect(groups[1]).toHaveTextContent('env=staging');
+    expect(groups[0]).toHaveTextContent('envproduction');
+    expect(groups[1]).toHaveTextContent('envstaging');
 
-    userEvent.click(ui.clearButton.get());
+    await user.click(ui.clearButton.get());
     await waitFor(() => expect(groupByWrapper).not.toHaveTextContent('env'));
 
-    userEvent.type(groupByInput, 'uniqueLabel{enter}');
+    await user.type(groupByInput, 'uniqueLabel{enter}');
     await waitFor(() => expect(groupByWrapper).toHaveTextContent('uniqueLabel'));
 
-    groups = ui.group.getAll();
+    groups = await ui.group.findAll();
     expect(groups).toHaveLength(2);
     expect(groups[0]).toHaveTextContent('No grouping');
-    expect(groups[1]).toHaveTextContent('uniqueLabel=true');
+    expect(groups[1]).toHaveTextContent('uniqueLabeltrue');
+  });
+
+  it('should split custom grouping groups with the same label by receiver', async () => {
+    // The same alert is repeated in two groups with different receivers
+    const alert = mockAlertmanagerAlert({
+      fingerprint: '1',
+      labels: { region: 'NASA', appName: 'billing' },
+      receivers: [{ name: 'slack' }, { name: 'email' }],
+    });
+    const amGroups = [
+      mockAlertGroup({ receiver: { name: 'slack' }, labels: { region: 'NASA' }, alerts: [alert] }),
+      mockAlertGroup({ receiver: { name: 'email' }, labels: { region: 'NASA' }, alerts: [alert] }),
+    ];
+    mocks.api.fetchAlertGroups.mockResolvedValue(amGroups);
+
+    const { user } = renderAmNotifications();
+    await waitForElementToBeRemoved(ui.loadingIndicator.query());
+
+    // reset the input of the MultiSelect component
+    await user.type(ui.groupByInput.get(), '{backspace}');
+    await user.type(ui.groupByInput.get(), 'appName{enter}');
+
+    const groups = await ui.group.findAll();
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toHaveTextContent('appNamebillingDelivered to slack');
+    expect(groups[1]).toHaveTextContent('appNamebillingDelivered to email');
   });
 
   it('should combine multiple ungrouped groups', async () => {
@@ -157,9 +194,8 @@ describe('AlertGroups', () => {
       return Promise.resolve(groups);
     });
     renderAmNotifications();
-    await waitFor(() => expect(mocks.api.fetchAlertGroups).toHaveBeenCalled());
-    const groups = ui.group.getAll();
-
-    expect(groups).toHaveLength(1);
+    await waitFor(() => {
+      expect(ui.group.getAll()).toHaveLength(1);
+    });
   });
 });

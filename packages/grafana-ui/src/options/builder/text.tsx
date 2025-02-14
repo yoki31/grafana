@@ -1,5 +1,5 @@
-import { OptionsWithTextFormatting } from '@grafana/schema';
 import { PanelOptionsEditorBuilder } from '@grafana/data';
+import { OptionsWithTextFormatting } from '@grafana/schema';
 
 /**
  * Adds common text control options to a visualization options
@@ -30,6 +30,19 @@ export function addTextSizeOptions<T extends OptionsWithTextFormatting>(
     path: 'text.valueSize',
     category: ['Text size'],
     name: 'Value',
+    settings: {
+      placeholder: 'Auto',
+      integer: false,
+      min: 1,
+      max: 200,
+    },
+    defaultValue: undefined,
+  });
+
+  builder.addNumberInput({
+    path: 'text.percentSize',
+    category: ['Text size'],
+    name: 'Percent change',
     settings: {
       placeholder: 'Auto',
       integer: false,

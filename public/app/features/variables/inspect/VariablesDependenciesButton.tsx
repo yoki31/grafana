@@ -1,24 +1,17 @@
-import React, { FC, useMemo } from 'react';
-import { Provider } from 'react-redux';
-import { Button } from '@grafana/ui';
+import { useMemo } from 'react';
+
+import { TypedVariableModel } from '@grafana/data';
 import { reportInteraction } from '@grafana/runtime';
+import { Button } from '@grafana/ui';
 
-import { createDependencyEdges, createDependencyNodes, filterNodesWithDependencies } from './utils';
-import { store } from '../../../store/store';
-import { VariableModel } from '../types';
 import { NetworkGraphModal } from './NetworkGraphModal';
+import { createDependencyEdges, createDependencyNodes, filterNodesWithDependencies } from './utils';
 
-interface OwnProps {
-  variables: VariableModel[];
+interface Props {
+  variables: TypedVariableModel[];
 }
 
-interface ConnectedProps {}
-
-interface DispatchProps {}
-
-type Props = OwnProps & ConnectedProps & DispatchProps;
-
-export const UnProvidedVariablesDependenciesButton: FC<Props> = ({ variables }) => {
+export const VariablesDependenciesButton = ({ variables }: Props) => {
   const nodes = useMemo(() => createDependencyNodes(variables), [variables]);
   const edges = useMemo(() => createDependencyEdges(variables), [variables]);
 
@@ -50,9 +43,3 @@ export const UnProvidedVariablesDependenciesButton: FC<Props> = ({ variables }) 
     </NetworkGraphModal>
   );
 };
-
-export const VariablesDependenciesButton: FC<Props> = (props) => (
-  <Provider store={store}>
-    <UnProvidedVariablesDependenciesButton {...props} />
-  </Provider>
-);

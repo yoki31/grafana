@@ -1,13 +1,16 @@
-import { variableAdapters } from '../adapters';
-import { createConstantVariableAdapter } from './adapter';
+import { ConstantVariableModel, VariableOption } from '@grafana/data';
+
 import { reduxTester } from '../../../../test/core/redux/reduxTester';
-import { updateConstantVariableOptions } from './actions';
+import { variableAdapters } from '../adapters';
 import { getRootReducer, RootReducerType } from '../state/helpers';
-import { ConstantVariableModel, initialVariableModelState, VariableOption } from '../types';
-import { createConstantOptionsFromQuery } from './reducer';
-import { addVariable, setCurrentVariableValue } from '../state/sharedReducer';
 import { toKeyedAction } from '../state/keyedVariablesReducer';
+import { addVariable, setCurrentVariableValue } from '../state/sharedReducer';
+import { initialVariableModelState } from '../types';
 import { toKeyedVariableIdentifier, toVariablePayload } from '../utils';
+
+import { updateConstantVariableOptions } from './actions';
+import { createConstantVariableAdapter } from './adapter';
+import { createConstantOptionsFromQuery } from './reducer';
 
 describe('constant actions', () => {
   variableAdapters.setInit(() => [createConstantVariableAdapter()]);

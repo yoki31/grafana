@@ -1,45 +1,35 @@
-import React, { useCallback, useMemo, useState } from 'react';
 import { css } from '@emotion/css';
 import debounce from 'debounce-promise';
-import { AsyncMultiSelect, Icon, Button, useStyles2 } from '@grafana/ui';
-import { GrafanaTheme2, SelectableValue } from '@grafana/data';
+import { useCallback, useMemo, useState } from 'react';
 
-import { FolderInfo, PermissionLevelString } from 'app/types';
+import { GrafanaTheme2, SelectableValue } from '@grafana/data';
+import { AsyncMultiSelect, Icon, Button, useStyles2 } from '@grafana/ui';
+import { config } from 'app/core/config';
+import { Trans } from 'app/core/internationalization';
 import { getBackendSrv } from 'app/core/services/backend_srv';
+import { getGrafanaSearcher } from 'app/features/search/service/searcher';
+import { FolderInfo, PermissionLevelString } from 'app/types';
 
 export interface FolderFilterProps {
   onChange: (folder: FolderInfo[]) => void;
   maxMenuHeight?: number;
 }
 
-export function FolderFilter({ onChange: propsOnChange, maxMenuHeight }: FolderFilterProps): JSX.Element {
+export function FolderFilter({ onChange, maxMenuHeight }: FolderFilterProps): JSX.Element {
   const styles = useStyles2(getStyles);
   const [loading, setLoading] = useState(false);
   const getOptions = useCallback((searchString: string) => getFoldersAsOptions(searchString, setLoading), []);
   const debouncedLoadOptions = useMemo(() => debounce(getOptions, 300), [getOptions]);
+
   const [value, setValue] = useState<Array<SelectableValue<FolderInfo>>>([]);
-  const onChange = useCallback(
+  const onSelectOptionChange = useCallback(
     (folders: Array<SelectableValue<FolderInfo>>) => {
-      const changedFolders = [];
-      for (const folder of folders) {
-        if (folder.value) {
-          changedFolders.push(folder.value);
-        }
-      }
-      propsOnChange(changedFolders);
+      const changedFolderIds = folders.filter((f) => Boolean(f.value)).map((f) => f.value!);
+      onChange(changedFolderIds);
       setValue(folders);
     },
-    [propsOnChange]
+    [onChange]
   );
-  const selectOptions = {
-    defaultOptions: true,
-    isMulti: true,
-    noOptionsMessage: 'No folders found',
-    placeholder: 'Filter by folder',
-    maxMenuHeight,
-    value,
-    onChange,
-  };
 
   return (
     <div className={styles.container}>
@@ -47,60 +37,94 @@ export function FolderFilter({ onChange: propsOnChange, maxMenuHeight }: FolderF
         <Button
           size="xs"
           icon="trash-alt"
-          variant="link"
+          fill="text"
           className={styles.clear}
           onClick={() => onChange([])}
           aria-label="Clear folders"
         >
-          Clear folders
+          <Trans i18nKey="folder-filter.clear-folder-button">Clear folders</Trans>
         </Button>
       )}
       <AsyncMultiSelect
-        menuShouldPortal
-        {...selectOptions}
+        value={value}
+        onChange={onSelectOptionChange}
         isLoading={loading}
         loadOptions={debouncedLoadOptions}
+        maxMenuHeight={maxMenuHeight}
+        placeholder="Filter by folder"
+        noOptionsMessage="No folders found"
         prefix={<Icon name="filter" />}
         aria-label="Folder filter"
+        defaultOptions
       />
     </div>
   );
 }
 
-async function getFoldersAsOptions(searchString: string, setLoading: (loading: boolean) => void) {
+async function getFoldersAsOptions(
+  searchString: string,
+  setLoading: (loading: boolean) => void
+): Promise<Array<SelectableValue<FolderInfo>>> {
   setLoading(true);
 
+  // Use Unified Storage API behind toggle
+  if (config.featureToggles.unifiedStorageSearchUI) {
+    const searcher = getGrafanaSearcher();
+    const queryResponse = await searcher.search({
+      query: searchString,
+      kind: ['folder'],
+      limit: 100,
+      permission: PermissionLevelString.View,
+    });
+
+    const options = queryResponse.view.map((item) => ({
+      label: item.name,
+      value: { uid: item.uid, title: item.name },
+    }));
+
+    if (!searchString || 'dashboards'.includes(searchString.toLowerCase())) {
+      options.unshift({ label: 'Dashboards', value: { uid: 'general', title: 'Dashboards' } });
+    }
+
+    setLoading(false);
+    return options;
+  }
+
+  // Use existing backend service search
   const params = {
     query: searchString,
-    type: 'dash-folder',
+    type: 'folder',
     permission: PermissionLevelString.View,
   };
 
   const searchHits = await getBackendSrv().search(params);
-  const options = searchHits.map((d) => ({ label: d.title, value: { id: d.id, title: d.title } }));
-  if (!searchString || 'general'.includes(searchString.toLowerCase())) {
-    options.unshift({ label: 'General', value: { id: 0, title: 'General' } });
+  const options = searchHits.map((d) => ({
+    label: d.title,
+    value: { uid: d.uid, title: d.title },
+  }));
+
+  if (!searchString || 'dashboards'.includes(searchString.toLowerCase())) {
+    options.unshift({ label: 'Dashboards', value: { uid: 'general', title: 'Dashboards' } });
   }
 
   setLoading(false);
-
   return options;
 }
 
 function getStyles(theme: GrafanaTheme2) {
   return {
-    container: css`
-      label: container;
-      position: relative;
-      min-width: 180px;
-      flex-grow: 1;
-    `,
-    clear: css`
-      label: clear;
-      font-size: ${theme.spacing(1.5)};
-      position: absolute;
-      top: -${theme.spacing(4.5)};
-      right: 0;
-    `,
+    container: css({
+      label: 'container',
+      position: 'relative',
+      minWidth: '180px',
+      flexGrow: 1,
+    }),
+    clear: css({
+      label: 'clear',
+      fontSize: theme.spacing(1.5),
+      position: 'absolute',
+      top: -theme.spacing(4.5),
+      right: 0,
+    }),
   };
 }

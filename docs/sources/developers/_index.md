@@ -1,15 +1,28 @@
-+++
-title = "Developers"
-aliases = ["/docs/grafana/latest/plugins/developing/"]
-weight = 190
-+++
+---
+aliases:
+  - plugins/developing/
+labels:
+  products:
+    - enterprise
+    - oss
+title: Developers
+weight: 190
+---
 
 # Developers
 
-This section of the documentation contains pages with resources for Grafana developers:
+Go to the [Grafana developer portal](/developers) to access the following documentation:
 
-- [Grafana Contribution Guide - learn how you can contribute your skills to make Grafana even better.]({{< relref "contribute.md" >}})
-- [How to build a plugin]({{< relref "plugins" >}})
-- [Grafana Tutorials - step-by-step guides that help you make the most of Grafana](https://grafana.com/tutorials/)
-- [Grafana Community Forums - get technical support for open source Grafana, Loki, and Tempo.](https://community.grafana.com)
-- [Grafana design system - library of reusable Grafana components and guidelines that help you with contribution and plugin development](https://developers.grafana.com)
+- [Grafana plugin development](/developers/plugin-tools)
+- [Grafana design system](https://developers.grafana.com)
+- [Grafana Scenes](/developers/scenes)
+- [Grafana data plane](/developers/dataplane)
+
+This section of our documentation contains additional resources:
+
+{{< section >}}
+
+You might also find the following resources to be helpful:
+
+- [Grafana Tutorials:](https://grafana.com/tutorials/) Step-by-step guides that help you make the most of Grafana.
+- [Grafana Community Forums:](https://community.grafana.com) Get technical support for open source Grafana, Loki, and Tempo.

@@ -1,70 +1,84 @@
-load(
-    'scripts/drone/steps/lib.star',
-    'build_image',
-    'initialize_step',
-    'download_grabpl_step',
-    'lint_frontend_step',
-    'codespell_step',
-    'test_frontend_step',
-    'build_storybook_step',
-    'build_frontend_docs_step',
-    'build_frontend_package_step',
-    'build_docs_website_step',
-)
+"""
+This module returns all the pipelines used in the event of documentation changes along with supporting functions.
+"""
 
 load(
-    'scripts/drone/services/services.star',
-    'integration_test_services',
-    'ldap_service',
+    "scripts/drone/steps/lib.star",
+    "build_docs_website_step",
+    "identify_runner_step",
+    "verify_gen_cue_step",
+    "yarn_install_step",
 )
-
 load(
-    'scripts/drone/utils/utils.star',
-    'pipeline',
+    "scripts/drone/utils/images.star",
+    "images",
+)
+load(
+    "scripts/drone/utils/utils.star",
+    "pipeline",
 )
 
+docs_paths = {
+    "include": [
+        "*.md",
+        "docs/**",
+        "packages/**/*.md",
+        "latest.json",
+    ],
+}
 
-def docs_pipelines(edition, ver_mode, trigger):
-    steps = [download_grabpl_step()] + initialize_step(edition, platform='linux', ver_mode=ver_mode)
-
-    # Insert remaining steps
-    steps.extend([
-        codespell_step(),
+def docs_pipelines(ver_mode, trigger):
+    environment = {"EDITION": "oss"}
+    steps = [
+        identify_runner_step(),
+        yarn_install_step(),
         lint_docs(),
-        build_frontend_package_step(edition=edition, ver_mode=ver_mode),
-        build_frontend_docs_step(edition=edition),
         build_docs_website_step(),
-    ])
+        verify_gen_cue_step(),
+    ]
 
     return pipeline(
-        name='{}-docs'.format(ver_mode), edition=edition, trigger=trigger, services=[], steps=steps,
+        name = "{}-docs".format(ver_mode),
+        trigger = trigger,
+        services = [],
+        steps = steps,
+        environment = environment,
     )
 
 def lint_docs():
     return {
-        'name': 'lint-docs',
-        'image': build_image,
-        'depends_on': [
-            'initialize',
+        "name": "lint-docs",
+        "image": images["node"],
+        "depends_on": [
+            "yarn-install",
         ],
-        'environment': {
-            'NODE_OPTIONS': '--max_old_space_size=8192',
+        "environment": {
+            "NODE_OPTIONS": "--max_old_space_size=8192",
         },
-        'commands': [
-            'yarn run prettier:checkDocs',
+        "commands": [
+            "yarn run prettier:checkDocs",
         ],
     }
 
-
-def trigger_docs():
+def trigger_docs_main():
     return {
-        'event': [
-            'pull_request',
+        "branch": "main",
+        "event": [
+            "push",
         ],
-        'paths': {
-            'include': [
-                'docs/**',
-                'packages/**',
-            ],
-        },
+        "repo": [
+            "grafana/grafana",
+        ],
+        "paths": docs_paths,
+    }
+
+def trigger_docs_pr():
+    return {
+        "event": [
+            "pull_request",
+        ],
+        "repo": [
+            "grafana/grafana",
+        ],
+        "paths": docs_paths,
     }

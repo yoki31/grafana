@@ -1,10 +1,18 @@
 import { cloneDeep } from 'lodash';
-import { StoreState, ThunkResult } from 'app/types';
+
+import { AdHocVariableFilter, AdHocVariableModel, DataSourceRef } from '@grafana/data';
 import { getDatasourceSrv } from 'app/features/plugins/datasource_srv';
+import { StoreState, ThunkResult } from 'app/types';
+
 import { changeVariableEditorExtended } from '../editor/reducer';
-import { addVariable, changeVariableProp } from '../state/sharedReducer';
+import { isAdHoc } from '../guard';
+import { variableUpdated } from '../state/actions';
+import { toKeyedAction } from '../state/keyedVariablesReducer';
 import { getLastKey, getNewVariableIndex, getVariable, getVariablesState } from '../state/selectors';
+import { addVariable, changeVariableProp } from '../state/sharedReducer';
 import { AddVariable, KeyedVariableIdentifier } from '../state/types';
+import { toKeyedVariableIdentifier, toVariablePayload } from '../utils';
+
 import {
   AdHocVariabelFilterUpdate,
   filterAdded,
@@ -13,13 +21,6 @@ import {
   filterUpdated,
   initialAdHocVariableModelState,
 } from './reducer';
-import { AdHocVariableFilter, AdHocVariableModel } from 'app/features/variables/types';
-import { variableUpdated } from '../state/actions';
-import { isAdHoc } from '../guard';
-import { DataSourceRef, getDataSourceRef } from '@grafana/data';
-import { getAdhocVariableEditorState } from '../editor/selectors';
-import { toKeyedAction } from '../state/keyedVariablesReducer';
-import { toKeyedVariableIdentifier, toVariablePayload } from '../utils';
 
 export interface AdHocTableOptions {
   datasource: DataSourceRef;
@@ -46,7 +47,7 @@ export const applyFilterFromTable = (options: AdHocTableOptions): ThunkResult<vo
 
     if (index === -1) {
       const { value, key, operator } = options;
-      const filter = { value, key, operator, condition: '' };
+      const filter = { value, key, operator };
       return await dispatch(addFilter(toKeyedVariableIdentifier(variable), filter));
     }
 
@@ -98,8 +99,6 @@ export const changeVariableDatasource = (
   datasource?: DataSourceRef
 ): ThunkResult<void> => {
   return async (dispatch, getState) => {
-    const { editor } = getVariablesState(identifier.rootStateKey, getState());
-    const extended = getAdhocVariableEditorState(editor);
     const variable = getVariable(identifier, getState());
     dispatch(
       toKeyedAction(
@@ -120,41 +119,11 @@ export const changeVariableDatasource = (
         identifier.rootStateKey,
         changeVariableEditorExtended({
           infoText: message,
-          dataSources: extended?.dataSources ?? [],
         })
       )
     );
   };
 };
-
-export const initAdHocVariableEditor =
-  (key: string): ThunkResult<void> =>
-  (dispatch) => {
-    const dataSources = getDatasourceSrv().getList({ metrics: true, variables: true });
-    const selectable = dataSources.reduce(
-      (all: Array<{ text: string; value: DataSourceRef | null }>, ds) => {
-        if (ds.meta.mixed) {
-          return all;
-        }
-
-        const text = ds.isDefault ? `${ds.name} (default)` : ds.name;
-        const value = getDataSourceRef(ds);
-        all.push({ text, value });
-
-        return all;
-      },
-      [{ text: '', value: {} }]
-    );
-
-    dispatch(
-      toKeyedAction(
-        key,
-        changeVariableEditorExtended({
-          dataSources: selectable,
-        })
-      )
-    );
-  };
 
 const createAdHocVariable = (options: AdHocTableOptions): ThunkResult<void> => {
   return (dispatch, getState) => {
@@ -179,7 +148,12 @@ const createAdHocVariable = (options: AdHocTableOptions): ThunkResult<void> => {
 const getVariableByOptions = (options: AdHocTableOptions, state: StoreState): AdHocVariableModel | undefined => {
   const key = getLastKey(state);
   const templatingState = getVariablesState(key, state);
-  return Object.values(templatingState.variables).find(
-    (v) => isAdHoc(v) && v.datasource?.uid === options.datasource.uid
-  ) as AdHocVariableModel;
+  let result: AdHocVariableModel | undefined;
+  for (const v of Object.values(templatingState.variables)) {
+    if (isAdHoc(v) && v.datasource?.uid === options.datasource.uid) {
+      result = v;
+      break;
+    }
+  }
+  return result;
 };

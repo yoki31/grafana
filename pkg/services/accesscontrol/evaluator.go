@@ -2,6 +2,7 @@ package accesscontrol
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -10,11 +11,15 @@ import (
 
 var logger = log.New("accesscontrol.evaluator")
 
+type CheckerFn func(action string, scopes ...string) (bool, error)
+
 type Evaluator interface {
 	// Evaluate permissions that are grouped by action
-	Evaluate(permissions map[string][]string) (bool, error)
+	Evaluate(permissions map[string][]string) bool
+	// EvaluateCustom allows to perform evaluation with custom check function
+	EvaluateCustom(fn CheckerFn) (bool, error)
 	// MutateScopes executes a sequence of ScopeModifier functions on all embedded scopes of an evaluator and returns a new Evaluator
-	MutateScopes(context.Context, ...ScopeMutator) (Evaluator, error)
+	MutateScopes(ctx context.Context, mutate ScopeAttributeMutator) (Evaluator, error)
 	// String returns a string representation of permission required by the evaluator
 	fmt.Stringer
 	fmt.GoStringer
@@ -22,7 +27,7 @@ type Evaluator interface {
 
 var _ Evaluator = new(permissionEvaluator)
 
-// EvalPermission returns an evaluator that will require all scopes in combination with action to match
+// EvalPermission returns an evaluator that will require at least one of passed scopes to match
 func EvalPermission(action string, scopes ...string) Evaluator {
 	return permissionEvaluator{Action: action, Scopes: scopes}
 }
@@ -32,40 +37,30 @@ type permissionEvaluator struct {
 	Scopes []string
 }
 
-func (p permissionEvaluator) Evaluate(permissions map[string][]string) (bool, error) {
+func (p permissionEvaluator) Evaluate(permissions map[string][]string) bool {
 	userScopes, ok := permissions[p.Action]
 	if !ok {
-		return false, nil
+		return false
 	}
 
 	if len(p.Scopes) == 0 {
-		return true, nil
+		return true
 	}
 
 	for _, target := range p.Scopes {
-		var err error
-		var matches bool
-
 		for _, scope := range userScopes {
-			matches, err = match(scope, target)
-			if err != nil {
-				return false, err
+			if match(scope, target) {
+				return true
 			}
-			if matches {
-				break
-			}
-		}
-		if !matches {
-			return false, nil
 		}
 	}
 
-	return true, nil
+	return false
 }
 
-func match(scope, target string) (bool, error) {
+func match(scope, target string) bool {
 	if scope == "" {
-		return false, nil
+		return false
 	}
 
 	if !ValidateScope(scope) {
@@ -74,38 +69,61 @@ func match(scope, target string) (bool, error) {
 			"scope", scope,
 			"reason", "scopes should not contain meta-characters like * or ?, except in the last position",
 		)
-		return false, nil
+		return false
 	}
 
 	prefix, last := scope[:len(scope)-1], scope[len(scope)-1]
 	//Prefix match
 	if last == '*' {
 		if strings.HasPrefix(target, prefix) {
-			logger.Debug("matched scope", "user scope", scope, "target scope", target)
-			return true, nil
+			logger.Debug("Matched scope", "user scope", scope, "target scope", target)
+			return true
 		}
 	}
 
-	return scope == target, nil
+	return scope == target
 }
 
-func (p permissionEvaluator) MutateScopes(ctx context.Context, modifiers ...ScopeMutator) (Evaluator, error) {
-	var err error
+func (p permissionEvaluator) EvaluateCustom(fn CheckerFn) (bool, error) {
+	if len(p.Scopes) == 0 {
+		return fn(p.Action, "")
+	}
+
+	matches, err := fn(p.Action, p.Scopes...)
+	if err != nil {
+		return false, err
+	}
+
+	return matches, nil
+}
+
+func (p permissionEvaluator) MutateScopes(ctx context.Context, mutate ScopeAttributeMutator) (Evaluator, error) {
+	ctx, span := tracer.Start(ctx, "accesscontrol.permissionEvaluatorMutateScopes")
+	defer span.End()
+
 	if p.Scopes == nil {
 		return EvalPermission(p.Action), nil
 	}
 
+	resolved := false
 	scopes := make([]string, 0, len(p.Scopes))
 	for _, scope := range p.Scopes {
-		modified := scope
-		for _, modifier := range modifiers {
-			modified, err = modifier(ctx, modified)
-			if err != nil {
-				return nil, err
+		mutated, err := mutate(ctx, scope)
+		if err != nil {
+			if errors.Is(err, ErrResolverNotFound) {
+				scopes = append(scopes, mutated...)
+				continue
 			}
+			return nil, err
 		}
-		scopes = append(scopes, modified)
+		resolved = true
+		scopes = append(scopes, mutated...)
 	}
+
+	if !resolved {
+		return nil, ErrResolverNotFound
+	}
+
 	return EvalPermission(p.Action, scopes...), nil
 }
 
@@ -128,23 +146,49 @@ type allEvaluator struct {
 	allOf []Evaluator
 }
 
-func (a allEvaluator) Evaluate(permissions map[string][]string) (bool, error) {
+func (a allEvaluator) Evaluate(permissions map[string][]string) bool {
 	for _, e := range a.allOf {
-		if ok, err := e.Evaluate(permissions); !ok || err != nil {
+		if !e.Evaluate(permissions) {
+			return false
+		}
+	}
+	return true
+}
+
+func (a allEvaluator) EvaluateCustom(fn CheckerFn) (bool, error) {
+	for _, e := range a.allOf {
+		allowed, err := e.EvaluateCustom(fn)
+		if err != nil {
 			return false, err
+		}
+		if !allowed {
+			return false, nil
 		}
 	}
 	return true, nil
 }
 
-func (a allEvaluator) MutateScopes(ctx context.Context, modifiers ...ScopeMutator) (Evaluator, error) {
-	var modified []Evaluator
+func (a allEvaluator) MutateScopes(ctx context.Context, mutate ScopeAttributeMutator) (Evaluator, error) {
+	ctx, span := tracer.Start(ctx, "accesscontrol.allEvaluator.MutateScopes")
+	defer span.End()
+
+	resolved := false
+	modified := make([]Evaluator, 0, len(a.allOf))
 	for _, e := range a.allOf {
-		i, err := e.MutateScopes(ctx, modifiers...)
+		i, err := e.MutateScopes(ctx, mutate)
 		if err != nil {
+			if errors.Is(err, ErrResolverNotFound) {
+				modified = append(modified, e)
+				continue
+			}
 			return nil, err
 		}
+		resolved = true
 		modified = append(modified, i)
+	}
+
+	if !resolved {
+		return nil, ErrResolverNotFound
 	}
 	return EvalAll(modified...), nil
 }
@@ -178,28 +222,51 @@ type anyEvaluator struct {
 	anyOf []Evaluator
 }
 
-func (a anyEvaluator) Evaluate(permissions map[string][]string) (bool, error) {
+func (a anyEvaluator) Evaluate(permissions map[string][]string) bool {
 	for _, e := range a.anyOf {
-		ok, err := e.Evaluate(permissions)
+		if e.Evaluate(permissions) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a anyEvaluator) EvaluateCustom(fn CheckerFn) (bool, error) {
+	for _, e := range a.anyOf {
+		allowed, err := e.EvaluateCustom(fn)
 		if err != nil {
 			return false, err
 		}
-		if ok {
+		if allowed {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func (a anyEvaluator) MutateScopes(ctx context.Context, modifiers ...ScopeMutator) (Evaluator, error) {
-	var modified []Evaluator
+func (a anyEvaluator) MutateScopes(ctx context.Context, mutate ScopeAttributeMutator) (Evaluator, error) {
+	ctx, span := tracer.Start(ctx, "accesscontrol.anyEvaluator.MutateScopes")
+	defer span.End()
+
+	resolved := false
+	modified := make([]Evaluator, 0, len(a.anyOf))
 	for _, e := range a.anyOf {
-		i, err := e.MutateScopes(ctx, modifiers...)
+		i, err := e.MutateScopes(ctx, mutate)
 		if err != nil {
+			if errors.Is(err, ErrResolverNotFound) {
+				modified = append(modified, e)
+				continue
+			}
 			return nil, err
 		}
+		resolved = true
 		modified = append(modified, i)
 	}
+
+	if !resolved {
+		return nil, ErrResolverNotFound
+	}
+
 	return EvalAny(modified...), nil
 }
 

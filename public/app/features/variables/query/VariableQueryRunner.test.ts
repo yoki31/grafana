@@ -1,27 +1,29 @@
 import { of, throwError } from 'rxjs';
-import { getDefaultTimeRange, LoadingState, VariableSupportType } from '@grafana/data';
 import { delay } from 'rxjs/operators';
 
-import { UpdateOptionsResults, VariableQueryRunner } from './VariableQueryRunner';
+import {
+  DataSourceApi,
+  getDefaultTimeRange,
+  LoadingState,
+  QueryVariableModel,
+  VariableSupportType,
+} from '@grafana/data';
+
 import { queryBuilder } from '../shared/testing/builders';
-import { QueryRunner, QueryRunners } from './queryRunners';
-import { KeyedVariableIdentifier } from '../state/types';
-import { QueryVariableModel } from '../types';
-import { updateVariableOptions } from './reducer';
+import { getPreloadedState } from '../state/helpers';
 import { toKeyedAction } from '../state/keyedVariablesReducer';
 import { initialTransactionState } from '../state/transactionReducer';
-import { getPreloadedState } from '../state/helpers';
+import { KeyedVariableIdentifier } from '../state/types';
 import { toKeyedVariableIdentifier } from '../utils';
 
-type DoneCallback = {
-  (...args: any[]): any;
-  fail(error?: string | { message: string }): any;
-};
+import { UpdateOptionsResults, VariableQueryRunner } from './VariableQueryRunner';
+import { QueryRunner, QueryRunners } from './queryRunners';
+import { updateVariableOptions } from './reducer';
 
 function expectOnResults(args: {
   runner: VariableQueryRunner;
   identifier: KeyedVariableIdentifier;
-  done: DoneCallback;
+  done: jest.DoneCallback;
   expect: (results: UpdateOptionsResults[]) => void;
 }) {
   const { runner, identifier, done, expect: expectCallback } = args;
@@ -49,7 +51,7 @@ function getTestContext(variable?: QueryVariableModel) {
   });
   const key = '0123456789';
   variable = variable ?? queryBuilder().withId('query').withRootStateKey(key).withName('query').build();
-  const datasource: any = { metricFindQuery: jest.fn().mockResolvedValue([]) };
+  const datasource = { metricFindQuery: jest.fn().mockResolvedValue([]) } as unknown as DataSourceApi;
   const identifier = toKeyedVariableIdentifier(variable);
   const searchFilter = undefined;
   const getTemplatedRegex = jest.fn().mockReturnValue('getTemplatedRegex result');
@@ -68,6 +70,7 @@ function getTestContext(variable?: QueryVariableModel) {
     runRequest: jest.fn().mockReturnValue(of({ series: [], state: LoadingState.Done })),
   };
   const queryRunners = {
+    isQueryRunnerAvailableForDatasource: jest.fn().mockReturnValue(true),
     getRunnerForDatasource: jest.fn().mockReturnValue(queryRunner),
   } as unknown as QueryRunners;
   const getVariable = jest.fn().mockReturnValue(variable);
@@ -145,15 +148,12 @@ describe('VariableQueryRunner', () => {
   });
 
   describe('error cases', () => {
-    describe('queryRunners.getRunnerForDatasource throws', () => {
+    describe('queryRunners.isQueryRunnerAvailableForDatasource throws', () => {
       it('then it should work as expected', (done) => {
         const { identifier, runner, datasource, getState, getVariable, queryRunners, queryRunner, dispatch } =
           getTestContext();
 
-        queryRunners.getRunnerForDatasource = jest.fn().mockImplementation(() => {
-          throw new Error('getRunnerForDatasource error');
-        });
-
+        queryRunners.isQueryRunnerAvailableForDatasource = jest.fn().mockReturnValue(false);
         expectOnResults({
           identifier,
           runner,
@@ -161,13 +161,17 @@ describe('VariableQueryRunner', () => {
             // verify that the observable works as expected
             expect(results).toEqual([
               { state: LoadingState.Loading, identifier },
-              { state: LoadingState.Error, identifier, error: new Error('getRunnerForDatasource error') },
+              {
+                state: LoadingState.Error,
+                identifier,
+                error: new Error('Query Runner is not available for datasource.'),
+              },
             ]);
 
             // verify that mocks have been called as expected
             expect(getState).toHaveBeenCalledTimes(2);
             expect(getVariable).toHaveBeenCalledTimes(1);
-            expect(queryRunners.getRunnerForDatasource).toHaveBeenCalledTimes(1);
+            expect(queryRunners.isQueryRunnerAvailableForDatasource).toHaveBeenCalledTimes(1);
             expect(queryRunner.getTarget).not.toHaveBeenCalled();
             expect(queryRunner.runRequest).not.toHaveBeenCalled();
             expect(datasource.metricFindQuery).not.toHaveBeenCalled();

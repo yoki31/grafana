@@ -1,12 +1,12 @@
 {
   "compilerOptions": {
-    "declarationDir": "dist",
-    "outDir": "compiled",
-    "rootDirs": ["."],
-    "incremental": true,
-    "tsBuildInfoFile": "./tsconfig.tsbuildinfo"
+    "jsx": "react-jsx",
+    "declarationDir": "./dist/esm",
+    "emitDeclarationOnly": true,
+    "isolatedModules": true,
+    "rootDirs": ["."]
   },
-  "exclude": ["dist", "node_modules"],
+  "exclude": ["dist/**/*"],
   "extends": "@grafana/tsconfig",
   "include": ["src/**/*.ts*"]
 }

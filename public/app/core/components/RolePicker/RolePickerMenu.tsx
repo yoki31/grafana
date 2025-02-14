@@ -1,68 +1,92 @@
-import React, { FormEvent, useEffect, useRef, useState } from 'react';
 import { css, cx } from '@emotion/css';
-import {
-  Button,
-  Checkbox,
-  CustomScrollbar,
-  HorizontalGroup,
-  Icon,
-  Portal,
-  RadioButtonGroup,
-  Tooltip,
-  useStyles2,
-  useTheme2,
-} from '@grafana/ui';
-import { GrafanaTheme2, SelectableValue } from '@grafana/data';
+import { useEffect, useRef, useState } from 'react';
+
+import { Button, ScrollContainer, Stack, TextLink, useStyles2, useTheme2 } from '@grafana/ui';
 import { getSelectStyles } from '@grafana/ui/src/components/Select/getSelectStyles';
+import { Trans } from 'app/core/internationalization';
 import { OrgRole, Role } from 'app/types';
 
-type BuiltInRoles = Record<string, Role[]>;
+import { BuiltinRoleSelector } from './BuiltinRoleSelector';
+import { RoleMenuGroupsSection } from './RoleMenuGroupsSection';
+import { MENU_MAX_HEIGHT } from './constants';
+import { getStyles } from './styles';
 
-const BuiltinRoles = Object.values(OrgRole);
-const BuiltinRoleOption: Array<SelectableValue<OrgRole>> = BuiltinRoles.map((r) => ({
-  label: r,
-  value: r,
-}));
+enum GroupType {
+  fixed = 'fixed',
+  custom = 'custom',
+  plugin = 'plugin',
+}
+
+interface RoleGroupOption {
+  name: string;
+  value: string;
+  options: Role[];
+}
+
+interface RolesCollectionEntry {
+  groupType: GroupType;
+  optionGroup: RoleGroupOption[];
+  renderedName: string;
+  roles: Role[];
+}
 
 const fixedRoleGroupNames: Record<string, string> = {
   ldap: 'LDAP',
   current: 'Current org',
 };
 
+const tooltipMessage = (
+  <Trans i18nKey="role-picker.menu.tooltip">
+    You can now select the &quot;No basic role&quot; option and add permissions to your custom needs. You can find more
+    information in&nbsp;
+    <TextLink
+      href="https://grafana.com/docs/grafana/latest/administration/roles-and-permissions/#organization-roles"
+      variant="bodySmall"
+      external
+    >
+      our documentation
+    </TextLink>
+    .
+  </Trans>
+);
+
 interface RolePickerMenuProps {
-  builtInRole?: OrgRole;
-  builtInRoles?: BuiltInRoles;
+  basicRole?: OrgRole;
   options: Role[];
   appliedRoles: Role[];
   showGroups?: boolean;
-  builtinRolesDisabled?: boolean;
-  showBuiltInRole?: boolean;
+  basicRoleDisabled?: boolean;
+  disabledMessage?: string;
+  showBasicRole?: boolean;
   onSelect: (roles: Role[]) => void;
-  onBuiltInRoleSelect?: (role: OrgRole) => void;
-  onUpdate: (newRoles: string[], newBuiltInRole?: OrgRole) => void;
-  onClear?: () => void;
+  onBasicRoleSelect?: (role: OrgRole) => void;
+  onUpdate: (newRoles: Role[], newBuiltInRole?: OrgRole) => void;
+  updateDisabled?: boolean;
+  apply?: boolean;
+  offset: { vertical: number; horizontal: number };
+  menuLeft?: boolean;
 }
 
 export const RolePickerMenu = ({
-  builtInRole,
-  builtInRoles,
+  basicRole,
   options,
   appliedRoles,
   showGroups,
-  builtinRolesDisabled,
-  showBuiltInRole,
+  basicRoleDisabled,
+  disabledMessage,
+  showBasicRole,
   onSelect,
-  onBuiltInRoleSelect,
+  onBasicRoleSelect,
   onUpdate,
-  onClear,
+  updateDisabled,
+  offset,
+  menuLeft,
+  apply,
 }: RolePickerMenuProps): JSX.Element => {
   const [selectedOptions, setSelectedOptions] = useState<Role[]>(appliedRoles);
-  const [selectedBuiltInRole, setSelectedBuiltInRole] = useState<OrgRole | undefined>(builtInRole);
-  const [showSubMenu, setShowSubMenu] = useState(false);
-  const [openedMenuGroup, setOpenedMenuGroup] = useState('');
-  const [subMenuOptions, setSubMenuOptions] = useState<Role[]>([]);
+  const [selectedBuiltInRole, setSelectedBuiltInRole] = useState<OrgRole | undefined>(basicRole);
+  const [rolesCollection, setRolesCollection] = useState<{ [key: string]: RolesCollectionEntry }>({});
   const subMenuNode = useRef<HTMLDivElement | null>(null);
-
   const theme = useTheme2();
   const styles = getSelectStyles(theme);
   const customStyles = useStyles2(getStyles);
@@ -73,14 +97,44 @@ export const RolePickerMenu = ({
   }, [selectedOptions, onSelect]);
 
   useEffect(() => {
-    if (onBuiltInRoleSelect && selectedBuiltInRole) {
-      onBuiltInRoleSelect(selectedBuiltInRole);
+    if (onBasicRoleSelect && selectedBuiltInRole) {
+      onBasicRoleSelect(selectedBuiltInRole);
     }
-  }, [selectedBuiltInRole, onBuiltInRoleSelect]);
+  }, [selectedBuiltInRole, onBasicRoleSelect]);
 
-  const customRoles = options.filter(filterCustomRoles).sort(sortRolesByName);
-  const fixedRoles = options.filter(filterFixedRoles).sort(sortRolesByName);
-  const optionGroups = getOptionGroups(options);
+  // Evaluate rolesCollection only if options changed, otherwise
+  // it triggers unnecessary re-rendering of <RoleMenuGroupsSection /> component
+  useEffect(() => {
+    const customRoles = options.filter(filterCustomRoles).sort(sortRolesByName);
+    const fixedRoles = options.filter(filterFixedRoles).sort(sortRolesByName);
+    const pluginRoles = options.filter(filterPluginsRoles).sort(sortRolesByName);
+    const optionGroups = {
+      fixed: convertRolesToGroupOptions(fixedRoles).sort((a, b) => a.name.localeCompare(b.name)),
+      custom: convertRolesToGroupOptions(customRoles).sort((a, b) => a.name.localeCompare(b.name)),
+      plugin: convertRolesToGroupOptions(pluginRoles).sort((a, b) => a.name.localeCompare(b.name)),
+    };
+
+    setRolesCollection({
+      fixed: {
+        groupType: GroupType.fixed,
+        optionGroup: optionGroups.fixed,
+        renderedName: `Fixed roles`,
+        roles: fixedRoles,
+      },
+      custom: {
+        groupType: GroupType.custom,
+        optionGroup: optionGroups.custom,
+        renderedName: `Custom roles`,
+        roles: customRoles,
+      },
+      plugin: {
+        groupType: GroupType.plugin,
+        optionGroup: optionGroups.plugin,
+        renderedName: `Plugin roles`,
+        roles: pluginRoles,
+      },
+    });
+  }, [options]);
 
   const getSelectedGroupOptions = (group: string) => {
     const selectedGroupOptions = [];
@@ -92,57 +146,58 @@ export const RolePickerMenu = ({
     return selectedGroupOptions;
   };
 
-  const groupSelected = (group: string) => {
+  const groupSelected = (groupType: GroupType, group: string) => {
     const selectedGroupOptions = getSelectedGroupOptions(group);
-    const groupOptions = optionGroups.find((g) => g.value === group);
+    const groupOptions = rolesCollection[groupType]?.optionGroup.find((g) => g.value === group);
     return selectedGroupOptions.length > 0 && selectedGroupOptions.length >= groupOptions!.options.length;
   };
 
-  const groupPartiallySelected = (group: string) => {
+  const groupPartiallySelected = (groupType: GroupType, group: string) => {
     const selectedGroupOptions = getSelectedGroupOptions(group);
-    const groupOptions = optionGroups.find((g) => g.value === group);
+    const groupOptions = rolesCollection[groupType]?.optionGroup.find((g) => g.value === group);
     return selectedGroupOptions.length > 0 && selectedGroupOptions.length < groupOptions!.options.length;
   };
 
+  const changeableGroupRolesSelected = (groupType: GroupType, group: string) => {
+    const selectedGroupOptions = getSelectedGroupOptions(group);
+    const changeableGroupOptions = selectedGroupOptions.filter((role) => role.delegatable && !role.mapped);
+    const groupOptions = rolesCollection[groupType]?.optionGroup.find((g) => g.value === group);
+    return changeableGroupOptions.length > 0 && changeableGroupOptions.length < groupOptions!.options.length;
+  };
+
   const onChange = (option: Role) => {
-    if (selectedOptions.find((role) => role.uid === option.uid)) {
+    if (selectedOptions.find((role) => role.uid === option.uid && !role.mapped)) {
       setSelectedOptions(selectedOptions.filter((role) => role.uid !== option.uid));
     } else {
       setSelectedOptions([...selectedOptions, option]);
     }
   };
 
-  const onGroupChange = (value: string) => {
-    const group = optionGroups.find((g) => {
+  const onGroupChange = (groupType: GroupType, value: string) => {
+    const group = rolesCollection[groupType]?.optionGroup.find((g) => {
       return g.value === value;
     });
-    if (groupSelected(value)) {
-      if (group) {
-        setSelectedOptions(selectedOptions.filter((role) => !group.options.find((option) => role.uid === option.uid)));
-      }
+
+    if (!group) {
+      return;
+    }
+
+    if (groupSelected(groupType, value) || changeableGroupRolesSelected(groupType, value)) {
+      const mappedGroupOptions = selectedOptions.filter((option) =>
+        group.options.find((role) => role.uid === option.uid && option.mapped)
+      );
+      const restOptions = selectedOptions.filter((role) => !group.options.find((option) => role.uid === option.uid));
+      setSelectedOptions([...restOptions, ...mappedGroupOptions]);
     } else {
-      if (group) {
-        const restOptions = selectedOptions.filter((role) => !group.options.find((option) => role.uid === option.uid));
-        setSelectedOptions([...restOptions, ...group.options]);
-      }
+      const mappedGroupOptions = selectedOptions.filter((option) =>
+        group.options.find((role) => role.uid === option.uid && role.delegatable)
+      );
+      const groupOptions = group.options.filter(
+        (role) => role.delegatable && !selectedOptions.find((option) => role.uid === option.uid && option.mapped)
+      );
+      const restOptions = selectedOptions.filter((role) => !group.options.find((option) => role.uid === option.uid));
+      setSelectedOptions([...restOptions, ...groupOptions, ...mappedGroupOptions]);
     }
-  };
-
-  const onOpenSubMenu = (value: string) => {
-    setOpenedMenuGroup(value);
-    setShowSubMenu(true);
-    const group = optionGroups.find((g) => {
-      return g.value === value;
-    });
-    if (group) {
-      setSubMenuOptions(group.options);
-    }
-  };
-
-  const onCloseSubMenu = (value: string) => {
-    setShowSubMenu(false);
-    setOpenedMenuGroup('');
-    setSubMenuOptions([]);
   };
 
   const onSelectedBuiltinRoleChange = (newRole: OrgRole) => {
@@ -150,476 +205,138 @@ export const RolePickerMenu = ({
   };
 
   const onClearInternal = async () => {
-    if (onClear) {
-      onClear();
-    }
-    setSelectedOptions([]);
+    const mappedRoles = selectedOptions.filter((role) => role.mapped);
+    const nonDelegatableRoles = options.filter((role) =>
+      selectedOptions.find((option) => role.uid === option.uid && !role.delegatable)
+    );
+    setSelectedOptions([...mappedRoles, ...nonDelegatableRoles]);
   };
 
-  const onClearSubMenu = () => {
+  const onClearSubMenu = (group: string) => {
     const options = selectedOptions.filter((role) => {
-      const groupName = getRoleGroup(role);
-      return groupName !== openedMenuGroup;
+      const roleGroup = getRoleGroup(role);
+      return roleGroup !== group || role.mapped;
     });
     setSelectedOptions(options);
   };
 
   const onUpdateInternal = () => {
-    const selectedCustomRoles: string[] = [];
-    for (const key in selectedOptions) {
-      const roleUID = selectedOptions[key]?.uid;
-      selectedCustomRoles.push(roleUID);
-    }
-    onUpdate(selectedCustomRoles, selectedBuiltInRole);
+    onUpdate(selectedOptions, selectedBuiltInRole);
   };
 
   return (
-    <div className={cx(styles.menu, customStyles.menuWrapper)}>
+    <div
+      className={cx(
+        styles.menu,
+        customStyles.menuWrapper,
+        { [customStyles.menuLeft]: menuLeft },
+        css({
+          top: `${offset.vertical}px`,
+          left: !menuLeft ? `${offset.horizontal}px` : 'unset',
+          right: menuLeft ? `${offset.horizontal}px` : 'unset',
+        })
+      )}
+    >
       <div className={customStyles.menu} aria-label="Role picker menu">
-        <CustomScrollbar autoHide={false} autoHeightMax="300px" hideHorizontalTrack hideVerticalTrack>
-          {showBuiltInRole && (
+        <ScrollContainer
+          maxHeight={`${MENU_MAX_HEIGHT}px`}
+          // NOTE: this is a way to force hiding of the scrollbar
+          // the scrollbar makes the mouseEvents drop
+          scrollbarWidth="none"
+        >
+          {showBasicRole && (
             <div className={customStyles.menuSection}>
-              <div className={customStyles.groupHeader}>Built-in roles</div>
-              <RadioButtonGroup
-                className={customStyles.builtInRoleSelector}
-                options={BuiltinRoleOption}
+              <BuiltinRoleSelector
                 value={selectedBuiltInRole}
                 onChange={onSelectedBuiltinRoleChange}
-                fullWidth={true}
-                disabled={builtinRolesDisabled}
+                disabled={basicRoleDisabled}
+                disabledMesssage={disabledMessage}
+                tooltipMessage={tooltipMessage}
               />
             </div>
           )}
-          {!!fixedRoles.length &&
-            (showGroups && !!optionGroups.length ? (
-              <div className={customStyles.menuSection}>
-                <div className={customStyles.groupHeader}>Fixed roles</div>
-                <div className={styles.optionBody}>
-                  {optionGroups.map((option, i) => (
-                    <RoleMenuGroupOption
-                      data={option}
-                      key={i}
-                      isSelected={groupSelected(option.value) || groupPartiallySelected(option.value)}
-                      partiallySelected={groupPartiallySelected(option.value)}
-                      disabled={option.options?.every(isNotDelegatable)}
-                      onChange={onGroupChange}
-                      onOpenSubMenu={onOpenSubMenu}
-                      onCloseSubMenu={onCloseSubMenu}
-                      root={subMenuNode?.current!}
-                      isFocused={showSubMenu && openedMenuGroup === option.value}
-                    >
-                      {showSubMenu && openedMenuGroup === option.value && (
-                        <RolePickerSubMenu
-                          options={subMenuOptions}
-                          selectedOptions={selectedOptions}
-                          onSelect={onChange}
-                          onClear={onClearSubMenu}
-                        />
-                      )}
-                    </RoleMenuGroupOption>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className={customStyles.menuSection}>
-                <div className={customStyles.groupHeader}>Fixed roles</div>
-                <div className={styles.optionBody}>
-                  {fixedRoles.map((option, i) => (
-                    <RoleMenuOption
-                      data={option}
-                      key={i}
-                      isSelected={!!(option.uid && !!selectedOptions.find((opt) => opt.uid === option.uid))}
-                      disabled={isNotDelegatable(option)}
-                      onChange={onChange}
-                      hideDescription
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          {!!customRoles.length && (
-            <div>
-              <div className={customStyles.groupHeader}>Custom roles</div>
-              <div className={styles.optionBody}>
-                {customRoles.map((option, i) => (
-                  <RoleMenuOption
-                    data={option}
-                    key={i}
-                    isSelected={!!(option.uid && !!selectedOptions.find((opt) => opt.uid === option.uid))}
-                    disabled={isNotDelegatable(option)}
-                    onChange={onChange}
-                    hideDescription
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </CustomScrollbar>
-        <div className={customStyles.menuButtonRow}>
-          <HorizontalGroup justify="flex-end">
-            <Button size="sm" fill="text" onClick={onClearInternal}>
-              Clear all
-            </Button>
-            <Button size="sm" onClick={onUpdateInternal}>
-              Update
-            </Button>
-          </HorizontalGroup>
-        </div>
-      </div>
-      <div ref={subMenuNode}></div>
-    </div>
-  );
-};
-
-const filterCustomRoles = (option: Role) => !option.name?.startsWith('fixed:');
-const filterFixedRoles = (option: Role) => option.name?.startsWith('fixed:');
-
-const getOptionGroups = (options: Role[]) => {
-  const groupsMap: { [key: string]: Role[] } = {};
-  options.forEach((role) => {
-    if (role.name.startsWith('fixed:')) {
-      const groupName = getRoleGroup(role);
-      if (groupsMap[groupName]) {
-        groupsMap[groupName].push(role);
-      } else {
-        groupsMap[groupName] = [role];
-      }
-    }
-  });
-
-  const groups = [];
-  for (const groupName of Object.keys(groupsMap)) {
-    const groupOptions = groupsMap[groupName].sort(sortRolesByName);
-    groups.push({
-      name: fixedRoleGroupNames[groupName] || capitalize(groupName),
-      value: groupName,
-      options: groupOptions,
-    });
-  }
-  return groups.sort((a, b) => a.name.localeCompare(b.name));
-};
-
-interface RolePickerSubMenuProps {
-  options: Role[];
-  selectedOptions: Role[];
-  disabledOptions?: Role[];
-  onSelect: (option: Role) => void;
-  onClear?: () => void;
-}
-
-export const RolePickerSubMenu = ({
-  options,
-  selectedOptions,
-  disabledOptions,
-  onSelect,
-  onClear,
-}: RolePickerSubMenuProps): JSX.Element => {
-  const theme = useTheme2();
-  const styles = getSelectStyles(theme);
-  const customStyles = useStyles2(getStyles);
-
-  const onClearInternal = async () => {
-    if (onClear) {
-      onClear();
-    }
-  };
-
-  return (
-    <div className={customStyles.subMenu} aria-label="Role picker submenu">
-      <CustomScrollbar autoHide={false} autoHeightMax="300px" hideHorizontalTrack>
-        <div className={styles.optionBody}>
-          {options.map((option, i) => (
-            <RoleMenuOption
-              data={option}
-              key={i}
-              isSelected={
-                !!(
-                  option.uid &&
-                  (!!selectedOptions.find((opt) => opt.uid === option.uid) ||
-                    disabledOptions?.find((opt) => opt.uid === option.uid))
-                )
-              }
-              disabled={
-                !!(option.uid && disabledOptions?.find((opt) => opt.uid === option.uid)) || isNotDelegatable(option)
-              }
-              onChange={onSelect}
-              hideDescription
+          {Object.entries(rolesCollection).map(([groupId, collection]) => (
+            <RoleMenuGroupsSection
+              key={groupId}
+              roles={collection.roles}
+              renderedName={collection.renderedName}
+              showGroups={showGroups}
+              optionGroups={collection.optionGroup}
+              groupSelected={(group: string) => groupSelected(collection.groupType, group)}
+              groupPartiallySelected={(group: string) => groupPartiallySelected(collection.groupType, group)}
+              onGroupChange={(group: string) => onGroupChange(collection.groupType, group)}
+              subMenuNode={subMenuNode?.current!}
+              selectedOptions={selectedOptions}
+              onRoleChange={onChange}
+              onClearSubMenu={onClearSubMenu}
+              showOnLeftSubMenu={menuLeft}
             />
           ))}
+        </ScrollContainer>
+        <div className={customStyles.menuButtonRow}>
+          <Stack justifyContent="flex-end">
+            <Button size="sm" fill="text" onClick={onClearInternal} disabled={updateDisabled}>
+              <Trans i18nKey="role-picker.menu.clear-button">Clear all</Trans>
+            </Button>
+            <Button size="sm" onClick={onUpdateInternal} disabled={updateDisabled}>
+              {apply ? `Apply` : `Update`}
+            </Button>
+          </Stack>
         </div>
-      </CustomScrollbar>
-      <div className={customStyles.subMenuButtonRow}>
-        <HorizontalGroup justify="flex-end">
-          <Button size="sm" fill="text" onClick={onClearInternal}>
-            Clear
-          </Button>
-        </HorizontalGroup>
       </div>
+      <div ref={subMenuNode} />
     </div>
   );
 };
 
-interface RoleMenuOptionProps<T> {
-  data: Role;
-  onChange: (value: Role) => void;
-  isSelected?: boolean;
-  isFocused?: boolean;
-  disabled?: boolean;
-  hideDescription?: boolean;
+const filterCustomRoles = (option: Role) => !option.name?.startsWith('fixed:') && !option.name.startsWith('plugins:');
+const filterFixedRoles = (option: Role) => option.name?.startsWith('fixed:');
+const filterPluginsRoles = (option: Role) => option.name?.startsWith('plugins:');
+
+interface GroupsMap {
+  [key: string]: { roles: Role[]; name: string };
 }
 
-export const RoleMenuOption = React.forwardRef<HTMLDivElement, React.PropsWithChildren<RoleMenuOptionProps<any>>>(
-  ({ data, isFocused, isSelected, disabled, onChange, hideDescription }, ref) => {
-    const theme = useTheme2();
-    const styles = getSelectStyles(theme);
-    const customStyles = useStyles2(getStyles);
-
-    const wrapperClassName = cx(
-      styles.option,
-      isFocused && styles.optionFocused,
-      disabled && customStyles.menuOptionDisabled
-    );
-
-    const onChangeInternal = (event: FormEvent<HTMLElement>) => {
-      if (disabled) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      onChange(data);
+const convertRolesToGroupOptions = (roles: Role[]) => {
+  const groupsMap: GroupsMap = {};
+  roles.forEach((role) => {
+    const groupId = getRoleGroup(role);
+    const groupName = getRoleGroupName(role);
+    if (!groupsMap[groupId]) {
+      groupsMap[groupId] = { name: groupName, roles: [] };
+    }
+    groupsMap[groupId].roles.push(role);
+  });
+  const groups = Object.entries(groupsMap).map(([groupId, groupEntry]) => {
+    return {
+      name: fixedRoleGroupNames[groupId] || capitalize(groupEntry.name),
+      value: groupId,
+      options: groupEntry.roles.sort(sortRolesByName),
     };
-
-    return (
-      <div ref={ref} className={wrapperClassName} aria-label="Role picker option" onClick={onChangeInternal}>
-        <Checkbox
-          value={isSelected}
-          className={customStyles.menuOptionCheckbox}
-          onChange={onChangeInternal}
-          disabled={disabled}
-        />
-        <div className={cx(styles.optionBody, customStyles.menuOptionBody)}>
-          <span>{data.displayName || data.name}</span>
-          {!hideDescription && data.description && <div className={styles.optionDescription}>{data.description}</div>}
-        </div>
-        {data.description && (
-          <Tooltip content={data.description}>
-            <Icon name="info-circle" className={customStyles.menuOptionInfoSign} />
-          </Tooltip>
-        )}
-      </div>
-    );
-  }
-);
-
-RoleMenuOption.displayName = 'RoleMenuOption';
-
-interface RoleMenuGroupsOptionProps {
-  data: SelectableValue<string>;
-  onChange: (value: string) => void;
-  onClick?: (value: string) => void;
-  onOpenSubMenu?: (value: string) => void;
-  onCloseSubMenu?: (value: string) => void;
-  isSelected?: boolean;
-  partiallySelected?: boolean;
-  isFocused?: boolean;
-  disabled?: boolean;
-  children?: React.ReactNode;
-  root?: HTMLElement;
-}
-
-export const RoleMenuGroupOption = React.forwardRef<HTMLDivElement, RoleMenuGroupsOptionProps>(
-  (
-    {
-      data,
-      isFocused,
-      isSelected,
-      partiallySelected,
-      disabled,
-      onChange,
-      onClick,
-      onOpenSubMenu,
-      onCloseSubMenu,
-      children,
-      root,
-    },
-    ref
-  ) => {
-    const theme = useTheme2();
-    const styles = getSelectStyles(theme);
-    const customStyles = useStyles2(getStyles);
-
-    const wrapperClassName = cx(
-      styles.option,
-      isFocused && styles.optionFocused,
-      disabled && customStyles.menuOptionDisabled
-    );
-
-    const onChangeInternal = (event: FormEvent<HTMLElement>) => {
-      if (disabled) {
-        return;
-      }
-      if (data.value) {
-        onChange(data.value);
-      }
-    };
-
-    const onClickInternal = (event: FormEvent<HTMLElement>) => {
-      if (onClick) {
-        onClick(data.value!);
-      }
-    };
-
-    const onMouseEnter = () => {
-      if (onOpenSubMenu) {
-        onOpenSubMenu(data.value!);
-      }
-    };
-
-    const onMouseLeave = () => {
-      if (onCloseSubMenu) {
-        onCloseSubMenu(data.value!);
-      }
-    };
-
-    return (
-      <div onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
-        <div ref={ref} className={wrapperClassName} aria-label="Role picker option" onClick={onClickInternal}>
-          <Checkbox
-            value={isSelected}
-            className={cx(customStyles.menuOptionCheckbox, {
-              [customStyles.checkboxPartiallyChecked]: partiallySelected,
-            })}
-            onChange={onChangeInternal}
-            disabled={disabled}
-          />
-          <div className={cx(styles.optionBody, customStyles.menuOptionBody)}>
-            <span>{data.displayName || data.name}</span>
-            <span className={customStyles.menuOptionExpand}></span>
-          </div>
-          {root && children && (
-            <Portal className={customStyles.subMenuPortal} root={root}>
-              {children}
-            </Portal>
-          )}
-        </div>
-      </div>
-    );
-  }
-);
-
-RoleMenuGroupOption.displayName = 'RoleMenuGroupOption';
-
-const getRoleGroup = (role: Role) => {
-  return role.group ?? 'Other';
+  });
+  return groups;
 };
 
-const capitalize = (s: string): string => {
-  return s.slice(0, 1).toUpperCase() + s.slice(1);
+const getRoleGroup = (role: Role) => {
+  const prefix = getRolePrefix(role);
+  const name = getRoleGroupName(role);
+  return `${prefix}:${name}`;
+};
+
+const getRoleGroupName = (role: Role) => {
+  return role.group || 'Other';
+};
+
+const getRolePrefix = (role: Role) => {
+  const prefixEnd = role.name.indexOf(':');
+  if (prefixEnd < 0) {
+    return 'unknown';
+  }
+  return role.name.substring(0, prefixEnd);
 };
 
 const sortRolesByName = (a: Role, b: Role) => a.name.localeCompare(b.name);
 
-const isNotDelegatable = (role: Role) => {
-  return role.delegatable !== undefined && !role.delegatable;
-};
-
-export const getStyles = (theme: GrafanaTheme2) => {
-  return {
-    menuWrapper: css`
-      display: flex;
-      max-height: 650px;
-      position: absolute;
-      z-index: ${theme.zIndex.dropdown};
-      overflow: hidden;
-      min-width: auto;
-    `,
-    menu: css`
-      min-width: 260px;
-
-      & > div {
-        padding-top: ${theme.spacing(1)};
-      }
-    `,
-    subMenu: css`
-      height: 100%;
-      min-width: 260px;
-      display: flex;
-      flex-direction: column;
-      border-left-style: solid;
-      border-left-width: 1px;
-      border-left-color: ${theme.components.input.borderColor};
-
-      & > div {
-        padding-top: ${theme.spacing(1)};
-      }
-    `,
-    groupHeader: css`
-      padding: ${theme.spacing(0, 4)};
-      display: flex;
-      align-items: center;
-      color: ${theme.colors.text.primary};
-      font-weight: ${theme.typography.fontWeightBold};
-    `,
-    container: css`
-      padding: ${theme.spacing(1)};
-      border: 1px ${theme.colors.border.weak} solid;
-      border-radius: ${theme.shape.borderRadius(1)};
-      background-color: ${theme.colors.background.primary};
-      z-index: ${theme.zIndex.modal};
-    `,
-    menuSection: css`
-      margin-bottom: ${theme.spacing(2)};
-    `,
-    menuOptionCheckbox: css`
-      display: flex;
-      margin: ${theme.spacing(0, 1, 0, 0.25)};
-    `,
-    menuButtonRow: css`
-      background-color: ${theme.colors.background.primary};
-      padding: ${theme.spacing(1)};
-    `,
-    menuOptionBody: css`
-      font-weight: ${theme.typography.fontWeightRegular};
-      padding: ${theme.spacing(0, 1.5, 0, 0)};
-    `,
-    menuOptionDisabled: css`
-      color: ${theme.colors.text.disabled};
-      cursor: not-allowed;
-    `,
-    menuOptionExpand: css`
-      position: absolute;
-      right: ${theme.spacing(1.25)};
-      color: ${theme.colors.text.disabled};
-
-      &:after {
-        content: '>';
-      }
-    `,
-    menuOptionInfoSign: css`
-      color: ${theme.colors.text.disabled};
-    `,
-    builtInRoleSelector: css`
-      margin: ${theme.spacing(1, 1.25, 1, 1)};
-    `,
-    subMenuPortal: css`
-      height: 100%;
-      > div {
-        height: 100%;
-      }
-    `,
-    subMenuButtonRow: css`
-      background-color: ${theme.colors.background.primary};
-      padding: ${theme.spacing(1)};
-    `,
-    checkboxPartiallyChecked: css`
-      input {
-        &:checked + span {
-          &:after {
-            border-width: 0 3px 0px 0;
-            transform: rotate(90deg);
-          }
-        }
-      }
-    `,
-  };
+const capitalize = (s: string): string => {
+  return s.slice(0, 1).toUpperCase() + s.slice(1);
 };

@@ -101,7 +101,7 @@ export class Node {
   }
 
   getOptimizedInputEdges(): Edge[] {
-    const toBeRemoved: any[] = [];
+    const toBeRemoved: Edge[] = [];
     this.inputEdges.forEach((e) => {
       const inputEdgesNodes = e.inputNode?.inputEdges.map((e) => e.inputNode);
 
@@ -118,7 +118,7 @@ export class Node {
 }
 
 export class Graph {
-  nodes: any = {};
+  nodes: Record<string, Node> = {};
 
   constructor() {}
 
@@ -183,17 +183,76 @@ export class Graph {
     const edges: Edge[] = [];
     inputNodes.forEach((input) => {
       outputNodes.forEach((output) => {
+        if (this.willCreateCycle(input, output)) {
+          throw Error(`cannot link ${input.name} to ${output.name} since it would create a cycle`);
+        }
         edges.push(this.createEdge().link(input, output));
       });
     });
     return edges;
   }
 
+  descendants(nodes: Node[] | string[]): Set<Node> {
+    if (!nodes.length) {
+      return new Set();
+    }
+
+    const initialNodes = new Set(
+      isStringArray(nodes) ? nodes.map((n) => this.nodes[n]).filter((n) => n !== undefined) : nodes
+    );
+
+    return this.descendantsRecursive(initialNodes);
+  }
+
+  private descendantsRecursive(nodes: Set<Node>, descendants = new Set<Node>()): Set<Node> {
+    for (const node of nodes) {
+      const newDescendants = new Set<Node>();
+      for (const { inputNode } of node.inputEdges) {
+        if (inputNode && !descendants.has(inputNode)) {
+          descendants.add(inputNode);
+          newDescendants.add(inputNode);
+        }
+      }
+
+      this.descendantsRecursive(newDescendants, descendants);
+    }
+
+    return descendants;
+  }
+
+  private willCreateCycle(input: Node, output: Node): boolean {
+    if (input === output) {
+      return true;
+    }
+
+    // Perform a DFS to check if the input node is reachable from the output node
+    const visited = new Set<Node>();
+    const stack = [output];
+
+    while (stack.length) {
+      const current = stack.pop()!;
+      if (current === input) {
+        return true;
+      }
+
+      visited.add(current);
+
+      for (const edge of current.outputEdges) {
+        const next = edge.outputNode;
+        if (next && !visited.has(next)) {
+          stack.push(next);
+        }
+      }
+    }
+
+    return false;
+  }
+
   createEdge(): Edge {
     return new Edge();
   }
 
-  getNode(name: string): Node {
+  getNode(name: string): Node | undefined {
     return this.nodes[name];
   }
 }
@@ -212,3 +271,7 @@ export const printGraph = (g: Graph) => {
     console.log(`${n.name}:\n - links to:   ${outputEdges}\n - links from: ${inputEdges}`);
   });
 };
+
+function isStringArray(arr: unknown[]): arr is string[] {
+  return arr.length > 0 && typeof arr[0] === 'string';
+}

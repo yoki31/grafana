@@ -1,13 +1,16 @@
-import React, { useState } from 'react';
-import { HorizontalGroup, InlineLabel, useStyles2 } from '@grafana/ui';
-import { GrafanaTheme2 } from '@grafana/data';
 import { css, cx } from '@emotion/css';
+import { Fragment, useState } from 'react';
+
+import { GrafanaTheme2 } from '@grafana/data';
+import { Stack, InlineLabel, useStyles2 } from '@grafana/ui';
+
 import { FuncInstance } from '../gfunc';
-import { EditableParam, FunctionParamEditor } from './FunctionParamEditor';
 import { actions } from '../state/actions';
-import { FunctionEditor } from './FunctionEditor';
-import { mapFuncInstanceToParams } from './helpers';
 import { useDispatch } from '../state/context';
+
+import { FunctionEditor } from './FunctionEditor';
+import { EditableParam, FunctionParamEditor } from './FunctionParamEditor';
+import { mapFuncInstanceToParams } from './helpers';
 
 export type FunctionEditorProps = {
   func: FuncInstance;
@@ -34,10 +37,12 @@ export function GraphiteFunctionEditor({ func }: FunctionEditorProps) {
   return (
     <div
       className={cx(styles.container, { [styles.error]: func.def.unknown })}
+      onBlur={() => setIsMouseOver(false)}
+      onFocus={() => setIsMouseOver(true)}
       onMouseOver={() => setIsMouseOver(true)}
-      onMouseLeave={() => setIsMouseOver(false)}
+      onMouseOut={() => setIsMouseOver(false)}
     >
-      <HorizontalGroup spacing="none">
+      <Stack gap={0} alignItems={'baseline'}>
         <FunctionEditor
           func={func}
           onMoveLeft={() => {
@@ -50,10 +55,12 @@ export function GraphiteFunctionEditor({ func }: FunctionEditorProps) {
             dispatch(actions.removeFunction({ func }));
           }}
         />
-        <InlineLabel className={styles.label}>(</InlineLabel>
+        <InlineLabel className={styles.label} width={'auto'}>
+          (
+        </InlineLabel>
         {params.map((editableParam: EditableParam, index: number) => {
           return (
-            <React.Fragment key={index}>
+            <Fragment key={index}>
               <FunctionParamEditor
                 autofocus={index === 0 && func.added}
                 editableParam={editableParam}
@@ -67,11 +74,13 @@ export function GraphiteFunctionEditor({ func }: FunctionEditorProps) {
                 onExpandedChange={setIsExpanded}
               />
               {index !== params.length - 1 ? ',' : ''}
-            </React.Fragment>
+            </Fragment>
           );
         })}
-        <InlineLabel className={styles.label}>)</InlineLabel>
-      </HorizontalGroup>
+        <InlineLabel className={styles.label} width={'auto'}>
+          )
+        </InlineLabel>
+      </Stack>
     </div>
   );
 }
@@ -79,14 +88,14 @@ export function GraphiteFunctionEditor({ func }: FunctionEditorProps) {
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css({
     backgroundColor: theme.colors.background.secondary,
-    borderRadius: theme.shape.borderRadius(),
+    borderRadius: theme.shape.radius.default,
     marginRight: theme.spacing(0.5),
     padding: `0 ${theme.spacing(1)}`,
     height: `${theme.v1.spacing.formInputHeight}px`,
   }),
-  error: css`
-    border: 1px solid ${theme.colors.error.main};
-  `,
+  error: css({
+    border: `1px solid ${theme.colors.error.main}`,
+  }),
   label: css({
     padding: 0,
     margin: 0,

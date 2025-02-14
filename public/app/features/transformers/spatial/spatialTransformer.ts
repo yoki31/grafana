@@ -1,14 +1,16 @@
-import { ArrayVector, DataFrame, DataTransformerID, DataTransformerInfo, FieldType } from '@grafana/data';
+import { mergeMap, from } from 'rxjs';
+
+import { DataFrame, DataTransformerID, DataTransformerInfo, FieldType } from '@grafana/data';
 import { createGeometryCollection, createLineBetween } from 'app/features/geo/format/utils';
 import { getGeometryField, getLocationMatchers } from 'app/features/geo/utils/location';
-import { mergeMap, from } from 'rxjs';
+
 import { SpatialOperation, SpatialAction, SpatialTransformOptions } from './models.gen';
 import { doGeomeryCalculation, toLineString } from './utils';
 
 export const spatialTransformer: DataTransformerInfo<SpatialTransformOptions> = {
   id: DataTransformerID.spatial,
   name: 'Spatial operations',
-  description: 'Apply spatial operations to query results',
+  description: 'Apply spatial operations to query results.',
   defaultOptions: {},
 
   operator: (options) => (source) => source.pipe(mergeMap((data) => from(doSetGeometry(data, options)))),
@@ -62,7 +64,7 @@ async function doSetGeometry(frames: DataFrame[], options: SpatialTransformOptio
                   ...info.field,
                   name,
                   type: FieldType.geo,
-                  values: new ArrayVector([toLineString(info.field)]),
+                  values: [toLineString(info.field)],
                 },
               ],
             };

@@ -1,66 +1,73 @@
-import React from 'react';
-import { useStyles2 } from '@grafana/ui';
-import { GrafanaTheme2, PanelData, PanelPluginMeta, PanelModel, VisualizationSuggestion } from '@grafana/data';
 import { css } from '@emotion/css';
-import { VizTypeChangeDetails } from './types';
-import { VisualizationSuggestionCard } from './VisualizationSuggestionCard';
-import { getAllSuggestions } from '../../state/getAllSuggestions';
-import { useAsync, useLocalStorage } from 'react-use';
+import { useMemo } from 'react';
+import { useAsync } from 'react-use';
 import AutoSizer from 'react-virtualized-auto-sizer';
 
+import { GrafanaTheme2, PanelData, PanelModel, VisualizationSuggestion } from '@grafana/data';
+import { useStyles2 } from '@grafana/ui';
+
+import { getAllSuggestions } from '../../state/getAllSuggestions';
+
+import { VisualizationSuggestionCard } from './VisualizationSuggestionCard';
+import { VizTypeChangeDetails } from './types';
+
 export interface Props {
-  current: PanelPluginMeta;
+  searchQuery: string;
+  onChange: (options: VizTypeChangeDetails) => void;
   data?: PanelData;
   panel?: PanelModel;
-  onChange: (options: VizTypeChangeDetails) => void;
-  searchQuery: string;
-  onClose: () => void;
+  trackSearch?: (q: string, count: number) => void;
 }
 
-export function VisualizationSuggestions({ onChange, data, panel, searchQuery }: Props) {
+export function VisualizationSuggestions({ searchQuery, onChange, data, panel, trackSearch }: Props) {
   const styles = useStyles2(getStyles);
   const { value: suggestions } = useAsync(() => getAllSuggestions(data, panel), [data, panel]);
-  // temp test
-  const [showTitle, setShowTitle] = useLocalStorage(`VisualizationSuggestions.showTitle`, false);
-  const filteredSuggestions = filterSuggestionsBySearch(searchQuery, suggestions);
+  const filteredSuggestions = useMemo(() => {
+    const result = filterSuggestionsBySearch(searchQuery, suggestions);
+    if (trackSearch) {
+      trackSearch(searchQuery, result.length);
+    }
+    return result;
+  }, [searchQuery, suggestions, trackSearch]);
 
   return (
-    <AutoSizer disableHeight style={{ width: '100%', height: '100%' }}>
-      {({ width }) => {
-        if (!width) {
-          return null;
-        }
+    // This div is needed in some places to make AutoSizer work
+    <div>
+      <AutoSizer disableHeight style={{ width: '100%', height: '100%' }}>
+        {({ width }) => {
+          if (!width) {
+            return null;
+          }
 
-        const columnCount = Math.floor(width / 170);
-        const spaceBetween = 8 * (columnCount! - 1);
-        const previewWidth = (width - spaceBetween) / columnCount!;
+          width = width - 1;
+          const columnCount = Math.floor(width / 200);
+          const spaceBetween = 8 * (columnCount! - 1);
+          const previewWidth = Math.floor((width - spaceBetween) / columnCount!);
 
-        return (
-          <div>
-            <div className={styles.filterRow}>
-              <div className={styles.infoText} onClick={() => setShowTitle(!showTitle)}>
-                Based on current data
+          return (
+            <div>
+              <div className={styles.filterRow}>
+                <div className={styles.infoText}>Based on current data</div>
+              </div>
+              <div className={styles.grid} style={{ gridTemplateColumns: `repeat(auto-fill, ${previewWidth}px)` }}>
+                {filteredSuggestions.map((suggestion, index) => (
+                  <VisualizationSuggestionCard
+                    key={index}
+                    data={data!}
+                    suggestion={suggestion}
+                    onChange={onChange}
+                    width={previewWidth - 1}
+                  />
+                ))}
+                {searchQuery && filteredSuggestions.length === 0 && (
+                  <div className={styles.infoText}>No results matched your query</div>
+                )}
               </div>
             </div>
-            <div className={styles.grid} style={{ gridTemplateColumns: `repeat(auto-fill, ${previewWidth - 1}px)` }}>
-              {filteredSuggestions.map((suggestion, index) => (
-                <VisualizationSuggestionCard
-                  key={index}
-                  data={data!}
-                  suggestion={suggestion}
-                  onChange={onChange}
-                  width={previewWidth}
-                  showTitle={showTitle}
-                />
-              ))}
-              {searchQuery && filteredSuggestions.length === 0 && (
-                <div className={styles.infoText}>No results matched your query</div>
-              )}
-            </div>
-          </div>
-        );
-      }}
-    </AutoSizer>
+          );
+        }}
+      </AutoSizer>
+    </div>
   );
 }
 

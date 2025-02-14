@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
-import { Story } from '@storybook/react';
+import { Meta, StoryFn } from '@storybook/react';
+import { useEffect, useState } from 'react';
+
 import { VizLayout } from './VizLayout';
 
-export default {
+const meta: Meta = {
   title: 'Visualizations/VizLayout',
   component: VizLayout,
-  decorators: [withCenteredStory],
   parameters: {
     docs: {},
     controls: {
@@ -26,7 +25,7 @@ const createArray = (legendItems: number) => {
   return newArray;
 };
 
-export const BottomLegend: Story = ({ height, width, legendItems }) => {
+export const BottomLegend: StoryFn = ({ height, width, legendItems }) => {
   const [items, setItems] = useState(createArray(legendItems));
   useEffect(() => {
     setItems(createArray(legendItems));
@@ -56,7 +55,7 @@ BottomLegend.args = {
   legendItems: 2,
 };
 
-export const RightLegend: Story = ({ height, width, legendItems, legendWidth }) => {
+export const RightLegend: StoryFn = ({ height, width, legendItems, legendWidth }) => {
   const [items, setItems] = useState(createArray(legendItems));
   useEffect(() => {
     setItems(createArray(legendItems));
@@ -86,3 +85,5 @@ RightLegend.args = {
   legendWidth: 100,
   legendItems: 2,
 };
+
+export default meta;

@@ -1,5 +1,7 @@
-import { DataQuery, toDataFrameDTO, DataFrame } from '@grafana/data';
 import { FetchError, FetchResponse } from 'src/services';
+
+import { DataQuery, toDataFrameDTO, DataFrame } from '@grafana/data';
+
 import { BackendDataSourceResponse, cachedResponseNotice, toDataQueryResponse, toTestingStatus } from './queryResponse';
 
 const resp = {
@@ -45,13 +47,14 @@ const resp = {
       },
     },
   },
-} as any as FetchResponse<BackendDataSourceResponse>;
+} as unknown as FetchResponse<BackendDataSourceResponse>;
 
 const resWithError = {
   data: {
     results: {
       A: {
         error: 'Hello Error',
+        status: 400,
         frames: [
           {
             schema: {
@@ -73,7 +76,7 @@ const resWithError = {
       },
     },
   },
-} as any as FetchResponse<BackendDataSourceResponse>;
+} as unknown as FetchResponse<BackendDataSourceResponse>;
 
 const emptyResults = {
   data: { results: { '': { refId: '' } } },
@@ -89,15 +92,15 @@ describe('Query Response parser', () => {
 
     const norm = frames.map((f) => toDataFrameDTO(f));
     expect(norm).toMatchInlineSnapshot(`
-      Array [
-        Object {
-          "fields": Array [
-            Object {
-              "config": Object {},
+      [
+        {
+          "fields": [
+            {
+              "config": {},
               "labels": undefined,
               "name": "time",
               "type": "time",
-              "values": Array [
+              "values": [
                 1611767228473,
                 1611767240473,
                 1611767252473,
@@ -106,12 +109,12 @@ describe('Query Response parser', () => {
                 1611767288473,
               ],
             },
-            Object {
-              "config": Object {},
+            {
+              "config": {},
               "labels": undefined,
               "name": "A-series",
               "type": "number",
-              "values": Array [
+              "values": [
                 1,
                 20,
                 90,
@@ -125,14 +128,14 @@ describe('Query Response parser', () => {
           "name": undefined,
           "refId": "A",
         },
-        Object {
-          "fields": Array [
-            Object {
-              "config": Object {},
+        {
+          "fields": [
+            {
+              "config": {},
               "labels": undefined,
               "name": "time",
               "type": "time",
-              "values": Array [
+              "values": [
                 1611767228473,
                 1611767240473,
                 1611767252473,
@@ -141,12 +144,12 @@ describe('Query Response parser', () => {
                 1611767288473,
               ],
             },
-            Object {
-              "config": Object {},
+            {
+              "config": {},
               "labels": undefined,
               "name": "B-series",
               "type": "number",
-              "values": Array [
+              "values": [
                 1,
                 20,
                 90,
@@ -174,15 +177,15 @@ describe('Query Response parser', () => {
 
     const norm = frames.map((f) => toDataFrameDTO(f));
     expect(norm).toMatchInlineSnapshot(`
-      Array [
-        Object {
-          "fields": Array [
-            Object {
-              "config": Object {},
+      [
+        {
+          "fields": [
+            {
+              "config": {},
               "labels": undefined,
               "name": "time",
               "type": "time",
-              "values": Array [
+              "values": [
                 1611767228473,
                 1611767240473,
                 1611767252473,
@@ -191,12 +194,12 @@ describe('Query Response parser', () => {
                 1611767288473,
               ],
             },
-            Object {
-              "config": Object {},
+            {
+              "config": {},
               "labels": undefined,
               "name": "B-series",
               "type": "number",
-              "values": Array [
+              "values": [
                 1,
                 20,
                 90,
@@ -210,14 +213,14 @@ describe('Query Response parser', () => {
           "name": undefined,
           "refId": "B",
         },
-        Object {
-          "fields": Array [
-            Object {
-              "config": Object {},
+        {
+          "fields": [
+            {
+              "config": {},
               "labels": undefined,
               "name": "time",
               "type": "time",
-              "values": Array [
+              "values": [
                 1611767228473,
                 1611767240473,
                 1611767252473,
@@ -226,12 +229,12 @@ describe('Query Response parser', () => {
                 1611767288473,
               ],
             },
-            Object {
-              "config": Object {},
+            {
+              "config": {},
               "labels": undefined,
               "name": "A-series",
               "type": "number",
-              "values": Array [
+              "values": [
                 1,
                 20,
                 90,
@@ -259,13 +262,13 @@ describe('Query Response parser', () => {
       data: {
         results: {
           X: {
-            series: [{ name: 'Requests/s', points: [[13.594958983547151, 1611839862951]] }] as any,
+            series: [{ target: '', datapoints: [[13.594958983547151, 1611839862951]] }],
           },
           B: {
-            series: [{ name: 'Requests/s', points: [[13.594958983547151, 1611839862951]] }] as any,
+            series: [{ target: '', datapoints: [[13.594958983547151, 1611839862951]] }],
           },
           A: {
-            series: [{ name: 'Requests/s', points: [[13.594958983547151, 1611839862951]] }] as any,
+            series: [{ target: '', datapoints: [[13.594958983547151, 1611839862951]] }],
           },
         },
       },
@@ -277,8 +280,84 @@ describe('Query Response parser', () => {
     expect(ids).toEqual(['A', 'B']);
   });
 
+  test('should handle a success-response without traceIds', () => {
+    const input = {
+      data: {
+        results: {
+          A: {
+            frames: [],
+          },
+        },
+      },
+    } as unknown as FetchResponse<BackendDataSourceResponse>;
+    const res = toDataQueryResponse(input);
+    expect(res.traceIds).toBeUndefined();
+  });
+
+  test('should handle a success-response with traceIds', () => {
+    const input = {
+      data: {
+        results: {
+          A: {
+            frames: [],
+          },
+        },
+      },
+      traceId: 'traceId1',
+    } as unknown as FetchResponse<BackendDataSourceResponse>;
+    const res = toDataQueryResponse(input);
+    expect(res.traceIds).toStrictEqual(['traceId1']);
+  });
+
+  test('should handle an error-response without traceIds', () => {
+    const input = {
+      data: {
+        results: {
+          A: {
+            error: 'error from A',
+            status: 400,
+          },
+          B: {
+            error: 'error from B',
+            status: 400,
+          },
+        },
+      },
+    } as unknown as FetchResponse<BackendDataSourceResponse>;
+    const res = toDataQueryResponse(input);
+    expect(res.traceIds).toBeUndefined();
+    expect(res.error?.traceId).toBeUndefined();
+    expect(res.errors).toHaveLength(2);
+    expect(res.errors?.[0].traceId).toBeUndefined();
+    expect(res.errors?.[1].traceId).toBeUndefined();
+  });
+
+  test('should handle an error-response with traceIds', () => {
+    const input = {
+      data: {
+        results: {
+          A: {
+            error: 'error from A',
+            status: 400,
+          },
+          B: {
+            error: 'error from B',
+            status: 400,
+          },
+        },
+      },
+      traceId: 'traceId1',
+    } as unknown as FetchResponse<BackendDataSourceResponse>;
+    const res = toDataQueryResponse(input);
+    expect(res.traceIds).toStrictEqual(['traceId1']);
+    expect(res.error?.traceId).toBe('traceId1');
+    expect(res.errors).toHaveLength(2);
+    expect(res.errors?.[0].traceId).toBe('traceId1');
+    expect(res.errors?.[1].traceId).toBe('traceId1');
+  });
+
   describe('Cache notice', () => {
-    let resp: any;
+    let resp: FetchResponse<BackendDataSourceResponse>;
 
     beforeEach(() => {
       resp = {
@@ -298,26 +377,29 @@ describe('Query Response parser', () => {
       };
     });
 
-    test('adds notice for responses with X-Cache: HIT header', () => {
+    test('adds notice and cached boolean for responses with X-Cache: HIT header', () => {
       const queries: DataQuery[] = [{ refId: 'A' }];
       resp.headers.set('X-Cache', 'HIT');
-      expect(toDataQueryResponse(resp, queries).data[0].meta.notices).toStrictEqual([cachedResponseNotice]);
+      const meta = toDataQueryResponse(resp, queries).data[0].meta;
+      expect(meta.notices).toStrictEqual([cachedResponseNotice]);
+      expect(meta.isCachedResponse).toBeTruthy();
     });
 
     test('does not remove existing notices', () => {
       const queries: DataQuery[] = [{ refId: 'A' }];
       resp.headers.set('X-Cache', 'HIT');
-      resp.data.results.A.frames[0].schema.meta = { notices: [{ severity: 'info', text: 'Example' }] };
+      resp.data.results.A.frames![0].schema!.meta = { notices: [{ severity: 'info', text: 'Example' }] };
       expect(toDataQueryResponse(resp, queries).data[0].meta.notices).toStrictEqual([
         { severity: 'info', text: 'Example' },
         cachedResponseNotice,
       ]);
     });
 
-    test('does not add notice for responses with X-Cache: MISS header', () => {
+    test('does not add notice or cached response boolean for responses with X-Cache: MISS header', () => {
       const queries: DataQuery[] = [{ refId: 'A' }];
       resp.headers.set('X-Cache', 'MISS');
       expect(toDataQueryResponse(resp, queries).data[0].meta?.notices).toBeUndefined();
+      expect(toDataQueryResponse(resp, queries).data[0].meta?.isCachedResponse).toBeUndefined();
     });
 
     test('does not add notice for responses without X-Cache header', () => {
@@ -346,31 +428,39 @@ describe('Query Response parser', () => {
     // }
     const res = toDataQueryResponse(resWithError);
     expect(res.error).toMatchInlineSnapshot(`
-      Object {
+      {
         "message": "Hello Error",
         "refId": "A",
+        "status": 400,
       }
     `);
+    expect(res.errors).toEqual([
+      {
+        message: 'Hello Error',
+        refId: 'A',
+        status: 400,
+      },
+    ]);
 
     const norm = res.data.map((f) => toDataFrameDTO(f));
     expect(norm).toMatchInlineSnapshot(`
-      Array [
-        Object {
-          "fields": Array [
-            Object {
-              "config": Object {},
+      [
+        {
+          "fields": [
+            {
+              "config": {},
               "labels": undefined,
               "name": "numbers",
               "type": "number",
-              "values": Array [
+              "values": [
                 1,
                 3,
               ],
             },
           ],
-          "meta": Object {
-            "notices": Array [
-              Object {
+          "meta": {
+            "notices": [
+              {
                 "severity": 2,
                 "text": "Text",
               },

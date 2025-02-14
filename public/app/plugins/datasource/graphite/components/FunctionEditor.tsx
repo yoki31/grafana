@@ -1,9 +1,12 @@
-import React from 'react';
-import { Icon, Tooltip, useStyles2 } from '@grafana/ui';
-import { FunctionEditorControls, FunctionEditorControlsProps } from './FunctionEditorControls';
-import { FuncInstance } from '../gfunc';
 import { css } from '@emotion/css';
+import { memo } from 'react';
+
 import { GrafanaTheme2 } from '@grafana/data';
+import { Icon, Tooltip, useStyles2, type PopoverContent } from '@grafana/ui';
+
+import { FuncInstance } from '../gfunc';
+
+import { FunctionEditorControls, FunctionEditorControlsProps } from './FunctionEditorControls';
 
 interface FunctionEditorProps extends FunctionEditorControlsProps {
   func: FuncInstance;
@@ -11,32 +14,32 @@ interface FunctionEditorProps extends FunctionEditorControlsProps {
 
 const getStyles = (theme: GrafanaTheme2) => {
   return {
-    icon: css`
-      margin-right: ${theme.spacing(0.5)};
-    `,
+    icon: css({
+      marginRight: theme.spacing(0.5),
+    }),
     label: css({
       fontWeight: theme.typography.fontWeightMedium,
-      fontSize: theme.typography.bodySmall.fontSize, // to match .gf-form-label
+      fontSize: theme.typography.bodySmall.fontSize,
       cursor: 'pointer',
       display: 'inline-block',
     }),
   };
 };
 
-const FunctionEditor: React.FC<FunctionEditorProps> = ({ onMoveLeft, onMoveRight, func, ...props }) => {
+const FunctionEditor = ({ onMoveLeft, onMoveRight, func, ...props }: FunctionEditorProps) => {
   const styles = useStyles2(getStyles);
 
-  const renderContent = ({ updatePopperPosition }: any) => (
+  const renderContent: PopoverContent = ({ updatePopperPosition }) => (
     <FunctionEditorControls
       {...props}
       func={func}
       onMoveLeft={() => {
         onMoveLeft(func);
-        updatePopperPosition();
+        updatePopperPosition?.();
       }}
       onMoveRight={() => {
         onMoveRight(func);
-        updatePopperPosition();
+        updatePopperPosition?.();
       }}
     />
   );
@@ -55,7 +58,7 @@ const FunctionEditor: React.FC<FunctionEditorProps> = ({ onMoveLeft, onMoveRight
   );
 };
 
-const TooltipContent = React.memo(() => {
+const TooltipContent = memo(() => {
   return (
     <span>
       This function is not supported. Check your function for typos and{' '}

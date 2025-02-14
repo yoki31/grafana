@@ -1,19 +1,19 @@
-import React, { PureComponent } from 'react';
+import { PureComponent } from 'react';
 
-import { getTemplateSrv } from '@grafana/runtime';
 import { QueryEditorProps } from '@grafana/data';
+import { getTemplateSrv } from '@grafana/runtime';
 
-import { VariableQueryField } from './';
+import CloudMonitoringDatasource from '../datasource';
 import { extractServicesFromMetricDescriptors, getLabelKeys, getMetricTypes } from '../functions';
+import { CloudMonitoringQuery, MetricFindQueryTypes } from '../types/query';
 import {
   CloudMonitoringOptions,
-  CloudMonitoringQuery,
   CloudMonitoringVariableQuery,
   MetricDescriptor,
-  MetricFindQueryTypes,
   VariableQueryData,
-} from '../types';
-import CloudMonitoringDatasource from '../datasource';
+} from '../types/types';
+
+import { VariableQueryField } from './';
 
 export type Props = QueryEditorProps<
   CloudMonitoringDatasource,
@@ -56,19 +56,17 @@ export class CloudMonitoringVariableQueryEditor extends PureComponent<Props, Var
 
   constructor(props: Props) {
     super(props);
-    this.state = Object.assign(
-      this.defaults,
-      { projectName: this.props.datasource.getDefaultProject() },
-      this.props.query
-    );
+    this.state = Object.assign(this.defaults, this.props.query);
   }
 
   async componentDidMount() {
+    await this.props.datasource.ensureGCEDefaultProject();
+    const projectName = this.props.query.projectName || this.props.datasource.getDefaultProject();
     const projects = (await this.props.datasource.getProjects()) as MetricDescriptor[];
     const metricDescriptors = await this.props.datasource.getMetricTypes(
       this.props.query.projectName || this.props.datasource.getDefaultProject()
     );
-    const services = extractServicesFromMetricDescriptors(metricDescriptors).map((m: any) => ({
+    const services = extractServicesFromMetricDescriptors(metricDescriptors).map((m) => ({
       value: m.service,
       label: m.serviceShortName,
     }));
@@ -87,18 +85,19 @@ export class CloudMonitoringVariableQueryEditor extends PureComponent<Props, Var
       getTemplateSrv().replace(selectedService)
     );
 
-    const sloServices = await this.props.datasource.getSLOServices(this.state.projectName);
+    const sloServices = await this.props.datasource.getSLOServices(projectName);
 
-    const state: any = {
+    const state = {
       services,
       selectedService,
       metricTypes,
       selectedMetricType,
       metricDescriptors,
       projects,
-      ...(await this.getLabels(selectedMetricType, this.state.projectName)),
+      ...(await this.getLabels(selectedMetricType, projectName)),
       sloServices,
       loading: false,
+      projectName,
     };
     this.setState(state, () => this.onPropsChange());
   }
@@ -109,7 +108,7 @@ export class CloudMonitoringVariableQueryEditor extends PureComponent<Props, Var
   };
 
   async onQueryTypeChange(queryType: string) {
-    const state: any = {
+    const state = {
       selectedQueryType: queryType,
       ...(await this.getLabels(this.state.selectedMetricType, this.state.projectName, queryType)),
     };
@@ -149,7 +148,7 @@ export class CloudMonitoringVariableQueryEditor extends PureComponent<Props, Var
       getTemplateSrv().replace(this.state.selectedMetricType),
       getTemplateSrv().replace(service)
     );
-    const state: any = {
+    const state = {
       selectedService: service,
       metricTypes,
       selectedMetricType,
@@ -159,9 +158,9 @@ export class CloudMonitoringVariableQueryEditor extends PureComponent<Props, Var
   }
 
   async onMetricTypeChange(metricType: string) {
-    const state: any = {
+    const state = {
       selectedMetricType: metricType,
-      ...(await this.getLabels(metricType, this.state.projectName)),
+      ...(await this.getLabels(getTemplateSrv().replace(metricType), this.state.projectName)),
     };
     this.setState(state, () => this.onPropsChange());
   }
@@ -196,7 +195,7 @@ export class CloudMonitoringVariableQueryEditor extends PureComponent<Props, Var
       expanded: false,
       options: getTemplateSrv()
         .getVariables()
-        .map((v: any) => ({
+        .map((v) => ({
           value: `$${v.name}`,
           label: `$${v.name}`,
         })),
@@ -279,6 +278,7 @@ export class CloudMonitoringVariableQueryEditor extends PureComponent<Props, Var
             />
           </>
         );
+      case MetricFindQueryTypes.Services:
       case MetricFindQueryTypes.SLOServices:
         return (
           <>
@@ -323,14 +323,12 @@ export class CloudMonitoringVariableQueryEditor extends PureComponent<Props, Var
   render() {
     if (this.state.loading) {
       return (
-        <div className="gf-form max-width-21">
-          <span className="gf-form-label width-10 query-keyword">Query Type</span>
-          <div className="gf-form-select-wrapper max-width-12">
-            <select className="gf-form-input">
-              <option>Loading...</option>
-            </select>
-          </div>
-        </div>
+        <VariableQueryField
+          value={'loading'}
+          options={[{ value: 'loading', label: 'Loading...' }]}
+          onChange={(value) => null}
+          label="Query Type"
+        />
       );
     }
 

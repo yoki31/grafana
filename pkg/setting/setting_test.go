@@ -2,20 +2,22 @@ package setting
 
 import (
 	"bufio"
-	"math/rand"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 	"gopkg.in/ini.v1"
+
+	"github.com/grafana/grafana/pkg/infra/log"
+	"github.com/grafana/grafana/pkg/util/osutil"
 )
 
 const (
@@ -32,6 +34,7 @@ func TestLoadingSettings(t *testing.T) {
 
 		require.Equal(t, "admin", cfg.AdminUser)
 		require.Equal(t, "http://localhost:3000/", cfg.RendererCallbackUrl)
+		require.Equal(t, "TLS1.2", cfg.MinTLSVersion)
 	})
 
 	t.Run("default.ini should have no semi-colon commented entries", func(t *testing.T) {
@@ -54,48 +57,58 @@ func TestLoadingSettings(t *testing.T) {
 	})
 
 	t.Run("sample.ini should load successfully", func(t *testing.T) {
-		customInitPath := CustomInitPath
-		CustomInitPath = "conf/sample.ini"
+		oldCustomInitPath := customInitPath
+		customInitPath = "conf/sample.ini"
 		cfg := NewCfg()
 		err := cfg.Load(CommandLineArgs{HomePath: "../../"})
 		require.Nil(t, err)
 		// Restore CustomInitPath to avoid side effects.
-		CustomInitPath = customInitPath
+		customInitPath = oldCustomInitPath
 	})
 
 	t.Run("Should be able to override via environment variables", func(t *testing.T) {
-		err := os.Setenv("GF_SECURITY_ADMIN_USER", "superduper")
-		require.NoError(t, err)
+		t.Setenv("GF_SECURITY_ADMIN_USER", "superduper")
 
 		cfg := NewCfg()
-		err = cfg.Load(CommandLineArgs{HomePath: "../../"})
+		err := cfg.Load(CommandLineArgs{HomePath: "../../"})
 		require.Nil(t, err)
 
 		require.Equal(t, "superduper", cfg.AdminUser)
-		require.Equal(t, filepath.Join(HomePath, "data"), cfg.DataPath)
+		require.Equal(t, filepath.Join(cfg.HomePath, "data"), cfg.DataPath)
 		require.Equal(t, filepath.Join(cfg.DataPath, "log"), cfg.LogsPath)
 	})
 
-	t.Run("Should replace password when defined in environment", func(t *testing.T) {
-		err := os.Setenv("GF_SECURITY_ADMIN_PASSWORD", "supersecret")
-		require.NoError(t, err)
+	t.Run("Should be able to expand parameter from environment variables", func(t *testing.T) {
+		t.Setenv("DEFAULT_IDP_URL", "grafana.com")
+		t.Setenv("GF_AUTH_GENERIC_OAUTH_AUTH_URL", "${DEFAULT_IDP_URL}/auth")
 
 		cfg := NewCfg()
-		err = cfg.Load(CommandLineArgs{HomePath: "../../"})
+		err := cfg.Load(CommandLineArgs{HomePath: "../../"})
 		require.Nil(t, err)
 
-		require.Contains(t, appliedEnvOverrides, "GF_SECURITY_ADMIN_PASSWORD=*********")
+		genericOAuthSection, err := cfg.Raw.GetSection("auth.generic_oauth")
+		require.NoError(t, err)
+		require.Equal(t, "grafana.com/auth", genericOAuthSection.Key("auth_url").Value())
+	})
+
+	t.Run("Should replace password when defined in environment", func(t *testing.T) {
+		t.Setenv("GF_SECURITY_ADMIN_PASSWORD", "supersecret")
+
+		cfg := NewCfg()
+		err := cfg.Load(CommandLineArgs{HomePath: "../../"})
+		require.Nil(t, err)
+
+		require.Contains(t, cfg.appliedEnvOverrides, "GF_SECURITY_ADMIN_PASSWORD=*********")
 	})
 
 	t.Run("Should replace password in URL when url environment is defined", func(t *testing.T) {
-		err := os.Setenv("GF_DATABASE_URL", "mysql://user:secret@localhost:3306/database")
-		require.NoError(t, err)
+		t.Setenv("GF_DATABASE_URL", "mysql://user:secret@localhost:3306/database")
 
 		cfg := NewCfg()
-		err = cfg.Load(CommandLineArgs{HomePath: "../../"})
+		err := cfg.Load(CommandLineArgs{HomePath: "../../"})
 		require.Nil(t, err)
 
-		require.Contains(t, appliedEnvOverrides, "GF_DATABASE_URL=mysql://user:xxxxx@localhost:3306/database")
+		require.Contains(t, cfg.appliedEnvOverrides, "GF_DATABASE_URL=mysql://user:xxxxx@localhost:3306/database")
 	})
 
 	t.Run("Should get property map from command line args array", func(t *testing.T) {
@@ -137,11 +150,25 @@ func TestLoadingSettings(t *testing.T) {
 			Args: []string{
 				"cfg:default.server.domain=test2",
 			},
-			Config: filepath.Join(HomePath, "pkg/setting/testdata/override.ini"),
+			Config: filepath.Join("../../", "pkg/setting/testdata/override.ini"),
 		})
 		require.Nil(t, err)
 
 		require.Equal(t, "test2", cfg.Domain)
+	})
+
+	t.Run("Should be able to override TLS version via command line", func(t *testing.T) {
+		cfg := NewCfg()
+		err := cfg.Load(CommandLineArgs{
+			HomePath: "../../",
+			Args: []string{
+				"cfg:default.server.min_tls_version=TLS1.3",
+			},
+			Config: filepath.Join("../../", "pkg/setting/testdata/override.ini"),
+		})
+		require.Nil(t, err)
+
+		require.Equal(t, "TLS1.3", cfg.MinTLSVersion)
 	})
 
 	t.Run("Defaults can be overridden in specified config file", func(t *testing.T) {
@@ -149,7 +176,7 @@ func TestLoadingSettings(t *testing.T) {
 			cfg := NewCfg()
 			err := cfg.Load(CommandLineArgs{
 				HomePath: "../../",
-				Config:   filepath.Join(HomePath, "pkg/setting/testdata/override_windows.ini"),
+				Config:   filepath.Join("../../", "pkg/setting/testdata/override_windows.ini"),
 				Args:     []string{`cfg:default.paths.data=c:\tmp\data`},
 			})
 			require.Nil(t, err)
@@ -159,7 +186,7 @@ func TestLoadingSettings(t *testing.T) {
 			cfg := NewCfg()
 			err := cfg.Load(CommandLineArgs{
 				HomePath: "../../",
-				Config:   filepath.Join(HomePath, "pkg/setting/testdata/override.ini"),
+				Config:   filepath.Join("../../", "pkg/setting/testdata/override.ini"),
 				Args:     []string{"cfg:default.paths.data=/tmp/data"},
 			})
 			require.Nil(t, err)
@@ -173,7 +200,7 @@ func TestLoadingSettings(t *testing.T) {
 			cfg := NewCfg()
 			err := cfg.Load(CommandLineArgs{
 				HomePath: "../../",
-				Config:   filepath.Join(HomePath, "pkg/setting/testdata/override_windows.ini"),
+				Config:   filepath.Join("../../", "pkg/setting/testdata/override_windows.ini"),
 				Args:     []string{`cfg:paths.data=c:\tmp\data`},
 			})
 			require.Nil(t, err)
@@ -183,7 +210,7 @@ func TestLoadingSettings(t *testing.T) {
 			cfg := NewCfg()
 			err := cfg.Load(CommandLineArgs{
 				HomePath: "../../",
-				Config:   filepath.Join(HomePath, "pkg/setting/testdata/override.ini"),
+				Config:   filepath.Join("../../", "pkg/setting/testdata/override.ini"),
 				Args:     []string{"cfg:paths.data=/tmp/data"},
 			})
 			require.Nil(t, err)
@@ -194,10 +221,9 @@ func TestLoadingSettings(t *testing.T) {
 
 	t.Run("Can use environment variables in config values", func(t *testing.T) {
 		if runtime.GOOS == windows {
-			err := os.Setenv("GF_DATA_PATH", `c:\tmp\env_override`)
-			require.NoError(t, err)
+			t.Setenv("GF_DATA_PATH", `c:\tmp\env_override`)
 			cfg := NewCfg()
-			err = cfg.Load(CommandLineArgs{
+			err := cfg.Load(CommandLineArgs{
 				HomePath: "../../",
 				Args:     []string{"cfg:paths.data=${GF_DATA_PATH}"},
 			})
@@ -205,10 +231,9 @@ func TestLoadingSettings(t *testing.T) {
 
 			require.Equal(t, `c:\tmp\env_override`, cfg.DataPath)
 		} else {
-			err := os.Setenv("GF_DATA_PATH", "/tmp/env_override")
-			require.NoError(t, err)
+			t.Setenv("GF_DATA_PATH", "/tmp/env_override")
 			cfg := NewCfg()
-			err = cfg.Load(CommandLineArgs{
+			err := cfg.Load(CommandLineArgs{
 				HomePath: "../../",
 				Args:     []string{"cfg:paths.data=${GF_DATA_PATH}"},
 			})
@@ -227,7 +252,7 @@ func TestLoadingSettings(t *testing.T) {
 
 		hostname, err := os.Hostname()
 		require.Nil(t, err)
-		require.Equal(t, hostname, InstanceName)
+		require.Equal(t, hostname, cfg.InstanceName)
 	})
 
 	t.Run("Reading callback_url should add trailing slash", func(t *testing.T) {
@@ -249,44 +274,14 @@ func TestLoadingSettings(t *testing.T) {
 		})
 		require.Nil(t, err)
 
-		require.Equal(t, 2, cfg.AuthProxySyncTTL)
-	})
-
-	t.Run("Only ldap_sync_ttl should return the value ldap_sync_ttl", func(t *testing.T) {
-		cfg := NewCfg()
-		err := cfg.Load(CommandLineArgs{
-			HomePath: "../../",
-			Args:     []string{"cfg:auth.proxy.ldap_sync_ttl=5"},
-		})
-		require.Nil(t, err)
-
-		require.Equal(t, 5, cfg.AuthProxySyncTTL)
-	})
-
-	t.Run("ldap_sync should override ldap_sync_ttl that is default value", func(t *testing.T) {
-		cfg := NewCfg()
-		err := cfg.Load(CommandLineArgs{
-			HomePath: "../../",
-			Args:     []string{"cfg:auth.proxy.sync_ttl=5"},
-		})
-		require.Nil(t, err)
-
-		require.Equal(t, 5, cfg.AuthProxySyncTTL)
-	})
-
-	t.Run("ldap_sync should not override ldap_sync_ttl that is different from default value", func(t *testing.T) {
-		cfg := NewCfg()
-		err := cfg.Load(CommandLineArgs{
-			HomePath: "../../",
-			Args:     []string{"cfg:auth.proxy.ldap_sync_ttl=12", "cfg:auth.proxy.sync_ttl=5"},
-		})
-		require.Nil(t, err)
-
-		require.Equal(t, 12, cfg.AuthProxySyncTTL)
+		require.Equal(t, 2, cfg.AuthProxy.SyncTTL)
 	})
 
 	t.Run("Test reading string values from .ini file", func(t *testing.T) {
-		iniFile, err := ini.Load(path.Join(HomePath, "pkg/setting/testdata/invalid.ini"))
+		cfg := NewCfg()
+		err := cfg.Load(CommandLineArgs{HomePath: "../../"})
+		require.Nil(t, err)
+		iniFile, err := ini.Load(path.Join(cfg.HomePath, "pkg/setting/testdata/invalid.ini"))
 		require.Nil(t, err)
 
 		t.Run("If key is found - should return value from ini file", func(t *testing.T) {
@@ -298,6 +293,28 @@ func TestLoadingSettings(t *testing.T) {
 			value := valueAsString(iniFile.Section("server"), "extra_url", "default_url_val")
 			require.Equal(t, "default_url_val", value)
 		})
+	})
+
+	t.Run("grafana.com API URL can be set separately from grafana.com URL", func(t *testing.T) {
+		t.Setenv("GF_GRAFANA_NET_URL", "https://grafana-dev.com")
+		t.Setenv("GF_GRAFANA_COM_API_URL", "http://grafana-dev.internal/api")
+		cfg := NewCfg()
+		err := cfg.Load(CommandLineArgs{HomePath: "../../", Config: "../../conf/defaults.ini"})
+		require.Nil(t, err)
+		require.Equal(t, "https://grafana-dev.com", cfg.GrafanaComURL)
+		require.Equal(t, "http://grafana-dev.internal/api", cfg.GrafanaComAPIURL)
+	})
+
+	t.Run("grafana.com API URL falls back to grafana.com URL + /api", func(t *testing.T) {
+		err := os.Unsetenv("GF_GRAFANA_NET_URL")
+		require.NoError(t, err)
+		err = os.Unsetenv("GF_GRAFANA_COM_API_URL")
+		require.NoError(t, err)
+		cfg := NewCfg()
+		err = cfg.Load(CommandLineArgs{HomePath: "../../"})
+		require.Nil(t, err)
+		require.Equal(t, "https://grafana.com", cfg.GrafanaComURL)
+		require.Equal(t, "https://grafana.com/api", cfg.GrafanaComAPIURL)
 	})
 }
 
@@ -334,9 +351,7 @@ func TestAuthDurationSettings(t *testing.T) {
 	cfg := NewCfg()
 	sec, err := f.NewSection("auth")
 	require.NoError(t, err)
-	_, err = sec.NewKey("login_maximum_inactive_lifetime_days", "10")
-	require.NoError(t, err)
-	_, err = sec.NewKey("login_maximum_inactive_lifetime_duration", "")
+	_, err = sec.NewKey("login_maximum_inactive_lifetime_duration", "10d")
 	require.NoError(t, err)
 	err = readAuthSettings(f, cfg)
 	require.NoError(t, err)
@@ -356,9 +371,7 @@ func TestAuthDurationSettings(t *testing.T) {
 	f = ini.Empty()
 	sec, err = f.NewSection("auth")
 	require.NoError(t, err)
-	_, err = sec.NewKey("login_maximum_lifetime_days", "24")
-	require.NoError(t, err)
-	_, err = sec.NewKey("login_maximum_lifetime_duration", "")
+	_, err = sec.NewKey("login_maximum_lifetime_duration", "24d")
 	require.NoError(t, err)
 	maxLifetimeDaysTest, err := time.ParseDuration("576h")
 	require.NoError(t, err)
@@ -380,8 +393,6 @@ func TestAuthDurationSettings(t *testing.T) {
 	f = ini.Empty()
 	sec, err = f.NewSection("auth")
 	require.NoError(t, err)
-	_, err = sec.NewKey("login_maximum_lifetime_days", "")
-	require.NoError(t, err)
 	_, err = sec.NewKey("login_maximum_lifetime_duration", "")
 	require.NoError(t, err)
 	maxLifetimeDurationTest, err = time.ParseDuration("720h")
@@ -392,19 +403,33 @@ func TestAuthDurationSettings(t *testing.T) {
 }
 
 func TestGetCDNPath(t *testing.T) {
-	var err error
-	cfg := NewCfg()
-	cfg.BuildVersion = "v7.5.0-11124"
-	cfg.CDNRootURL, err = url.Parse("http://cdn.grafana.com")
-	require.NoError(t, err)
+	t.Run("should return CDN url as expected", func(t *testing.T) {
+		var (
+			err    error
+			actual string
+		)
+		cfg := NewCfg()
+		cfg.BuildVersion = "v7.5.0-11124"
+		cfg.CDNRootURL, err = url.Parse("http://cdn.grafana.com")
+		require.NoError(t, err)
 
-	require.Equal(t, "http://cdn.grafana.com/grafana-oss/v7.5.0-11124/", cfg.GetContentDeliveryURL("grafana-oss"))
-	require.Equal(t, "http://cdn.grafana.com/grafana/v7.5.0-11124/", cfg.GetContentDeliveryURL("grafana"))
-}
+		actual, err = cfg.GetContentDeliveryURL("grafana-oss")
+		require.NoError(t, err)
+		require.Equal(t, "http://cdn.grafana.com/grafana-oss/v7.5.0-11124/", actual)
+		actual, err = cfg.GetContentDeliveryURL("grafana")
+		require.NoError(t, err)
+		require.Equal(t, "http://cdn.grafana.com/grafana/v7.5.0-11124/", actual)
+	})
 
-func TestGetContentDeliveryURLWhenNoCDNRootURLIsSet(t *testing.T) {
-	cfg := NewCfg()
-	require.Equal(t, "", cfg.GetContentDeliveryURL("grafana-oss"))
+	t.Run("should error if BuildVersion  is not set", func(t *testing.T) {
+		var err error
+		cfg := NewCfg()
+		cfg.CDNRootURL, err = url.Parse("http://cdn.grafana.com")
+		require.NoError(t, err)
+
+		_, err = cfg.GetContentDeliveryURL("grafana")
+		require.Error(t, err)
+	})
 }
 
 func TestGetCDNPathWithPreReleaseVersionAndSubPath(t *testing.T) {
@@ -413,8 +438,12 @@ func TestGetCDNPathWithPreReleaseVersionAndSubPath(t *testing.T) {
 	cfg.BuildVersion = "v7.5.0-11124pre"
 	cfg.CDNRootURL, err = url.Parse("http://cdn.grafana.com/sub")
 	require.NoError(t, err)
-	require.Equal(t, "http://cdn.grafana.com/sub/grafana-oss/v7.5.0-11124pre/", cfg.GetContentDeliveryURL("grafana-oss"))
-	require.Equal(t, "http://cdn.grafana.com/sub/grafana/v7.5.0-11124pre/", cfg.GetContentDeliveryURL("grafana"))
+	actual, err := cfg.GetContentDeliveryURL("grafana-oss")
+	require.NoError(t, err)
+	require.Equal(t, "http://cdn.grafana.com/sub/grafana-oss/v7.5.0-11124pre/", actual)
+	actual, err = cfg.GetContentDeliveryURL("grafana")
+	require.NoError(t, err)
+	require.Equal(t, "http://cdn.grafana.com/sub/grafana/v7.5.0-11124pre/", actual)
 }
 
 // Adding a case for this in case we switch to proper semver version strings
@@ -424,259 +453,237 @@ func TestGetCDNPathWithAlphaVersion(t *testing.T) {
 	cfg.BuildVersion = "v7.5.0-alpha.11124"
 	cfg.CDNRootURL, err = url.Parse("http://cdn.grafana.com")
 	require.NoError(t, err)
-	require.Equal(t, "http://cdn.grafana.com/grafana-oss/v7.5.0-alpha.11124/", cfg.GetContentDeliveryURL("grafana-oss"))
-	require.Equal(t, "http://cdn.grafana.com/grafana/v7.5.0-alpha.11124/", cfg.GetContentDeliveryURL("grafana"))
+	actual, err := cfg.GetContentDeliveryURL("grafana-oss")
+	require.NoError(t, err)
+	require.Equal(t, "http://cdn.grafana.com/grafana-oss/v7.5.0-alpha.11124/", actual)
+	actual, err = cfg.GetContentDeliveryURL("grafana")
+	require.NoError(t, err)
+	require.Equal(t, "http://cdn.grafana.com/grafana/v7.5.0-alpha.11124/", actual)
 }
 
 func TestAlertingEnabled(t *testing.T) {
-	anyBoolean := func() bool {
-		return rand.Int63()%2 == 0
-	}
+	t.Run("fail if legacy alerting enabled", func(t *testing.T) {
+		f := ini.Empty()
+		cfg := NewCfg()
 
+		alertingSec, err := f.NewSection("alerting")
+		require.NoError(t, err)
+		_, err = alertingSec.NewKey("enabled", "true")
+		require.NoError(t, err)
+
+		require.Error(t, cfg.readAlertingSettings(f))
+	})
+
+	t.Run("do nothing if it is disabled", func(t *testing.T) {
+		f := ini.Empty()
+		cfg := NewCfg()
+
+		alertingSec, err := f.NewSection("alerting")
+		require.NoError(t, err)
+		_, err = alertingSec.NewKey("enabled", "false")
+		require.NoError(t, err)
+		require.NoError(t, cfg.readAlertingSettings(f))
+	})
+
+	t.Run("do nothing if it invalid", func(t *testing.T) {
+		f := ini.Empty()
+		cfg := NewCfg()
+
+		alertingSec, err := f.NewSection("alerting")
+		require.NoError(t, err)
+		_, err = alertingSec.NewKey("enabled", "test")
+		require.NoError(t, err)
+		require.NoError(t, cfg.readAlertingSettings(f))
+	})
+}
+
+func TestRedactedValue(t *testing.T) {
 	testCases := []struct {
-		desc                   string
-		unifiedAlertingEnabled string
-		legacyAlertingEnabled  string
-		featureToggleSet       bool
-		isEnterprise           bool
-		verifyCfg              func(*testing.T, Cfg, *ini.File)
+		desc     string
+		key      string
+		value    string
+		expected string
 	}{
 		{
-			desc:                   "when legacy alerting is enabled and unified is disabled",
-			legacyAlertingEnabled:  "true",
-			unifiedAlertingEnabled: "false",
-			isEnterprise:           anyBoolean(),
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.NoError(t, err)
-				assert.NotNil(t, cfg.UnifiedAlerting.Enabled)
-				assert.Equal(t, *cfg.UnifiedAlerting.Enabled, false)
-				assert.NotNil(t, AlertingEnabled)
-				assert.Equal(t, *AlertingEnabled, true)
-			},
+			desc:     "non-sensitive key",
+			key:      "admin_user",
+			value:    "admin",
+			expected: "admin",
 		},
 		{
-			desc:                   "when legacy alerting is disabled and unified is enabled",
-			legacyAlertingEnabled:  "false",
-			unifiedAlertingEnabled: "true",
-			isEnterprise:           anyBoolean(),
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.NoError(t, err)
-				assert.NotNil(t, cfg.UnifiedAlerting.Enabled)
-				assert.Equal(t, *cfg.UnifiedAlerting.Enabled, true)
-				assert.NotNil(t, AlertingEnabled)
-				assert.Equal(t, *AlertingEnabled, false)
-			},
+			desc:     "sensitive key with non-empty value",
+			key:      "private_key_path",
+			value:    "/path/to/key",
+			expected: RedactedPassword,
 		},
 		{
-			desc:                   "when both alerting are enabled",
-			legacyAlertingEnabled:  "true",
-			unifiedAlertingEnabled: "true",
-			isEnterprise:           anyBoolean(),
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.Error(t, err)
-			},
+			desc:     "license key with non-empty value",
+			key:      "GF_ENTERPRISE_LICENSE_TEXT",
+			value:    "some_license_key_test",
+			expected: RedactedPassword,
 		},
 		{
-			desc:                   "when legacy alerting is invalid (or not defined) and unified is disabled",
-			legacyAlertingEnabled:  "",
-			unifiedAlertingEnabled: "false",
-			isEnterprise:           anyBoolean(),
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.NoError(t, err)
-				assert.NotNil(t, cfg.UnifiedAlerting.Enabled)
-				assert.Equal(t, *cfg.UnifiedAlerting.Enabled, false)
-				assert.NotNil(t, AlertingEnabled)
-				assert.Equal(t, *AlertingEnabled, true)
-			},
+			desc:     "sensitive key with empty value",
+			key:      "private_key_path",
+			value:    "",
+			expected: "",
 		},
 		{
-			desc:                   "when legacy alerting is invalid (or not defined) and unified is enabled",
-			legacyAlertingEnabled:  "",
-			unifiedAlertingEnabled: "true",
-			isEnterprise:           anyBoolean(),
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.NoError(t, err)
-				assert.NotNil(t, cfg.UnifiedAlerting.Enabled)
-				assert.Equal(t, *cfg.UnifiedAlerting.Enabled, true)
-				assert.NotNil(t, AlertingEnabled)
-				assert.Equal(t, *AlertingEnabled, false)
-			},
-		},
-		{
-			desc:                   "when legacy alerting is enabled and unified is invalid (or not defined) [OSS]",
-			legacyAlertingEnabled:  "true",
-			unifiedAlertingEnabled: "",
-			isEnterprise:           false,
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.NoError(t, err)
-				assert.Nil(t, cfg.UnifiedAlerting.Enabled)
-				assert.NotNil(t, AlertingEnabled)
-				assert.Equal(t, *AlertingEnabled, true)
-			},
-		},
-		{
-			desc:                   "when legacy alerting is enabled and unified is invalid (or not defined) [Enterprise]",
-			legacyAlertingEnabled:  "true",
-			unifiedAlertingEnabled: "",
-			isEnterprise:           true,
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.NoError(t, err)
-				assert.NotNil(t, cfg.UnifiedAlerting.Enabled)
-				assert.Equal(t, *cfg.UnifiedAlerting.Enabled, false)
-				assert.NotNil(t, AlertingEnabled)
-				assert.Equal(t, *AlertingEnabled, true)
-			},
-		},
-		{
-			desc:                   "when legacy alerting is disabled and unified is invalid (or not defined) [OSS]",
-			legacyAlertingEnabled:  "false",
-			unifiedAlertingEnabled: "invalid",
-			isEnterprise:           false,
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.NoError(t, err)
-				assert.NotNil(t, cfg.UnifiedAlerting.Enabled)
-				assert.Equal(t, *cfg.UnifiedAlerting.Enabled, true)
-				assert.NotNil(t, AlertingEnabled)
-				assert.Equal(t, *AlertingEnabled, false)
-			},
-		},
-		{
-			desc:                   "when legacy alerting is disabled and unified is invalid (or not defined) [Enterprise]",
-			legacyAlertingEnabled:  "false",
-			unifiedAlertingEnabled: "invalid",
-			isEnterprise:           true,
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.NoError(t, err)
-				assert.NotNil(t, cfg.UnifiedAlerting.Enabled)
-				assert.Equal(t, *cfg.UnifiedAlerting.Enabled, false)
-				assert.NotNil(t, AlertingEnabled)
-				assert.Equal(t, *AlertingEnabled, false)
-			},
-		},
-		{
-			desc:                   "when both are invalid (or not defined) [OSS]",
-			legacyAlertingEnabled:  "invalid",
-			unifiedAlertingEnabled: "invalid",
-			isEnterprise:           false,
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.NoError(t, err)
-				assert.Nil(t, cfg.UnifiedAlerting.Enabled)
-				assert.Nil(t, AlertingEnabled)
-			},
-		},
-		{
-			desc:                   "when both are invalid (or not defined) [Enterprise]",
-			legacyAlertingEnabled:  "invalid",
-			unifiedAlertingEnabled: "invalid",
-			isEnterprise:           true,
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.NoError(t, err)
-				assert.NotNil(t, cfg.UnifiedAlerting.Enabled)
-				assert.Equal(t, *cfg.UnifiedAlerting.Enabled, false)
-				assert.NotNil(t, AlertingEnabled)
-				assert.Equal(t, *AlertingEnabled, true)
-			},
-		},
-		{
-			desc:                   "when both are false",
-			legacyAlertingEnabled:  "false",
-			unifiedAlertingEnabled: "false",
-			isEnterprise:           anyBoolean(),
-			verifyCfg: func(t *testing.T, cfg Cfg, f *ini.File) {
-				err := readAlertingSettings(f)
-				require.NoError(t, err)
-				err = cfg.readFeatureToggles(f)
-				require.NoError(t, err)
-				err = cfg.ReadUnifiedAlertingSettings(f)
-				require.NoError(t, err)
-				assert.NotNil(t, cfg.UnifiedAlerting.Enabled)
-				assert.Equal(t, *cfg.UnifiedAlerting.Enabled, false)
-				assert.NotNil(t, AlertingEnabled)
-				assert.Equal(t, *AlertingEnabled, false)
-			},
+			desc:     "authentication_token",
+			key:      "my_authentication_token",
+			value:    "test",
+			expected: RedactedPassword,
 		},
 	}
-
-	var isEnterpriseOld = IsEnterprise
-	t.Cleanup(func() {
-		IsEnterprise = isEnterpriseOld
-	})
 
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
-			IsEnterprise = tc.isEnterprise
-			t.Cleanup(func() {
-				AlertingEnabled = nil
-			})
-
-			f := ini.Empty()
-			cfg := NewCfg()
-			unifiedAlertingSec, err := f.NewSection("unified_alerting")
-			require.NoError(t, err)
-			_, err = unifiedAlertingSec.NewKey("enabled", tc.unifiedAlertingEnabled)
-			require.NoError(t, err)
-
-			alertingSec, err := f.NewSection("alerting")
-			require.NoError(t, err)
-			_, err = alertingSec.NewKey("enabled", tc.legacyAlertingEnabled)
-			require.NoError(t, err)
-
-			tc.verifyCfg(t, *cfg, f)
+			require.Equal(t, tc.expected, RedactedValue(tc.key, tc.value))
 		})
 	}
+}
+
+func TestHandleAWSSettings(t *testing.T) {
+	t.Run("Should set default auth providers if not defined", func(t *testing.T) {
+		cfg := NewCfg()
+		awsSection, err := cfg.Raw.NewSection("aws")
+		require.NoError(t, err)
+		_, err = awsSection.NewKey("allowed_auth_providers", "")
+		require.NoError(t, err)
+
+		cfg.handleAWSConfig()
+		assert.Equal(t, []string{"default", "keys", "credentials"}, cfg.AWSAllowedAuthProviders)
+	})
+	t.Run("Should pass on auth providers defined in config", func(t *testing.T) {
+		cfg := NewCfg()
+		awsSection, err := cfg.Raw.NewSection("aws")
+		require.NoError(t, err)
+		_, err = awsSection.NewKey("allowed_auth_providers", "keys, credentials")
+		require.NoError(t, err)
+
+		cfg.handleAWSConfig()
+		assert.Equal(t, []string{"keys", "credentials"}, cfg.AWSAllowedAuthProviders)
+	})
+	t.Run("Should set assume role to true if not defined", func(t *testing.T) {
+		cfg := NewCfg()
+		awsSection, err := cfg.Raw.NewSection("aws")
+		require.NoError(t, err)
+		_, err = awsSection.NewKey("assume_role_enabled", "")
+		require.NoError(t, err)
+
+		cfg.handleAWSConfig()
+		assert.Equal(t, true, cfg.AWSAssumeRoleEnabled)
+	})
+	t.Run("Should set assume role to true if defined as true in the config", func(t *testing.T) {
+		cfg := NewCfg()
+		awsSection, err := cfg.Raw.NewSection("aws")
+		require.NoError(t, err)
+		_, err = awsSection.NewKey("assume_role_enabled", "true")
+		require.NoError(t, err)
+
+		cfg.handleAWSConfig()
+		assert.Equal(t, true, cfg.AWSAssumeRoleEnabled)
+	})
+	t.Run("Should set assume role to false if defined as false in the config", func(t *testing.T) {
+		cfg := NewCfg()
+		awsSection, err := cfg.Raw.NewSection("aws")
+		require.NoError(t, err)
+		_, err = awsSection.NewKey("assume_role_enabled", "false")
+		require.NoError(t, err)
+
+		cfg.handleAWSConfig()
+		assert.Equal(t, false, cfg.AWSAssumeRoleEnabled)
+	})
+	t.Run("Should set default page limit if not defined", func(t *testing.T) {
+		cfg := NewCfg()
+		awsSection, err := cfg.Raw.NewSection("aws")
+		require.NoError(t, err)
+		_, err = awsSection.NewKey("list_metrics_page_limit", "")
+		require.NoError(t, err)
+
+		cfg.handleAWSConfig()
+
+		assert.Equal(t, 500, cfg.AWSListMetricsPageLimit)
+	})
+	t.Run("Should pass on the limit if it is defined in the config", func(t *testing.T) {
+		cfg := NewCfg()
+		awsSection, err := cfg.Raw.NewSection("aws")
+		require.NoError(t, err)
+		_, err = awsSection.NewKey("list_metrics_page_limit", "400")
+		require.NoError(t, err)
+
+		cfg.handleAWSConfig()
+
+		assert.Equal(t, 400, cfg.AWSListMetricsPageLimit)
+	})
+}
+
+const iniString = `
+app_mode = production
+
+[server]
+domain = test.com
+`
+
+func TestNewCfgFromBytes(t *testing.T) {
+	cfg, err := NewCfgFromBytes([]byte(iniString))
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.Equal(t, Prod, cfg.Env)
+	require.Equal(t, "test.com", cfg.Domain)
+}
+
+func TestNewCfgFromINIFile(t *testing.T) {
+	parsedFile, err := ini.Load([]byte(iniString))
+	require.NoError(t, err)
+	require.NotNil(t, parsedFile)
+
+	cfg, err := NewCfgFromINIFile(parsedFile)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.Equal(t, Prod, cfg.Env)
+	require.Equal(t, "test.com", cfg.Domain)
+}
+
+func TestDynamicSection(t *testing.T) {
+	t.Parallel()
+
+	t.Run("repro #44509 - panic on concurrent map write", func(t *testing.T) {
+		t.Parallel()
+
+		const (
+			goroutines = 10
+			attempts   = 1000
+			section    = "DEFAULT"
+			key        = "TestDynamicSection_repro_44509"
+			value      = "theval"
+		)
+
+		cfg, err := NewCfgFromBytes([]byte(``))
+		require.NoError(t, err)
+
+		ds := &DynamicSection{
+			section: cfg.Raw.Section(section),
+			Logger:  log.NewNopLogger(),
+			env:     osutil.MapEnv{},
+		}
+		osVar := EnvKey(section, key)
+		err = ds.env.Setenv(osVar, value)
+		require.NoError(t, err)
+
+		var wg sync.WaitGroup
+		for i := 0; i < goroutines; i++ {
+			wg.Add(1)
+			go require.NotPanics(t, func() {
+				for i := 0; i < attempts; i++ {
+					ds.section.Key(key).SetValue("")
+					ds.Key(key)
+				}
+				wg.Done()
+			})
+		}
+		wg.Wait()
+
+		assert.Equal(t, value, ds.section.Key(key).String())
+	})
 }

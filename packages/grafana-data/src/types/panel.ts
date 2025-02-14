@@ -1,19 +1,22 @@
-import { DataQueryError, DataQueryRequest, DataQueryTimings } from './datasource';
-import { PluginMeta } from './plugin';
-import { ScopedVars } from './ScopedVars';
-import { LoadingState, PreferredVisualisationType } from './data';
-import { DataFrame, FieldType } from './dataFrame';
-import { AbsoluteTimeRange, TimeRange, TimeZone } from './time';
-import { EventBus } from '../events';
-import { FieldConfigSource } from './fieldOverrides';
-import { Registry } from '../utils';
-import { StandardEditorProps } from '../field';
+import { defaultsDeep } from 'lodash';
+
+import { EventBus } from '../events/types';
+import { StandardEditorProps } from '../field/standardFieldConfigEditorRegistry';
+import { Registry } from '../utils/Registry';
+
 import { OptionsEditorItem } from './OptionsUIRegistryBuilder';
-import { OptionEditorConfig } from './options';
+import { ScopedVars } from './ScopedVars';
 import { AlertStateInfo } from './alerts';
 import { PanelModel } from './dashboard';
+import { LoadingState, PreferredVisualisationType } from './data';
+import { DataFrame, FieldType } from './dataFrame';
+import { DataQueryError, DataQueryRequest, DataQueryTimings } from './datasource';
+import { FieldConfigSource } from './fieldOverrides';
+import { IconName } from './icon';
+import { OptionEditorConfig } from './options';
+import { PluginMeta } from './plugin';
+import { AbsoluteTimeRange, TimeRange, TimeZone } from './time';
 import { DataTransformerConfig } from './transformations';
-import { defaultsDeep } from 'lodash';
 
 export type InterpolateFunction = (value: string, scopedVars?: ScopedVars, format?: string | Function) => string;
 
@@ -54,17 +57,25 @@ export interface PanelData {
   timings?: DataQueryTimings;
 
   /** Any query errors */
+  errors?: DataQueryError[];
+  /**
+   * Single error for legacy reasons
+   * @deprecated use errors instead -- will be removed in Grafana 10+
+   */
   error?: DataQueryError;
 
   /** Contains the range from the request or a shifted time range if a request uses relative time */
   timeRange: TimeRange;
+
+  /** traceIds collected during the processing of the requests */
+  traceIds?: string[];
 }
 
 export interface PanelProps<T = any> {
-  /** ID of the panel within the current dashboard */
+  /** Unique ID of the panel within the current dashboard */
   id: number;
 
-  /** Result set of panel queries */
+  /** Data available as result of running panel queries, includes dataframes and loading state **/
   data: PanelData;
 
   /** Time range of the current dashboard */
@@ -73,19 +84,19 @@ export interface PanelProps<T = any> {
   /** Time zone of the current dashboard */
   timeZone: TimeZone;
 
-  /** Panel options */
+  /** Panel options set by the user in the panel editor. Includes both default and custom panel options */
   options: T;
 
   /** Indicates whether or not panel should be rendered transparent */
   transparent: boolean;
 
-  /** Current width of the panel */
+  /** Current width of the panel in pixels */
   width: number;
 
-  /** Current height of the panel */
+  /** Current height of the panel in pixels */
   height: number;
 
-  /** Field options configuration */
+  /** Field options configuration. Controls how field values are displayed (e.g., units, min, max, decimals, thresholds) */
   fieldConfig: FieldConfigSource;
 
   /** @internal */
@@ -94,16 +105,16 @@ export interface PanelProps<T = any> {
   /** Panel title */
   title: string;
 
-  /** EventBus  */
+  /** Grafana EventBus  */
   eventBus: EventBus;
 
-  /** Panel options change handler */
+  /** Handler for options change. Invoke it to update the panel custom options. */
   onOptionsChange: (options: T) => void;
 
-  /** Field config change handler */
+  /** Field config change handler. Invoke it to update the panel field config. */
   onFieldConfigChange: (config: FieldConfigSource) => void;
 
-  /** Template variables interpolation function */
+  /** Template variables interpolation function. Given a string containing template variables, it returns the string with interpolated values. */
   replaceVariables: InterpolateFunction;
 
   /** Time range change handler */
@@ -124,9 +135,32 @@ export interface PanelEditorProps<T = any> {
 }
 
 /**
- * Called when a panel is first loaded with current panel model
+ * This type mirrors the required properties from PanelModel<TOptions> needed for migration handlers.
+ *
+ * By maintaining a separate type definition, we ensure that changes to PanelModel
+ * that would break third-party migration handlers are caught at compile time,
+ * rather than failing silently when third-party code attempts to use an incompatible panel.
+ *
+ * TOptions must be any to follow the same pattern as PanelModel<TOptions>
  */
-export type PanelMigrationHandler<TOptions = any> = (panel: PanelModel<TOptions>) => Partial<TOptions>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface PanelMigrationModel<TOptions = any> {
+  id: number;
+  type: string;
+  title?: string;
+  options: TOptions;
+  fieldConfig: PanelModel<TOptions>['fieldConfig'];
+  pluginVersion?: string;
+  targets?: PanelModel<TOptions>['targets'];
+}
+
+/**
+ * Called when a panel is first loaded with current panel model to migrate panel options if needed.
+ * Can return panel options, or a Promise that resolves to panel options for async migrations
+ */
+export type PanelMigrationHandler<TOptions = any> = (
+  panel: PanelMigrationModel<TOptions>
+) => Partial<TOptions> | Promise<Partial<TOptions>>;
 
 /**
  * Called before a panel is initialized. Allows panel inspection for any updates before changing the panel type.
@@ -152,10 +186,10 @@ export interface PanelOptionsEditorConfig<TOptions, TSettings = any, TValue = an
  * @internal
  */
 export interface PanelMenuItem {
-  type?: 'submenu' | 'divider';
+  type?: 'submenu' | 'divider' | 'group';
   text: string;
-  iconClassName?: string;
-  onClick?: (event: React.MouseEvent<any>) => void;
+  iconClassName?: IconName;
+  onClick?: (event: React.MouseEvent) => void;
   shortcut?: string;
   href?: string;
   subMenu?: PanelMenuItem[];

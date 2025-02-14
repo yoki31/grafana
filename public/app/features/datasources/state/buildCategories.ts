@@ -1,5 +1,5 @@
 import { DataSourcePluginMeta, PluginType } from '@grafana/data';
-import { config, featureEnabled } from '@grafana/runtime';
+import { featureEnabled } from '@grafana/runtime';
 import { DataSourcePluginCategory } from 'app/types';
 
 export function buildCategories(plugins: DataSourcePluginMeta[]): DataSourcePluginCategory[] {
@@ -7,6 +7,7 @@ export function buildCategories(plugins: DataSourcePluginMeta[]): DataSourcePlug
     { id: 'tsdb', title: 'Time series databases', plugins: [] },
     { id: 'logging', title: 'Logging & document databases', plugins: [] },
     { id: 'tracing', title: 'Distributed tracing', plugins: [] },
+    { id: 'profiling', title: 'Profiling', plugins: [] },
     { id: 'sql', title: 'SQL', plugins: [] },
     { id: 'cloud', title: 'Cloud', plugins: [] },
     { id: 'enterprise', title: 'Enterprise plugins', plugins: [] },
@@ -88,7 +89,7 @@ function sortPlugins(plugins: DataSourcePluginMeta[]) {
       return 1;
     }
 
-    return a.name > b.name ? -1 : 1;
+    return a.name > b.name ? 1 : -1;
   });
 }
 
@@ -190,6 +191,84 @@ function getEnterprisePhantomPlugins(): DataSourcePluginMeta[] {
       name: 'Splunk Infrastructure Monitoring',
       imgUrl: 'public/img/plugins/signalfx-logo.svg',
     }),
+    getPhantomPlugin({
+      id: 'grafana-azuredevops-datasource',
+      description: 'Azure Devops datasource',
+      name: 'Azure Devops',
+      imgUrl: 'public/img/plugins/azure-devops.png',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-sumologic-datasource',
+      description: 'SumoLogic integration and datasource',
+      name: 'SumoLogic',
+      imgUrl: 'public/img/plugins/sumo.svg',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-pagerduty-datasource',
+      description: 'PagerDuty datasource',
+      name: 'PagerDuty',
+      imgUrl: 'public/img/plugins/pagerduty.svg',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-catchpoint-datasource',
+      description: 'Catchpoint datasource',
+      name: 'Catchpoint',
+      imgUrl: 'public/img/plugins/catchpoint.svg',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-azurecosmosdb-datasource',
+      description: 'Azure CosmosDB datasource',
+      name: 'Azure CosmosDB',
+      imgUrl: 'public/img/plugins/azure-cosmosdb.svg',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-adobeanalytics-datasource',
+      description: 'Adobe Analytics datasource',
+      name: 'Adobe Analytics',
+      imgUrl: 'public/img/plugins/adobe-analytics.svg',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-cloudflare-datasource',
+      description: 'Cloudflare datasource',
+      name: 'Cloudflare',
+      imgUrl: 'public/img/plugins/cloudflare.jpg',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-cockroachdb-datasource',
+      description: 'CockroachDB datasource',
+      name: 'CockroachDB',
+      imgUrl: 'public/img/plugins/cockroachdb.jpg',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-netlify-datasource',
+      description: 'Netlify datasource',
+      name: 'Netlify',
+      imgUrl: 'public/img/plugins/netlify.svg',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-drone-datasource',
+      description: 'Drone datasource',
+      name: 'Drone',
+      imgUrl: 'public/img/plugins/drone.svg',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-zendesk-datasource',
+      description: 'Zendesk datasource',
+      name: 'Zendesk',
+      imgUrl: 'public/img/plugins/zendesk.svg',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-atlassianstatuspage-datasource',
+      description: 'Atlassian Statuspage datasource',
+      name: 'Atlassian Statuspage',
+      imgUrl: 'public/img/plugins/atlassian-statuspage.svg',
+    }),
+    getPhantomPlugin({
+      id: 'grafana-aurora-datasource',
+      description: 'Aurora data source',
+      name: 'Aurora',
+      imgUrl: 'public/img/plugins/aurora.svg',
+    }),
   ];
 }
 
@@ -237,8 +316,9 @@ function getPhantomPlugin(options: GetPhantomPluginOptions): DataSourcePluginMet
       author: { name: 'Grafana Labs' },
       links: [
         {
-          url: config.pluginCatalogURL + options.id,
+          url: '/plugins/' + options.id,
           name: 'Install now',
+          target: '_self',
         },
       ],
       screenshots: [],

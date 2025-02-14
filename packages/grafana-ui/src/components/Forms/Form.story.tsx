@@ -1,26 +1,24 @@
-import React from 'react';
+import { StoryFn } from '@storybook/react';
 import { ValidateResult } from 'react-hook-form';
-import { Story } from '@storybook/react';
-import {
-  Field,
-  Legend,
-  Input,
-  Button,
-  Form,
-  Switch,
-  Checkbox,
-  Select,
-  InputControl,
-  TextArea,
-  RadioButtonGroup,
-} from '@grafana/ui';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
+
 import { withStoryContainer } from '../../utils/storybook/withStoryContainer';
+import { Button } from '../Button';
+import { Input } from '../Input/Input';
+import { InputControl } from '../InputControl';
+import { Select } from '../Select/Select';
+import { Switch } from '../Switch/Switch';
+import { TextArea } from '../TextArea/TextArea';
+
+import { Checkbox } from './Checkbox';
+import { Field } from './Field';
+import { Form } from './Form';
 import mdx from './Form.mdx';
+import { Legend } from './Legend';
+import { RadioButtonGroup } from './RadioButtonGroup/RadioButtonGroup';
 
 export default {
   title: 'Forms/Form',
-  decorators: [withStoryContainer, withCenteredStory],
+  decorators: [withStoryContainer],
   parameters: {
     docs: {
       page: mdx,
@@ -64,8 +62,9 @@ const renderForm = (defaultValues?: FormDTO) => (
       console.log(data);
     }}
   >
-    {({ register, control, errors }) =>
-      (console.log(errors) as any) || (
+    {({ register, control, errors }) => {
+      console.log(errors);
+      return (
         <>
           <Legend>Edit user</Legend>
 
@@ -111,14 +110,14 @@ const renderForm = (defaultValues?: FormDTO) => (
               rules={{
                 required: true,
               }}
-              render={({ field }) => <Select menuShouldPortal {...field} options={selectOptions} />}
+              render={({ field }) => <Select {...field} options={selectOptions} />}
             />
           </Field>
 
           <Button type="submit">Update</Button>
         </>
-      )
-    }
+      );
+    }}
   </Form>
 );
 
@@ -142,7 +141,7 @@ export const DefaultValues = () => {
   return <>{renderForm(defaultValues[0])}</>;
 };
 
-export const AsyncValidation: Story = ({ passAsyncValidation }) => {
+export const AsyncValidation: StoryFn = ({ passAsyncValidation }) => {
   return (
     <>
       <Form
@@ -150,8 +149,9 @@ export const AsyncValidation: Story = ({ passAsyncValidation }) => {
           alert('Submitted successfully!');
         }}
       >
-        {({ register, control, errors, formState }) =>
-          (console.log(errors) as any) || (
+        {({ register, control, errors, formState }) => {
+          console.log(errors);
+          return (
             <>
               <Legend>Edit user</Legend>
 
@@ -166,8 +166,8 @@ export const AsyncValidation: Story = ({ passAsyncValidation }) => {
                 Submit
               </Button>
             </>
-          )
-        }
+          );
+        }}
       </Form>
     </>
   );

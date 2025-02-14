@@ -1,27 +1,21 @@
+import { collectorTypes } from '@opentelemetry/exporter-collector';
+
+import { PluginType, DataSourceInstanceSettings, PluginMetaInfo } from '@grafana/data';
+
 import {
-  ArrayVector,
-  FieldType,
-  MutableDataFrame,
-  PluginType,
-  DataSourceInstanceSettings,
-  dateTime,
-} from '@grafana/data';
-import {
-  SearchResponse,
-  createTableFrame,
   transformToOTLP,
   transformFromOTLP,
-  transformTrace,
-  createTableFrameFromSearch,
+  createTableFrameFromTraceQlQuery,
+  createTableFrameFromTraceQlQueryAsSpans,
 } from './resultTransformer';
 import {
   badOTLPResponse,
   otlpDataFrameToResponse,
   otlpDataFrameFromResponse,
   otlpResponse,
-  tempoSearchResponse,
-} from './testResponse';
-import { collectorTypes } from '@opentelemetry/exporter-collector';
+  traceQlResponse,
+} from './test/testResponse';
+import { TraceSearchMetadata } from './types';
 
 const defaultSettings: DataSourceInstanceSettings = {
   id: 0,
@@ -33,47 +27,13 @@ const defaultSettings: DataSourceInstanceSettings = {
     id: 'tempo',
     name: 'tempo',
     type: PluginType.datasource,
-    info: {} as any,
+    info: {} as PluginMetaInfo,
     module: '',
     baseUrl: '',
   },
+  readOnly: false,
   jsonData: {},
 };
-
-describe('transformTraceList()', () => {
-  const lokiDataFrame = new MutableDataFrame({
-    fields: [
-      {
-        name: 'ts',
-        type: FieldType.time,
-        values: ['2020-02-12T15:05:14.265Z', '2020-02-12T15:05:15.265Z', '2020-02-12T15:05:16.265Z'],
-      },
-      {
-        name: 'line',
-        type: FieldType.string,
-        values: [
-          't=2020-02-12T15:04:51+0000 lvl=info msg="Starting Grafana" logger=server',
-          't=2020-02-12T15:04:52+0000 lvl=info msg="Starting Grafana" logger=server traceID=asdfa1234',
-          't=2020-02-12T15:04:53+0000 lvl=info msg="Starting Grafana" logger=server traceID=asdf88',
-        ],
-      },
-    ],
-    meta: {
-      preferredVisualisationType: 'table',
-    },
-  });
-
-  test('extracts traceIDs from log lines', () => {
-    const frame = createTableFrame(lokiDataFrame, 't1', 'tempo', ['traceID=(\\w+)', 'traceID=(\\w\\w)']);
-    expect(frame.fields[0].name).toBe('Time');
-    expect(frame.fields[0].values.get(0)).toBe('2020-02-12T15:05:15.265Z');
-    expect(frame.fields[1].name).toBe('traceID');
-    expect(frame.fields[1].values.get(0)).toBe('asdfa1234');
-    // Second match in new line
-    expect(frame.fields[0].values.get(1)).toBe('2020-02-12T15:05:15.265Z');
-    expect(frame.fields[1].values.get(1)).toBe('as');
-  });
-});
 
 describe('transformToOTLP()', () => {
   test('transforms dataframe to OTLP format', () => {
@@ -88,30 +48,295 @@ describe('transformFromOTLP()', () => {
       otlpResponse.batches as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[],
       false
     );
-    expect(res.data[0]).toMatchObject(otlpDataFrameFromResponse);
+    expect(res.data[0]).toMatchObject({
+      ...otlpDataFrameFromResponse,
+      creator: expect.any(Function),
+    });
   });
 });
 
-describe('createTableFrameFromSearch()', () => {
-  const mockTimeUnix = dateTime(1643357709095).valueOf();
-  global.Date.now = jest.fn(() => mockTimeUnix);
-  test('transforms search response to dataFrame', () => {
-    const frame = createTableFrameFromSearch(tempoSearchResponse.traces as SearchResponse[], defaultSettings);
+describe('createTableFrameFromTraceQlQuery()', () => {
+  test('transforms TraceQL response to DataFrame', () => {
+    const frameList = createTableFrameFromTraceQlQuery(traceQlResponse.traces, defaultSettings);
+    const frame = frameList[0];
+    // Trace ID field
     expect(frame.fields[0].name).toBe('traceID');
-    expect(frame.fields[0].values.get(0)).toBe('e641dcac1c3a0565');
+    expect(frame.fields[0].values[0]).toBe('b1586c3c8c34d');
+    expect(frame.fields[0].config.unit).toBe('string');
+    // Start time field
+    expect(frame.fields[1].name).toBe('startTime');
+    expect(frame.fields[1].type).toBe('time');
+    expect(frame.fields[1].values[1]).toBe(1643342166678.0002);
+    // Trace service field
+    expect(frame.fields[2].name).toBe('traceService');
+    expect(frame.fields[2].type).toBe('string');
+    expect(frame.fields[2].values[0]).toBe('lb');
+    // Trace name field
+    expect(frame.fields[3].name).toBe('traceName');
+    expect(frame.fields[3].type).toBe('string');
+    expect(frame.fields[3].values[0]).toBe('HTTP Client');
+    // Duration field
+    expect(frame.fields[4].name).toBe('traceDuration');
+    expect(frame.fields[4].type).toBe('number');
+    expect(frame.fields[4].values[2]).toBe(44);
+    expect(frame.fields[4].values[1]).toBe('<1ms');
+    // Subframes field
+    expect(frame.fields[5].name).toBe('nested');
+    expect(frame.fields[5].type).toBe('nestedFrames');
+    // Single spanset
+    expect(frame.fields[5].values[0][0].fields[0].name).toBe('traceIdHidden');
+    expect(frame.fields[5].values[0][0].fields[0].values[0]).toBe('b1586c3c8c34d');
+    expect(frame.fields[5].values[0][0].fields[1].name).toBe('spanID');
+    expect(frame.fields[5].values[0][0].fields[1].values[0]).toBe('162a4adae63b61f1');
+    expect(frame.fields[5].values[0][0].fields[2].name).toBe('time');
+    expect(frame.fields[5].values[0][0].fields[2].values[0]).toBe(1666188214303.201);
+    expect(frame.fields[5].values[0][0].fields[4].name).toBe('http.method');
+    expect(frame.fields[5].values[0][0].fields[4].values[0]).toBe('GET');
+    expect(frame.fields[5].values[0][0].fields[5].name).toBe('service.name');
+    expect(frame.fields[5].values[0][0].fields[5].values[0]).toBe('db');
+    expect(frame.fields[5].values[0][0].fields[6].name).toBe('duration');
+    expect(frame.fields[5].values[0][0].fields[6].values[0]).toBe(545000);
+    // Multiple spansets - set 0
+    expect(frame.fields[5].values[1][0].fields[0].name).toBe('traceIdHidden');
+    expect(frame.fields[5].values[1][0].fields[0].values[0]).toBe('9161e77388f3e');
+    expect(frame.fields[5].values[1][0].fields[1].name).toBe('spanID');
+    expect(frame.fields[5].values[1][0].fields[1].values[0]).toBe('3b9a5c222d3ddd8f');
+    expect(frame.fields[5].values[1][0].fields[2].name).toBe('time');
+    expect(frame.fields[5].values[1][0].fields[2].values[0]).toBe(1666187875397.7212);
+    expect(frame.fields[5].values[1][0].fields[4].name).toBe('by(resource.service.name)');
+    expect(frame.fields[5].values[1][0].fields[4].values[0]).toBe('db');
+    expect(frame.fields[5].values[1][0].fields[5].name).toBe('http.method');
+    expect(frame.fields[5].values[1][0].fields[5].values[0]).toBe('GET');
+    expect(frame.fields[5].values[1][0].fields[6].name).toBe('service.name');
+    expect(frame.fields[5].values[1][0].fields[6].values[0]).toBe('db');
+    expect(frame.fields[5].values[1][0].fields[7].name).toBe('duration');
+    expect(frame.fields[5].values[1][0].fields[7].values[0]).toBe(877000);
+    // Multiple spansets - set 1
+    expect(frame.fields[5].values[1][1].fields[0].name).toBe('traceIdHidden');
+    expect(frame.fields[5].values[1][1].fields[0].values[0]).toBe('9161e77388f3e');
+    expect(frame.fields[5].values[1][1].fields[1].name).toBe('spanID');
+    expect(frame.fields[5].values[1][1].fields[1].values[0]).toBe('894d90db6b5807f');
+    expect(frame.fields[5].values[1][1].fields[2].name).toBe('time');
+    expect(frame.fields[5].values[1][1].fields[2].values[0]).toBe(1666187875393.293);
+    expect(frame.fields[5].values[1][1].fields[4].name).toBe('by(resource.service.name)');
+    expect(frame.fields[5].values[1][1].fields[4].values[0]).toBe('app');
+    expect(frame.fields[5].values[1][1].fields[5].name).toBe('http.method');
+    expect(frame.fields[5].values[1][1].fields[5].values[0]).toBe('GET');
+    expect(frame.fields[5].values[1][1].fields[6].name).toBe('service.name');
+    expect(frame.fields[5].values[1][1].fields[6].values[0]).toBe('app');
+    expect(frame.fields[5].values[1][1].fields[7].name).toBe('duration');
+    expect(frame.fields[5].values[1][1].fields[7].values[0]).toBe(11073000);
+  });
+});
 
-    expect(frame.fields[1].name).toBe('traceName');
-    expect(frame.fields[1].values.get(0)).toBe('c10d7ca4e3a00354 ');
+describe('createTableFrameFromTraceQlQueryAsSpans()', () => {
+  test('transforms TraceQL legacy response to DataFrame for Spans table type', () => {
+    const traces = [
+      {
+        traceID: '1',
+        rootServiceName: 'prometheus',
+        rootTraceName: 'POST /api/v1/write',
+        startTimeUnixNano: '1702984850354934104',
+        durationMs: 1,
+        spanSet: {
+          spans: [
+            {
+              spanID: '11',
+              startTimeUnixNano: '1702984850354934104',
+              durationNanos: '1377608',
+            },
+          ],
+          matched: 1,
+          attributes: [{ key: 'attr-key-1', value: { intValue: '123' } }],
+        },
+      },
+      {
+        traceID: '2',
+        rootServiceName: 'prometheus',
+        rootTraceName: 'GET /api/v1/status/config',
+        startTimeUnixNano: '1702984840786143459',
+        spanSet: {
+          spans: [
+            {
+              spanID: '21',
+              startTimeUnixNano: '1702984840786143459',
+              durationNanos: '542316',
+            },
+          ],
+          matched: 1,
+          attributes: [{ key: 'attr-key-2', value: { stringValue: '456' } }],
+        },
+      },
+    ];
+    const frameList = createTableFrameFromTraceQlQueryAsSpans(traces, defaultSettings);
+    const frame = frameList[0];
 
-    // expect time in ago format if startTime less than 1 hour
-    expect(frame.fields[2].name).toBe('startTime');
-    expect(frame.fields[2].values.get(0)).toBe('15 minutes ago');
+    // Trace ID field
+    expect(frame.fields[0].name).toBe('traceIdHidden');
+    expect(frame.fields[0].type).toBe('string');
+    expect(frame.fields[0].values[0]).toBe('1');
+    // Trace service field
+    expect(frame.fields[1].name).toBe('traceService');
+    expect(frame.fields[1].type).toBe('string');
+    expect(frame.fields[1].values[0]).toBe('prometheus');
+    // Trace name field
+    expect(frame.fields[2].name).toBe('traceName');
+    expect(frame.fields[2].type).toBe('string');
+    expect(frame.fields[2].values[0]).toBe('POST /api/v1/write');
+    // Span ID field
+    expect(frame.fields[3].name).toBe('spanID');
+    expect(frame.fields[3].type).toBe('string');
+    expect(frame.fields[3].values[0]).toBe('11');
+    // Time field
+    expect(frame.fields[4].name).toBe('time');
+    expect(frame.fields[4].type).toBe('time');
+    expect(frame.fields[4].values[0]).toBe(1702984850354.934);
+    // Name field
+    expect(frame.fields[5].name).toBe('name');
+    expect(frame.fields[5].type).toBe('string');
+    expect(frame.fields[5].values[0]).toBe(undefined);
+    // Dynamic fields
+    expect(frame.fields[6].name).toBe('attr-key-1');
+    expect(frame.fields[6].type).toBe('string');
+    expect(frame.fields[6].values[0]).toBe('123');
+    expect(frame.fields[6].values[1]).toBe(undefined);
+    expect(frame.fields[6].values.length).toBe(2);
+    expect(frame.fields[7].name).toBe('attr-key-2');
+    expect(frame.fields[7].type).toBe('string');
+    expect(frame.fields[7].values[0]).toBe(undefined);
+    expect(frame.fields[7].values[1]).toBe('456');
+    expect(frame.fields[7].values.length).toBe(2);
+    // Duration field
+    expect(frame.fields[8].name).toBe('duration');
+    expect(frame.fields[8].type).toBe('number');
+    expect(frame.fields[8].values[0]).toBe(1377608);
+    // No more fields
+    expect(frame.fields.length).toBe(9);
+  });
 
-    // expect time in format if startTime greater than 1 hour
-    expect(frame.fields[2].values.get(1)).toBe('2022-01-27 22:56:06');
+  test('transforms TraceQL response to DataFrame for Spans table type', () => {
+    const traces = [
+      {
+        traceID: '1',
+        rootServiceName: 'prometheus',
+        rootTraceName: 'POST /api/v1/write',
+        startTimeUnixNano: '1702984850354934104',
+        durationMs: 1,
+        spanSets: [
+          {
+            spans: [
+              {
+                spanID: '11',
+                startTimeUnixNano: '1702984850354934104',
+                durationNanos: '1377608',
+              },
+            ],
 
-    expect(frame.fields[3].name).toBe('duration');
-    expect(frame.fields[3].values.get(0)).toBe(65);
+            matched: 1,
+            attributes: [{ key: 'attr-key-1', value: { intValue: '123' } }],
+          },
+        ],
+      },
+      {
+        traceID: '2',
+        rootServiceName: 'prometheus',
+        rootTraceName: 'GET /api/v1/status/config',
+        startTimeUnixNano: '1702984840786143459',
+        spanSets: [
+          {
+            spans: [
+              {
+                spanID: '21',
+                startTimeUnixNano: '1702984840786143459',
+                durationNanos: '542316',
+              },
+            ],
+            matched: 1,
+            attributes: [{ key: 'attr-key-2', value: { stringValue: '456' } }],
+          },
+        ],
+      },
+    ];
+    const frameList = createTableFrameFromTraceQlQueryAsSpans(traces, defaultSettings);
+    const frame = frameList[0];
+
+    // Trace ID field
+    expect(frame.fields[0].name).toBe('traceIdHidden');
+    expect(frame.fields[0].type).toBe('string');
+    expect(frame.fields[0].values[0]).toBe('1');
+    // Trace service field
+    expect(frame.fields[1].name).toBe('traceService');
+    expect(frame.fields[1].type).toBe('string');
+    expect(frame.fields[1].values[0]).toBe('prometheus');
+    // Trace name field
+    expect(frame.fields[2].name).toBe('traceName');
+    expect(frame.fields[2].type).toBe('string');
+    expect(frame.fields[2].values[0]).toBe('POST /api/v1/write');
+    // Span ID field
+    expect(frame.fields[3].name).toBe('spanID');
+    expect(frame.fields[3].type).toBe('string');
+    expect(frame.fields[3].values[0]).toBe('11');
+    // Time field
+    expect(frame.fields[4].name).toBe('time');
+    expect(frame.fields[4].type).toBe('time');
+    expect(frame.fields[4].values[0]).toBe(1702984850354.934);
+    // Name field
+    expect(frame.fields[5].name).toBe('name');
+    expect(frame.fields[5].type).toBe('string');
+    expect(frame.fields[5].values[0]).toBe(undefined);
+    // Dynamic fields
+    expect(frame.fields[6].name).toBe('attr-key-1');
+    expect(frame.fields[6].type).toBe('string');
+    expect(frame.fields[6].values[0]).toBe('123');
+    expect(frame.fields[6].values[1]).toBe(undefined);
+    expect(frame.fields[6].values.length).toBe(2);
+    expect(frame.fields[7].name).toBe('attr-key-2');
+    expect(frame.fields[7].type).toBe('string');
+    expect(frame.fields[7].values[0]).toBe(undefined);
+    expect(frame.fields[7].values[1]).toBe('456');
+    expect(frame.fields[7].values.length).toBe(2);
+    // Duration field
+    expect(frame.fields[8].name).toBe('duration');
+    expect(frame.fields[8].type).toBe('number');
+    expect(frame.fields[8].values[0]).toBe(1377608);
+    // No more fields
+    expect(frame.fields.length).toBe(9);
+  });
+
+  it.each([[undefined], [[]]])('TraceQL response with no data', (traces: TraceSearchMetadata[] | undefined) => {
+    const frameList = createTableFrameFromTraceQlQueryAsSpans(traces, defaultSettings);
+    const frame = frameList[0];
+
+    // Trace ID field
+    expect(frame.fields[0].name).toBe('traceIdHidden');
+    expect(frame.fields[0].type).toBe('string');
+    expect(frame.fields[0].values).toMatchObject([]);
+    // Trace service field
+    expect(frame.fields[1].name).toBe('traceService');
+    expect(frame.fields[1].type).toBe('string');
+    expect(frame.fields[1].values).toMatchObject([]);
+    // Trace name field
+    expect(frame.fields[2].name).toBe('traceName');
+    expect(frame.fields[2].type).toBe('string');
+    expect(frame.fields[2].values).toMatchObject([]);
+    // Span ID field
+    expect(frame.fields[3].name).toBe('spanID');
+    expect(frame.fields[3].type).toBe('string');
+    expect(frame.fields[3].values).toMatchObject([]);
+    // Time field
+    expect(frame.fields[4].name).toBe('time');
+    expect(frame.fields[4].type).toBe('time');
+    expect(frame.fields[4].values).toMatchObject([]);
+    // Name field
+    expect(frame.fields[5].name).toBe('name');
+    expect(frame.fields[5].type).toBe('string');
+    expect(frame.fields[5].values).toMatchObject([]);
+    // Duration field
+    expect(frame.fields[6].name).toBe('duration');
+    expect(frame.fields[6].type).toBe('number');
+    expect(frame.fields[6].values).toMatchObject([]);
+    // No more fields
+    expect(frame.fields.length).toBe(7);
   });
 });
 
@@ -144,44 +369,5 @@ describe('transformFromOTLP()', () => {
         ],
       },
     }).not.toBeFalsy();
-  });
-});
-
-describe('transformTrace()', () => {
-  // Mock the console error so that running the test suite doesnt throw the error
-  const origError = console.error;
-  const consoleErrorMock = jest.fn();
-  afterEach(() => (console.error = origError));
-  beforeEach(() => (console.error = consoleErrorMock));
-
-  const badFrame = new MutableDataFrame({
-    fields: [
-      {
-        name: 'serviceTags',
-        values: new ArrayVector([undefined]),
-      },
-    ],
-  });
-
-  const goodFrame = new MutableDataFrame({
-    fields: [
-      {
-        name: 'serviceTags',
-        values: new ArrayVector(),
-      },
-    ],
-  });
-
-  test('if passed bad data, will surface an error', () => {
-    const response = transformTrace({ data: [badFrame] }, false);
-    expect(response.data[0]).toBeFalsy();
-    expect(response.error?.message).toBeTruthy();
-  });
-
-  test('if passed good data, will parse successfully', () => {
-    const response2 = transformTrace({ data: [goodFrame] }, false);
-    expect(response2.data[0]).toBeTruthy();
-    expect(response2.data[0]).toMatchObject(goodFrame);
-    expect(response2.error).toBeFalsy();
   });
 });

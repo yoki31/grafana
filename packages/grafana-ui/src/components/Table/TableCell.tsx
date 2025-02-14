@@ -1,7 +1,9 @@
-import React, { FC } from 'react';
 import { Cell } from 'react-table';
-import { GrafanaTableColumn, TableFilterActionCallback } from './types';
+
+import { TimeRange, DataFrame, InterpolateFunction } from '@grafana/data';
+
 import { TableStyles } from './styles';
+import { GetActionsFunction, GrafanaTableColumn, TableFilterActionCallback, TableInspectCellCallback } from './types';
 
 export interface Props {
   cell: Cell;
@@ -9,33 +11,77 @@ export interface Props {
   onCellFilterAdded?: TableFilterActionCallback;
   columnIndex: number;
   columnCount: number;
+  timeRange?: TimeRange;
+  userProps?: object;
+  frame: DataFrame;
+  rowStyled?: boolean;
+  rowExpanded?: boolean;
+  textWrapped?: boolean;
+  height?: number;
+  getActions?: GetActionsFunction;
+  replaceVariables?: InterpolateFunction;
+  setInspectCell?: TableInspectCellCallback;
 }
 
-export const TableCell: FC<Props> = ({ cell, tableStyles, onCellFilterAdded, columnIndex, columnCount }) => {
+export const TableCell = ({
+  cell,
+  tableStyles,
+  onCellFilterAdded,
+  timeRange,
+  userProps,
+  frame,
+  rowStyled,
+  rowExpanded,
+  textWrapped,
+  height,
+  getActions,
+  replaceVariables,
+  setInspectCell,
+}: Props) => {
   const cellProps = cell.getCellProps();
-  const field = (cell.column as any as GrafanaTableColumn).field;
+  const field = (cell.column as unknown as GrafanaTableColumn).field;
 
-  if (!field.display) {
+  if (!field?.display) {
     return null;
   }
 
   if (cellProps.style) {
+    cellProps.style.wordBreak = 'break-word';
     cellProps.style.minWidth = cellProps.style.width;
-    cellProps.style.justifyContent = (cell.column as any).justifyContent;
+    const justifyContent = (cell.column as any).justifyContent;
+
+    if (justifyContent === 'flex-end' && !field.config.unit) {
+      // justify-content flex-end is not compatible with cellLink overflow; use direction instead
+      cellProps.style.textAlign = 'right';
+      cellProps.style.direction = 'rtl';
+      cellProps.style.unicodeBidi = 'plaintext';
+    } else {
+      cellProps.style.justifyContent = justifyContent;
+    }
   }
 
-  let innerWidth = ((cell.column.width as number) ?? 24) - tableStyles.cellPadding * 2;
+  let innerWidth = (typeof cell.column.width === 'number' ? cell.column.width : 24) - tableStyles.cellPadding * 2;
 
-  // last child sometimes have extra padding if there is a non overlay scrollbar
-  if (columnIndex === columnCount - 1) {
-    innerWidth -= tableStyles.lastChildExtraPadding;
-  }
+  const actions = getActions ? getActions(frame, field, cell.row.index, replaceVariables) : [];
 
-  return cell.render('Cell', {
-    field,
-    tableStyles,
-    onCellFilterAdded,
-    cellProps,
-    innerWidth,
-  }) as React.ReactElement;
+  return (
+    <>
+      {cell.render('Cell', {
+        field,
+        tableStyles,
+        onCellFilterAdded,
+        cellProps,
+        innerWidth,
+        timeRange,
+        userProps,
+        frame,
+        rowStyled,
+        rowExpanded,
+        textWrapped,
+        height,
+        actions,
+        setInspectCell,
+      })}
+    </>
+  );
 };

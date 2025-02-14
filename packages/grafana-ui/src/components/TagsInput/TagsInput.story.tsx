@@ -1,15 +1,14 @@
-import React, { useState } from 'react';
-import { Meta, Story } from '@storybook/react';
-import { TagsInput, Props } from './TagsInput';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
+import { Meta, StoryFn } from '@storybook/react';
+import { useState } from 'react';
+
 import { StoryExample } from '../../utils/storybook/StoryExample';
-import { VerticalGroup } from '../Layout/Layout';
+
+import { TagsInput } from './TagsInput';
 import mdx from './TagsInput.mdx';
 
-export default {
+const meta: Meta<typeof TagsInput> = {
   title: 'Forms/TagsInput',
   component: TagsInput,
-  decorators: [withCenteredStory],
   parameters: {
     docs: {
       page: mdx,
@@ -18,11 +17,9 @@ export default {
       exclude: ['onChange', 'className', 'tags'],
     },
   },
-} as Meta;
+};
 
-type StoryProps = Omit<Props, 'onChange' | 'className' | 'tags'>;
-
-export const Basic: Story<StoryProps> = (props) => {
+export const Basic: StoryFn<typeof TagsInput> = (props) => {
   const [tags, setTags] = useState<string[]>([]);
   return <TagsInput {...props} tags={tags} onChange={setTags} />;
 };
@@ -30,10 +27,10 @@ export const Basic: Story<StoryProps> = (props) => {
 export const WithManyTags = () => {
   const [tags, setTags] = useState<string[]>(['dashboard', 'prod', 'server', 'frontend', 'game', 'kubernetes']);
   return (
-    <VerticalGroup>
-      <StoryExample name="With many tags">
-        <TagsInput tags={tags} onChange={setTags} />
-      </StoryExample>
-    </VerticalGroup>
+    <StoryExample name="With many tags">
+      <TagsInput tags={tags} onChange={setTags} />
+    </StoryExample>
   );
 };
+
+export default meta;

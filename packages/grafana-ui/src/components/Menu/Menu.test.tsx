@@ -1,6 +1,7 @@
-import React from 'react';
 import { render, screen } from '@testing-library/react';
+
 import { selectors } from '@grafana/e2e-selectors';
+
 import { Menu } from './Menu';
 import { MenuGroup } from './MenuGroup';
 import { MenuItem } from './MenuItem';

@@ -1,16 +1,16 @@
-import { e2e } from '@grafana/e2e';
+import { e2e } from '../utils';
 const PAGE_UNDER_TEST = 'OY8Ghjt7k/repeating-a-panel-vertically';
 
 describe('Repeating a panel vertically', () => {
   beforeEach(() => {
-    e2e.flows.login('admin', 'admin');
+    e2e.flows.login(Cypress.env('USERNAME'), Cypress.env('PASSWORD'));
   });
 
   it('should be able to repeat a panel vertically', () => {
     e2e.flows.openDashboard({ uid: PAGE_UNDER_TEST });
 
     let prevTop = Number.NEGATIVE_INFINITY;
-    let prevLeft = null;
+    let prevLeft: number | null = null;
     const panelTitles = ['Panel Title 1', 'Panel Title 2', 'Panel Title 3'];
     panelTitles.forEach((title) => {
       e2e.components.Panels.Panel.title(title)
@@ -31,18 +31,24 @@ describe('Repeating a panel vertically', () => {
     e2e.flows.openDashboard({ uid: PAGE_UNDER_TEST });
 
     let prevTop = Number.NEGATIVE_INFINITY;
-    let prevLeft = null;
+    let prevLeft: number | null = null;
     const panelTitles = ['Panel Title 1', 'Panel Title 2', 'Panel Title 3'];
     panelTitles.forEach((title) => {
       e2e.components.Panels.Panel.title(title).should('be.visible');
     });
 
     // Change to only show panels 1 + 3
-    e2e.pages.Dashboard.SubMenu.submenuItemLabels('vertical').click();
+    e2e.pages.Dashboard.SubMenu.submenuItemLabels('vertical')
+      .parent()
+      .within(() => {
+        cy.get('input').click();
+      });
+
     e2e.pages.Dashboard.SubMenu.submenuItemValueDropDownOptionTexts('1').click();
     e2e.pages.Dashboard.SubMenu.submenuItemValueDropDownOptionTexts('3').click();
+
     // blur the dropdown
-    e2e().get('body').click();
+    cy.get('body').click();
 
     const panelsShown = ['Panel Title 1', 'Panel Title 3'];
     const panelsNotShown = ['Panel Title 2'];
@@ -69,7 +75,7 @@ describe('Repeating a panel vertically', () => {
     e2e.flows.openDashboard({ uid: `${PAGE_UNDER_TEST}?var-vertical=1&var-vertical=3` });
 
     let prevTop = Number.NEGATIVE_INFINITY;
-    let prevLeft = null;
+    let prevLeft: number | null = null;
     const panelsShown = ['Panel Title 1', 'Panel Title 3'];
     const panelsNotShown = ['Panel Title 2'];
     panelsShown.forEach((title) => {

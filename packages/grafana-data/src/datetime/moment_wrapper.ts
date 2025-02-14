@@ -1,6 +1,7 @@
-import { TimeZone } from '../types/time';
-/* eslint-disable id-blacklist, no-restricted-imports, @typescript-eslint/ban-types */
 import moment, { Moment, MomentInput, DurationInputArg1, DurationInputArg2 } from 'moment';
+
+import { TimeZone } from '../types/time';
+/* eslint-disable id-blacklist, no-restricted-imports */
 export interface DateTimeBuiltinFormat {
   __momentBuiltinFormatBrand: any;
 }
@@ -52,7 +53,7 @@ export interface DateTimeDuration {
 
 export interface DateTime extends Object {
   add: (amount?: DateTimeInput, unit?: DurationUnit) => DateTime;
-  set: (unit: DurationUnit, amount: DateTimeInput) => void;
+  set: (unit: DurationUnit | 'date', amount: DateTimeInput) => void;
   diff: (amount: DateTimeInput, unit?: DurationUnit, truncate?: boolean) => number;
   endOf: (unitOfTime: DurationUnit) => DateTime;
   format: (formatInput?: FormatInput) => string;
@@ -66,7 +67,7 @@ export interface DateTime extends Object {
   startOf: (unitOfTime: DurationUnit) => DateTime;
   subtract: (amount?: DateTimeInput, unit?: DurationUnit) => DateTime;
   toDate: () => Date;
-  toISOString: () => string;
+  toISOString: (keepOffset?: boolean) => string;
   isoWeekday: (day?: number | string) => number | string;
   valueOf: () => number;
   unix: () => number;
@@ -88,7 +89,18 @@ export const getLocaleData = (): DateTimeLocale => {
   return moment.localeData();
 };
 
-export const isDateTime = (value: any): value is DateTime => {
+export const isDateTimeInput = (value: unknown): value is DateTimeInput => {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    value instanceof Date ||
+    (Array.isArray(value) && value.every((v) => typeof v === 'string' || typeof v === 'number')) ||
+    isDateTime(value)
+  );
+};
+
+export const isDateTime = (value: unknown): value is DateTime => {
   return moment.isMoment(value);
 };
 
@@ -114,8 +126,18 @@ export const dateTimeForTimeZone = (
   input?: DateTimeInput,
   formatInput?: FormatInput
 ): DateTime => {
-  if (timezone === 'utc') {
-    return toUtc(input, formatInput);
+  if (timezone && timezone !== 'browser') {
+    let result: moment.Moment;
+
+    if (typeof input === 'string' && formatInput) {
+      result = moment.tz(input, formatInput, timezone);
+    } else {
+      result = moment.tz(input, timezone);
+    }
+
+    if (isDateTime(result)) {
+      return result;
+    }
   }
 
   return dateTime(input, formatInput);
@@ -125,12 +147,17 @@ export const getWeekdayIndex = (day: string) => {
   return moment.weekdays().findIndex((wd) => wd.toLowerCase() === day.toLowerCase());
 };
 
+export const getWeekdayIndexByEnglishName = (day: string) =>
+  ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].findIndex(
+    (wd) => wd.toLowerCase() === day.toLowerCase()
+  );
+
 export const setWeekStart = (weekStart?: string) => {
   const suffix = '-weekStart';
   const language = getLocale().replace(suffix, '');
-  const dow = weekStart ? getWeekdayIndex(weekStart) : -1;
+  const dow = weekStart ? getWeekdayIndexByEnglishName(weekStart) : -1;
   if (dow !== -1) {
-    moment.locale(language + suffix, {
+    moment.updateLocale(language + suffix, {
       parentLocale: language,
       week: {
         dow,

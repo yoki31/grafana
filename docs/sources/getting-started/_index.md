@@ -1,13 +1,19 @@
-+++
-title = "Getting started"
-weight = 10
-aliases = ["/docs/grafana/latest/guides/what-is-grafana"]
-+++
+---
+aliases:
+  - guides/what-is-grafana/
+description: Learn how build your first dashboard after you have installed Grafana.
+labels:
+  products:
+    - enterprise
+    - oss
+title: Get started with Grafana Open Source
+weight: 9
+---
 
-# Getting started
+# Get started with Grafana Open Source
 
-This section provides guidance on how to install Grafana and build your first dashboard. It also provides step by step instructions on how to add a Prometheus or an InfluxDB data source. Refer to [Data sources]({{< relref "../datasources/_index.md" >}}) for a list of all supported data sources.
+Grafana helps you collect, correlate, and visualize data with beautiful dashboards — the open source data visualization and monitoring solution that drives informed decisions, enhances system performance, and streamlines troubleshooting.
 
-- [Getting started with Grafana]({{< relref "getting-started.md" >}})
-- [Getting started with Grafana and InfluxDB]({{< relref "getting-started-influxdb.md" >}})
-- [Getting started with Grafana and Prometheus]({{< relref "getting-started-prometheus.md" >}})
+This section provides guidance to our open source community about how to build your first dashboard after you have installed Grafana. It also provides step-by-step instructions on how to add a Prometheus, InfluxDB, or an MS SQL Server data source. If you are connecting a different data source, please refer to our complete list of supported [Data sources]({{< relref "../datasources" >}}). If you would like to learn how to get started with Grafana Cloud, our fully managed observability stack, visit the [Grafana Cloud documentation](https://grafana.com/docs/grafana-cloud/quickstart/) for more information.
+
+{{< section >}}

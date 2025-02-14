@@ -1,5 +1,6 @@
-import { buildParams } from './utils';
 import { TimeRange } from '@grafana/data';
+
+import { buildParams } from './utils';
 
 describe('buildParams', () => {
   it.each`
@@ -28,6 +29,7 @@ describe('buildParams', () => {
     ${'var=%2B1&var=a+value+with+spaces&var=true'} | ${false}            | ${'current'}  | ${{ id: 3 }} | ${'var=%2B1&var=a+value+with+spaces&var=true&orgId=2&viewPanel=3'}
     ${'var=%2B1&var=a+value+with+spaces&var=true'} | ${false}            | ${'light'}    | ${undefined} | ${'var=%2B1&var=a+value+with+spaces&var=true&orgId=2&theme=light'}
     ${'var=%2B1&var=a+value+with+spaces&var=true'} | ${false}            | ${'light'}    | ${{ id: 3 }} | ${'var=%2B1&var=a+value+with+spaces&var=true&orgId=2&theme=light&viewPanel=3'}
+    ${'auth_token=1234'}                           | ${true}             | ${'current'}  | ${undefined} | ${'from=1000&to=2000&orgId=2'}
   `(
     "when called with search: '$search' and useCurrentTimeRange: '$useCurrentTimeRange' and selectedTheme: '$selectedTheme' and panel: '$panel'then result should be '$expected'",
     ({ search, useCurrentTimeRange, selectedTheme, panel, expected }) => {
@@ -36,7 +38,7 @@ describe('buildParams', () => {
         to: 2000,
         raw: { from: 'now-6h', to: 'now' },
       } as unknown as TimeRange;
-      const orgId = '2';
+      const orgId = 2;
       const result = buildParams({ useCurrentTimeRange, selectedTheme, panel, search, range, orgId });
 
       expect(result.toString()).toEqual(expected);

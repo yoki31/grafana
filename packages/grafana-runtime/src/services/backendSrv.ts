@@ -71,6 +71,12 @@ export type BackendSrvRequest = {
   responseType?: 'json' | 'text' | 'arraybuffer' | 'blob';
 
   /**
+   * Used to cancel an open connection
+   * https://developer.mozilla.org/en-US/docs/Web/API/AbortController
+   */
+  abortSignal?: AbortSignal;
+
+  /**
    * The credentials read-only property of the Request interface indicates whether the user agent should send cookies from the other domain in the case of cross-origin requests.
    */
   credentials?: RequestCredentials;
@@ -96,6 +102,7 @@ export interface FetchResponse<T = any> {
   readonly type: ResponseType;
   readonly url: string;
   readonly config: BackendSrvRequest;
+  readonly traceId?: string;
 }
 
 /**
@@ -118,9 +125,15 @@ export interface FetchError<T = any> {
   status: number;
   statusText?: string;
   data: T;
+  message?: string;
   cancelled?: boolean;
   isHandled?: boolean;
   config: BackendSrvRequest;
+  traceId?: string;
+}
+
+export function isFetchError<T = any>(e: unknown): e is FetchError<T> {
+  return typeof e === 'object' && e !== null && 'status' in e && 'data' in e;
 }
 
 /**
@@ -139,17 +152,18 @@ export interface FetchError<T = any> {
  * @public
  */
 export interface BackendSrv {
-  get(url: string, params?: any, requestId?: string): Promise<any>;
-  delete(url: string, data?: any): Promise<any>;
-  post(url: string, data?: any): Promise<any>;
-  patch(url: string, data?: any): Promise<any>;
-  put(url: string, data?: any): Promise<any>;
+  get<T = any>(url: string, params?: any, requestId?: string, options?: Partial<BackendSrvRequest>): Promise<T>;
+  delete<T = unknown>(url: string, data?: unknown, options?: Partial<BackendSrvRequest>): Promise<T>;
+  post<T = any>(url: string, data?: unknown, options?: Partial<BackendSrvRequest>): Promise<T>;
+  patch<T = any>(url: string, data?: unknown, options?: Partial<BackendSrvRequest>): Promise<T>;
+  put<T = any>(url: string, data?: unknown, options?: Partial<BackendSrvRequest>): Promise<T>;
 
   /**
-   * @deprecated Use the fetch function instead. If you prefer to work with a promise
-   * wrap the Observable returned by fetch with the lastValueFrom function.
+   * @deprecated Use the `.fetch()` function instead. If you prefer to work with a promise
+   * wrap the Observable returned by fetch with the lastValueFrom function, or use the get|delete|post|patch|put methods.
+   * This method is going to be private from Grafana 10.
    */
-  request(options: BackendSrvRequest): Promise<any>;
+  request<T = unknown>(options: BackendSrvRequest): Promise<T>;
 
   /**
    * Special function used to communicate with datasources that will emit core
@@ -159,12 +173,20 @@ export interface BackendSrv {
    *
    * @deprecated Use the fetch function instead
    */
-  datasourceRequest<T = any>(options: BackendSrvRequest): Promise<FetchResponse<T>>;
+  datasourceRequest<T = unknown>(options: BackendSrvRequest): Promise<FetchResponse<T>>;
 
   /**
    * Observable http request interface
    */
   fetch<T>(options: BackendSrvRequest): Observable<FetchResponse<T>>;
+
+  /**
+   * Observe each raw chunk in the response.  This is useful when reading values from
+   * a long living HTTP connection like the kubernetes WATCH command.
+   *
+   * Each chunk includes the full response headers and the `data` property is filled with the chunk.
+   */
+  chunked(options: BackendSrvRequest): Observable<FetchResponse<Uint8Array | undefined>>;
 }
 
 let singletonInstance: BackendSrv;

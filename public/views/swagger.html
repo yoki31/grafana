@@ -1,63 +1,39 @@
-<!-- HTML for static distribution bundle build -->
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8">
-    <title>Swagger UI</title>
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@4.3.0/swagger-ui.css" />
-    <link rel="icon" type="image/png" href="./favicon-32x32.png" sizes="32x32" />
-    <link rel="icon" type="image/png" href="./favicon-16x16.png" sizes="16x16" />
-    <style>
-      html
-      {
-        box-sizing: border-box;
-        overflow: -moz-scrollbars-vertical;
-        overflow-y: scroll;
-      }
+    [[ if and .CSPEnabled .IsDevelopmentEnv ]]
+    <!-- Cypress overwrites CSP headers in HTTP requests, so this is required for e2e tests-->
+    <meta http-equiv="Content-Security-Policy" content="[[.CSPContent]]" />
+    [[ end ]]
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="theme-color" content="#000" />
 
-      *,
-      *:before,
-      *:after
-      {
-        box-sizing: inherit;
-      }
+    <title>Grafana API Reference</title>
 
-      body
-      {
-        margin:0;
-        background: #fafafa;
-      }
-    </style>
+    [[range $asset := .Assets.SwaggerCSSFiles]]
+    <link rel="stylesheet" href="[[$asset.FilePath]]" />
+    [[end]]
+
+    <link rel="stylesheet" href="[[.Assets.Light]]" />
+
+    <link rel="icon" type="image/png" href="[[.FavIcon]]" />
+    <link rel="apple-touch-icon" sizes="180x180" href="[[.AppleTouchIcon]]" />
+    <link rel="mask-icon" href="[[.Assets.ContentDeliveryURL]]public/img/grafana_mask_icon.svg" color="#F05A28" />
   </head>
 
   <body>
-    <div id="swagger-ui"></div>
-
-    <script src="https://unpkg.com/swagger-ui-dist@4.3.0/swagger-ui-bundle.js" charset="UTF-8"> </script>
-    <script src="https://unpkg.com/swagger-ui-dist@4.3.0/swagger-ui-standalone-preset.js" charset="UTF-8"> </script>
-    <script>
-    window.onload = function() {
-      // Begin Swagger UI call region
-      const ui = SwaggerUIBundle({
-        url: "/public/api-merged.json",
-        dom_id: '#swagger-ui',
-        deepLinking: true,
-        presets: [
-          SwaggerUIBundle.presets.apis,
-          SwaggerUIStandalonePreset
-        ],
-        plugins: [
-          SwaggerUIBundle.plugins.DownloadUrl
-        ],
-        layout: "StandaloneLayout",
-        filter: true,
-        tagsSorter: "alpha",
-        tryItOutEnabled: true
-      });
-      // End Swagger UI call region
-
-      window.ui = ui;
-    };
-  </script>
+    <noscript> You need to enable JavaScript to run this app. </noscript>
+    <script nonce="[[$.Nonce]]">
+      [[if .Assets.ContentDeliveryURL]]
+          window.public_cdn_path = '[[.Assets.ContentDeliveryURL]]public/build/';
+      [[end]]
+    </script>
+    <div id="root"></div>
+    [[range $asset := .Assets.Swagger]]
+    <script nonce="[[$.Nonce]]" src="[[$asset.FilePath]]" type="text/javascript"></script>
+    [[end]]
+    <script></script>
   </body>
 </html>

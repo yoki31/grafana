@@ -1,14 +1,15 @@
 import angular, { ILocationService } from 'angular';
 import { each } from 'lodash';
 
-import config from 'app/core/config';
-import coreModule from 'app/angular/core_module';
-
 import { DataSourceApi, PanelEvents } from '@grafana/data';
-import { importDataSourcePlugin, importAppPlugin } from '../../features/plugins/plugin_loader';
-import { importPanelPlugin } from '../../features/plugins/importPanelPlugin';
+import coreModule from 'app/angular/core_module';
+import config from 'app/core/config';
 
-/** @ngInject */
+import { importPanelPlugin } from '../../features/plugins/importPanelPlugin';
+import { importDataSourcePlugin, importAppPlugin } from '../../features/plugins/plugin_loader';
+
+coreModule.directive('pluginComponent', ['$compile', '$http', '$templateCache', '$location', pluginDirectiveLoader]);
+
 function pluginDirectiveLoader($compile: any, $http: any, $templateCache: any, $location: ILocationService) {
   function getTemplate(component: { template: any; templateUrl: any }) {
     if (component.template) {
@@ -30,6 +31,7 @@ function pluginDirectiveLoader($compile: any, $http: any, $templateCache: any, $
     if (templateUrl.indexOf('public') === 0) {
       return templateUrl;
     }
+
     return baseUrl + '/' + templateUrl;
   }
 
@@ -91,7 +93,7 @@ function pluginDirectiveLoader($compile: any, $http: any, $templateCache: any, $
       PanelCtrl.templatePromise = getTemplate(PanelCtrl).then((template: any) => {
         PanelCtrl.templateUrl = null;
         PanelCtrl.template = `<grafana-panel ctrl="ctrl" class="panel-height-helper">${template}</grafana-panel>`;
-        return componentInfo;
+        return { ...componentInfo, baseUrl: panelInfo.baseUrl };
       });
 
       return PanelCtrl.templatePromise;
@@ -245,5 +247,3 @@ function pluginDirectiveLoader($compile: any, $http: any, $templateCache: any, $
     },
   };
 }
-
-coreModule.directive('pluginComponent', pluginDirectiveLoader);

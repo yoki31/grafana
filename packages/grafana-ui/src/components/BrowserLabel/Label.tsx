@@ -1,11 +1,13 @@
-import React, { forwardRef, HTMLAttributes, useCallback } from 'react';
 import { cx, css } from '@emotion/css';
-import { GrafanaTheme2 } from '@grafana/data';
-import { useTheme2 } from '../../themes';
-// @ts-ignore
+import { forwardRef, HTMLAttributes, useCallback } from 'react';
+import * as React from 'react';
 import Highlighter from 'react-highlight-words';
-import { PartialHighlighter } from '../Typeahead/PartialHighlighter';
+
+import { GrafanaTheme2 } from '@grafana/data';
+
+import { useTheme2 } from '../../themes';
 import { HighlightPart } from '../../types';
+import { PartialHighlighter } from '../Typeahead/PartialHighlighter';
 
 type OnLabelClick = (name: string, value: string | undefined, event: React.MouseEvent<HTMLElement>) => void;
 
@@ -24,7 +26,7 @@ interface Props extends Omit<HTMLAttributes<HTMLElement>, 'onClick'> {
 /**
  * @internal
  */
-export const Label = forwardRef<HTMLElement, Props>(
+export const Label = forwardRef<HTMLButtonElement, Props>(
   (
     {
       name,
@@ -63,12 +65,13 @@ export const Label = forwardRef<HTMLElement, Props>(
     }
 
     return (
-      <span
+      <button
         key={text}
         ref={ref}
         onClick={onLabelClick}
         style={style}
         title={title || text}
+        type="button"
         role="option"
         aria-selected={!!active}
         className={cx(
@@ -91,7 +94,7 @@ export const Label = forwardRef<HTMLElement, Props>(
             highlightClassName={styles.matchHighLight}
           />
         )}
-      </span>
+      </button>
     );
   }
 );
@@ -99,56 +102,59 @@ export const Label = forwardRef<HTMLElement, Props>(
 Label.displayName = 'Label';
 
 const getLabelStyles = (theme: GrafanaTheme2) => ({
-  base: css`
-    display: inline-block;
-    cursor: pointer;
-    font-size: ${theme.typography.size.sm};
-    line-height: ${theme.typography.bodySmall.lineHeight};
-    background-color: ${theme.colors.background.secondary};
-    color: ${theme.colors.text};
-    white-space: nowrap;
-    text-shadow: none;
-    padding: ${theme.spacing(0.5)};
-    border-radius: ${theme.shape.borderRadius()};
-    margin-right: ${theme.spacing(1)};
-    margin-bottom: ${theme.spacing(0.5)};
-  `,
-  loading: css`
-    font-weight: ${theme.typography.fontWeightMedium};
-    background-color: ${theme.colors.primary.shade};
-    color: ${theme.colors.text.primary};
-    animation: pulse 3s ease-out 0s infinite normal forwards;
-    @keyframes pulse {
-      0% {
-        color: ${theme.colors.text.primary};
-      }
-      50% {
-        color: ${theme.colors.text.secondary};
-      }
-      100% {
-        color: ${theme.colors.text.disabled};
-      }
-    }
-  `,
-  active: css`
-    font-weight: ${theme.typography.fontWeightMedium};
-    background-color: ${theme.colors.primary.main};
-    color: ${theme.colors.primary.contrastText};
-  `,
-  matchHighLight: css`
-    background: inherit;
-    color: ${theme.colors.primary.text};
-    background-color: ${theme.colors.primary.transparent};
-  `,
-  hidden: css`
-    opacity: 0.6;
-    cursor: default;
-    border: 1px solid transparent;
-  `,
-  hover: css`
-    &:hover {
-      opacity: 0.85;
-      cursor: pointer;
-    }
-  `,
+  base: css({
+    display: 'inline-block',
+    cursor: 'pointer',
+    fontSize: theme.typography.size.sm,
+    lineHeight: theme.typography.bodySmall.lineHeight,
+    backgroundColor: theme.colors.background.secondary,
+    color: theme.colors.text.primary,
+    whiteSpace: 'nowrap',
+    textShadow: 'none',
+    padding: theme.spacing(0.5),
+    borderRadius: theme.shape.radius.default,
+    border: 'none',
+    marginRight: theme.spacing(1),
+    marginBottom: theme.spacing(0.5),
+  }),
+  loading: css({
+    fontWeight: theme.typography.fontWeightMedium,
+    backgroundColor: theme.colors.primary.shade,
+    color: theme.colors.text.primary,
+    [theme.transitions.handleMotion('no-preference', 'reduce')]: {
+      animation: 'pulse 3s ease-out 0s infinite normal forwards',
+    },
+    '@keyframes pulse': {
+      '0%': {
+        color: theme.colors.text.primary,
+      },
+      '50%': {
+        color: theme.colors.text.secondary,
+      },
+      '100%': {
+        color: theme.colors.text.disabled,
+      },
+    },
+  }),
+  active: css({
+    fontWeight: theme.typography.fontWeightMedium,
+    backgroundColor: theme.colors.primary.main,
+    color: theme.colors.primary.contrastText,
+  }),
+  matchHighLight: css({
+    background: 'inherit',
+    color: theme.components.textHighlight.text,
+    backgroundColor: theme.components.textHighlight.background,
+  }),
+  hidden: css({
+    opacity: 0.6,
+    cursor: 'default',
+    border: '1px solid transparent',
+  }),
+  hover: css({
+    ['&:hover']: {
+      opacity: 0.85,
+      cursor: 'pointer',
+    },
+  }),
 });

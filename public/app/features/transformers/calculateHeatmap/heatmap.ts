@@ -1,5 +1,6 @@
+import { map } from 'rxjs';
+
 import {
-  ArrayVector,
   DataFrame,
   DataTransformerID,
   FieldType,
@@ -9,10 +10,21 @@ import {
   DataFrameType,
   getFieldDisplayName,
   Field,
+  getValueFormat,
+  formattedValueToString,
+  TransformationApplicabilityLevels,
+  TimeRange,
 } from '@grafana/data';
-import { map } from 'rxjs';
-import { HeatmapCalculationMode, HeatmapCalculationOptions } from './models.gen';
-import { niceLinearIncrs, niceTimeIncrs } from './utils';
+import { isLikelyAscendingVector } from '@grafana/data/src/transformations/transformers/joinDataFrames';
+import { config } from '@grafana/runtime';
+import {
+  ScaleDistribution,
+  HeatmapCellLayout,
+  HeatmapCalculationMode,
+  HeatmapCalculationOptions,
+} from '@grafana/schema';
+
+import { convertDurationToMilliseconds, niceLinearIncrs, niceTimeIncrs } from './utils';
 
 export interface HeatmapTransformerOptions extends HeatmapCalculationOptions {
   /** the raw values will still exist in results after transformation */
@@ -22,10 +34,47 @@ export interface HeatmapTransformerOptions extends HeatmapCalculationOptions {
 export const heatmapTransformer: SynchronousDataTransformerInfo<HeatmapTransformerOptions> = {
   id: DataTransformerID.heatmap,
   name: 'Create heatmap',
-  description: 'calculate heatmap from source data',
+  description: 'Generate heatmap data from source data.',
   defaultOptions: {},
+  isApplicable: (data) => {
+    const { xField, yField, xs, ys } = findHeatmapFields(data);
 
-  operator: (options) => (source) => source.pipe(map((data) => heatmapTransformer.transformer(options)(data))),
+    if (xField || yField) {
+      return TransformationApplicabilityLevels.NotPossible;
+    }
+
+    if (!xs.length || !ys.length) {
+      return TransformationApplicabilityLevels.NotPossible;
+    }
+
+    return TransformationApplicabilityLevels.Applicable;
+  },
+  isApplicableDescription:
+    'The Heatmap transformation requires fields with Heatmap compatible data. No fields with Heatmap data could be found.',
+  operator: (options, ctx) => (source) =>
+    source.pipe(
+      map((data) => {
+        if (config.featureToggles.transformationsVariableSupport) {
+          const optionsCopy = {
+            ...options,
+            xBuckets: { ...options.xBuckets },
+            yBuckets: { ...options.yBuckets },
+          };
+
+          if (optionsCopy.xBuckets?.value) {
+            optionsCopy.xBuckets.value = ctx.interpolate(optionsCopy.xBuckets.value);
+          }
+
+          if (optionsCopy.yBuckets?.value) {
+            optionsCopy.yBuckets.value = ctx.interpolate(optionsCopy.yBuckets.value);
+          }
+
+          return heatmapTransformer.transformer(optionsCopy, ctx)(data);
+        } else {
+          return heatmapTransformer.transformer(options, ctx)(data);
+        }
+      })
+    ),
 
   transformer: (options: HeatmapTransformerOptions) => {
     return (data: DataFrame[]) => {
@@ -38,29 +87,70 @@ export const heatmapTransformer: SynchronousDataTransformerInfo<HeatmapTransform
   },
 };
 
-export function sortAscStrInf(aName?: string | null, bName?: string | null) {
-  let aBound = aName === '+Inf' ? Infinity : +(aName ?? 0);
-  let bBound = bName === '+Inf' ? Infinity : +(bName ?? 0);
+function parseNumeric(v?: string | null) {
+  return v === '+Inf' ? Infinity : v === '-Inf' ? -Infinity : +(v ?? 0);
+}
 
-  return aBound - bBound;
+export function sortAscStrInf(aName?: string | null, bName?: string | null) {
+  return parseNumeric(aName) - parseNumeric(bName);
+}
+
+export interface HeatmapRowsCustomMeta {
+  /** This provides the lookup values */
+  yOrdinalDisplay: string[];
+  yOrdinalLabel?: string[];
+  yMatchWithLabel?: string;
+  yMinDisplay?: string;
+}
+
+/** simple utility to get heatmap metadata from a frame */
+export function readHeatmapRowsCustomMeta(frame?: DataFrame): HeatmapRowsCustomMeta {
+  return (frame?.meta?.custom ?? {}) as HeatmapRowsCustomMeta;
+}
+
+export function isHeatmapCellsDense(frame: DataFrame) {
+  let foundY = false;
+
+  for (let field of frame.fields) {
+    // dense heatmap frames can only have one of these fields
+    switch (field.name) {
+      case 'y':
+      case 'yMin':
+      case 'yMax':
+        if (foundY) {
+          return false;
+        }
+
+        foundY = true;
+    }
+  }
+
+  return foundY;
+}
+
+export interface RowsHeatmapOptions {
+  frame: DataFrame;
+  value?: string; // the field value name
+  unit?: string;
+  decimals?: number;
+  layout?: HeatmapCellLayout;
 }
 
 /** Given existing buckets, create a values style frame */
 // Assumes frames have already been sorted ASC and de-accumulated.
-export function createHeatmapFromBuckets(frames: DataFrame[]): DataFrame {
-  // assumes all Time fields are identical
+export function rowsToCellsHeatmap(opts: RowsHeatmapOptions): DataFrame {
   // TODO: handle null-filling w/ fields[0].config.interval?
-  const xField = frames[0].fields[0];
-  const xValues = xField.values.toArray();
-  const yField = frames[0].fields[1];
+  const xField = opts.frame.fields[0];
+  const xValues = xField.values;
+  const yFields = opts.frame.fields.filter((f, idx) => f.type === FieldType.number && idx > 0);
 
   // similar to initBins() below
-  const len = xValues.length * frames.length;
+  const len = xValues.length * yFields.length;
   const xs = new Array(len);
   const ys = new Array(len);
   const counts2 = new Array(len);
 
-  const counts = frames.map((frame) => frame.fields[1].values.toArray().slice());
+  const counts = yFields.map((field) => field.values.slice());
 
   // transpose
   counts.forEach((bucketCounts, bi) => {
@@ -69,22 +159,7 @@ export function createHeatmapFromBuckets(frames: DataFrame[]): DataFrame {
     }
   });
 
-  const bucketBounds = frames.map((frame, i) => {
-    return i; // until we have y ordinal scales working for facets/scatter
-
-    /*
-    let bound: number;
-
-    if (frame.name === '+Inf') {
-      // TODO: until we have labeled y, treat +Inf as previous bucket + 10%
-      bound = +(frames[i - 1].name ?? 0) * 1.1;
-    } else {
-      bound = +(frame.name ?? 0);
-    }
-
-    return bound;
-    */
-  });
+  const bucketBounds = Array.from({ length: yFields.length }, (v, i) => i);
 
   // fill flat/repeating array
   for (let i = 0, yi = 0, xi = 0; i < len; yi = ++i % bucketBounds.length) {
@@ -97,31 +172,85 @@ export function createHeatmapFromBuckets(frames: DataFrame[]): DataFrame {
     xs[i] = xValues[xi];
   }
 
+  // this name determines whether cells are drawn above, below, or centered on the values
+  let ordinalFieldName = yFields[0].labels?.le != null ? 'yMax' : 'y';
+  switch (opts.layout) {
+    case HeatmapCellLayout.le:
+      ordinalFieldName = 'yMax';
+      break;
+    case HeatmapCellLayout.ge:
+      ordinalFieldName = 'yMin';
+      break;
+    case HeatmapCellLayout.unknown:
+      ordinalFieldName = 'y';
+      break;
+  }
+
+  const custom: HeatmapRowsCustomMeta = {
+    yOrdinalDisplay: yFields.map((f) => getFieldDisplayName(f, opts.frame)),
+    yMatchWithLabel: Object.keys(yFields[0].labels ?? {})[0],
+  };
+  if (custom.yMatchWithLabel) {
+    custom.yOrdinalLabel = yFields.map((f) => f.labels?.[custom.yMatchWithLabel!] ?? '');
+    if (custom.yMatchWithLabel === 'le') {
+      custom.yMinDisplay = '0.0';
+    }
+  }
+
+  // Format the labels as a value
+  // TODO: this leaves the internally prepended '0.0' without this formatting treatment
+  if (opts.unit?.length || opts.decimals != null) {
+    const fmt = getValueFormat(opts.unit ?? 'short');
+    if (custom.yMinDisplay) {
+      custom.yMinDisplay = formattedValueToString(fmt(0, opts.decimals));
+    }
+    custom.yOrdinalDisplay = custom.yOrdinalDisplay.map((name) => {
+      let num = +name;
+
+      if (!Number.isNaN(num)) {
+        return formattedValueToString(fmt(num, opts.decimals));
+      }
+
+      return name;
+    });
+  }
+
+  const valueCfg = {
+    ...yFields[0].config,
+  };
+
+  if (valueCfg.displayNameFromDS) {
+    delete valueCfg.displayNameFromDS;
+  }
+
   return {
     length: xs.length,
+    refId: opts.frame.refId,
     meta: {
-      type: DataFrameType.HeatmapScanlines,
+      type: DataFrameType.HeatmapCells,
+      custom,
     },
     fields: [
       {
-        name: 'xMax',
+        name: xField.type === FieldType.time ? 'xMax' : 'x',
         type: xField.type,
-        values: new ArrayVector(xs),
+        values: xs,
         config: xField.config,
       },
       {
-        name: 'yMax',
+        name: ordinalFieldName,
         type: FieldType.number,
-        values: new ArrayVector(ys),
-        config: yField.config,
+        values: ys,
+        config: {
+          unit: 'short', // ordinal lookup
+        },
       },
       {
-        name: 'count',
+        name: opts.value?.length ? opts.value : 'Value',
         type: FieldType.number,
-        values: new ArrayVector(counts2),
-        config: {
-          unit: 'short',
-        },
+        values: counts2,
+        config: valueCfg,
+        display: yFields[0].display,
       },
     ],
   };
@@ -137,7 +266,7 @@ export function prepBucketFrames(frames: DataFrame[]): DataFrame[] {
   frames.sort((a, b) => sortAscStrInf(a.name, b.name));
 
   // cumulative counts
-  const counts = frames.map((frame) => frame.fields[1].values.toArray().slice());
+  const counts = frames.map((frame) => frame.fields[1].values.slice());
 
   // de-accumulate
   counts.reverse();
@@ -156,24 +285,122 @@ export function prepBucketFrames(frames: DataFrame[]): DataFrame[] {
       frame.fields[0],
       {
         ...frame.fields[1],
-        values: new ArrayVector(counts[i]),
+        values: counts[i],
       },
     ],
   }));
 }
 
-export function calculateHeatmapFromData(frames: DataFrame[], options: HeatmapCalculationOptions): DataFrame {
-  //console.time('calculateHeatmapFromData');
+interface HeatmapCalculationOptionsWithTimeRange extends HeatmapCalculationOptions {
+  timeRange?: TimeRange;
+}
 
-  let xs: number[] = [];
-  let ys: number[] = [];
+export function calculateHeatmapFromData(
+  frames: DataFrame[],
+  options: HeatmapCalculationOptionsWithTimeRange
+): DataFrame {
+  // Find fields in the heatmap
+  const { xField, yField, xs, ys } = findHeatmapFields(frames);
 
-  // optimization
-  //let xMin = Infinity;
-  //let xMax = -Infinity;
+  if (!xField || !yField) {
+    throw 'no heatmap fields found';
+  }
 
+  if (!xs.length || !ys.length) {
+    throw 'no values found';
+  }
+
+  const xBucketsCfg = options.xBuckets ?? {};
+  const yBucketsCfg = options.yBuckets ?? {};
+
+  if (xBucketsCfg.scale?.type === ScaleDistribution.Log) {
+    throw 'X axis only supports linear buckets';
+  }
+
+  const scaleDistribution = options.yBuckets?.scale ?? {
+    type: ScaleDistribution.Linear,
+  };
+
+  const heat2d = heatmap(xs, ys, {
+    xSorted: isLikelyAscendingVector(xs),
+    xTime: xField.type === FieldType.time,
+    xMode: xBucketsCfg.mode,
+    xSize:
+      xBucketsCfg.mode === HeatmapCalculationMode.Size
+        ? convertDurationToMilliseconds(xBucketsCfg.value ?? '')
+        : xBucketsCfg.value
+          ? +xBucketsCfg.value
+          : undefined,
+    yMode: yBucketsCfg.mode,
+    ySize: yBucketsCfg.value ? +yBucketsCfg.value : undefined,
+    yLog:
+      scaleDistribution?.type === ScaleDistribution.Log ? (scaleDistribution?.log as 2 | 10 | undefined) : undefined,
+
+    xMin: options.timeRange?.from.valueOf(),
+    xMax: options.timeRange?.to.valueOf(),
+  });
+
+  const frame = {
+    length: heat2d.x.length,
+    name: getFieldDisplayName(yField),
+    meta: {
+      type: DataFrameType.HeatmapCells,
+    },
+    fields: [
+      {
+        name: 'xMin',
+        type: xField.type,
+        values: heat2d.x,
+        config: xField.config,
+      },
+      {
+        name: 'yMin',
+        type: FieldType.number,
+        values: heat2d.y,
+        config: {
+          ...yField.config, // keep units from the original source
+          custom: {
+            scaleDistribution,
+          },
+        },
+      },
+      {
+        name: 'Count',
+        type: FieldType.number,
+        values: heat2d.count,
+        config: {
+          unit: 'short', // always integer
+        },
+      },
+    ],
+  };
+
+  return frame;
+}
+
+/**
+ * Find fields that can be used within a heatmap
+ *
+ * @param frames
+ *  An array of DataFrames
+ */
+function findHeatmapFields(frames: DataFrame[]) {
   let xField: Field | undefined = undefined;
   let yField: Field | undefined = undefined;
+  let dataLen = 0;
+
+  // pre-allocate arrays
+  for (let frame of frames) {
+    // TODO: assumes numeric timestamps, ordered asc, without nulls
+    const x = frame.fields.find((f) => f.type === FieldType.time);
+    if (x) {
+      dataLen += frame.length;
+    }
+  }
+
+  let xs: number[] = Array(dataLen);
+  let ys: number[] = Array(dataLen);
+  let j = 0;
 
   for (let frame of frames) {
     // TODO: assumes numeric timestamps, ordered asc, without nulls
@@ -186,11 +413,15 @@ export function calculateHeatmapFromData(frames: DataFrame[], options: HeatmapCa
       xField = x; // the first X
     }
 
-    const xValues = x.values.toArray();
+    const xValues = x.values;
     for (let field of frame.fields) {
       if (field !== x && field.type === FieldType.number) {
-        xs = xs.concat(xValues);
-        ys = ys.concat(field.values.toArray());
+        const yValues = field.values;
+
+        for (let i = 0; i < xValues.length; i++, j++) {
+          xs[j] = xValues[i];
+          ys[j] = yValues[i];
+        }
 
         if (!yField) {
           yField = field;
@@ -199,52 +430,7 @@ export function calculateHeatmapFromData(frames: DataFrame[], options: HeatmapCa
     }
   }
 
-  if (!xField || !yField) {
-    throw 'no heatmap fields found';
-  }
-
-  const heat2d = heatmap(xs, ys, {
-    xSorted: true,
-    xTime: xField.type === FieldType.time,
-    xMode: options.xAxis?.mode,
-    xSize: +(options.xAxis?.value ?? 0),
-    yMode: options.yAxis?.mode,
-    ySize: +(options.yAxis?.value ?? 0),
-  });
-
-  const frame = {
-    length: heat2d.x.length,
-    name: getFieldDisplayName(yField),
-    meta: {
-      type: DataFrameType.HeatmapScanlines,
-    },
-    fields: [
-      {
-        name: 'xMin',
-        type: xField.type,
-        values: new ArrayVector(heat2d.x),
-        config: xField.config,
-      },
-      {
-        name: 'yMin',
-        type: FieldType.number,
-        values: new ArrayVector(heat2d.y),
-        config: yField.config, // keep units from the original source
-      },
-      {
-        name: 'count',
-        type: FieldType.number,
-        values: new ArrayVector(heat2d.count),
-        config: {},
-      },
-    ],
-  };
-
-  //console.timeEnd('calculateHeatmapFromData');
-
-  //console.log({ tiles: frame.length });
-
-  return frame;
+  return { xField, yField, xs, ys };
 }
 
 interface HeatmapOpts {
@@ -283,20 +469,27 @@ function heatmap(xs: number[], ys: number[], opts?: HeatmapOpts) {
   let ySorted = opts?.ySorted ?? false;
 
   // find x and y limits to pre-compute buckets struct
-  let minX = xSorted ? xs[0] : Infinity;
+  let minX = opts?.xMin ?? (xSorted ? xs[0] : Infinity);
   let minY = ySorted ? ys[0] : Infinity;
-  let maxX = xSorted ? xs[len - 1] : -Infinity;
+  let maxX = opts?.xMax ?? (xSorted ? xs[len - 1] : -Infinity);
   let maxY = ySorted ? ys[len - 1] : -Infinity;
 
+  let yExp = opts?.yLog;
+
+  let withPredefX = opts?.xMin != null && opts?.xMax != null;
+  let withPredefY = opts?.yMin != null && opts?.yMax != null;
+
   for (let i = 0; i < len; i++) {
-    if (!xSorted) {
+    if (!xSorted && !withPredefX) {
       minX = Math.min(minX, xs[i]);
       maxX = Math.max(maxX, xs[i]);
     }
 
-    if (!ySorted) {
-      minY = Math.min(minY, ys[i]);
-      maxY = Math.max(maxY, ys[i]);
+    if (!ySorted && !withPredefY) {
+      if (!yExp || ys[i] > 0) {
+        minY = Math.min(minY, ys[i]);
+        maxY = Math.max(maxY, ys[i]);
+      }
     }
   }
 
@@ -319,7 +512,6 @@ function heatmap(xs: number[], ys: number[], opts?: HeatmapOpts) {
   }
 
   if (xMode === HeatmapCalculationMode.Count) {
-    // TODO: optionally use view range min/max instead of data range for bucket sizing
     let approx = (maxX - minX) / Math.max(xBinIncr - 1, 1);
     // nice-ify
     let xIncrs = opts?.xTime ? niceTimeIncrs : niceLinearIncrs;
@@ -328,7 +520,6 @@ function heatmap(xs: number[], ys: number[], opts?: HeatmapOpts) {
   }
 
   if (yMode === HeatmapCalculationMode.Count) {
-    // TODO: optionally use view range min/max instead of data range for bucket sizing
     let approx = (maxY - minY) / Math.max(yBinIncr - 1, 1);
     // nice-ify
     let yIncrs = opts?.yTime ? niceTimeIncrs : niceLinearIncrs;
@@ -344,6 +535,12 @@ function heatmap(xs: number[], ys: number[], opts?: HeatmapOpts) {
   let binX = opts?.xCeil ? (v: number) => incrRoundUp(v, xBinIncr) : (v: number) => incrRoundDn(v, xBinIncr);
   let binY = opts?.yCeil ? (v: number) => incrRoundUp(v, yBinIncr) : (v: number) => incrRoundDn(v, yBinIncr);
 
+  if (yExp) {
+    yBinIncr = 1 / (opts?.ySize ?? 1); // sub-divides log exponents
+    let yLog = yExp === 2 ? Math.log2 : Math.log10;
+    binY = opts?.yCeil ? (v: number) => incrRoundUp(yLog(v), yBinIncr) : (v: number) => incrRoundDn(yLog(v), yBinIncr);
+  }
+
   let minXBin = binX(minX);
   let maxXBin = binX(maxX);
   let minYBin = binY(minY);
@@ -352,9 +549,13 @@ function heatmap(xs: number[], ys: number[], opts?: HeatmapOpts) {
   let xBinQty = Math.round((maxXBin - minXBin) / xBinIncr) + 1;
   let yBinQty = Math.round((maxYBin - minYBin) / yBinIncr) + 1;
 
-  let [xs2, ys2, counts] = initBins(xBinQty, yBinQty, minXBin, xBinIncr, minYBin, yBinIncr);
+  let [xs2, ys2, counts] = initBins(xBinQty, yBinQty, minXBin, xBinIncr, minYBin, yBinIncr, yExp);
 
   for (let i = 0; i < len; i++) {
+    if (yExp && ys[i] <= 0) {
+      continue;
+    }
+
     const xi = (binX(xs[i]) - minXBin) / xBinIncr;
     const yi = (binY(ys[i]) - minYBin) / yBinIncr;
     const ci = xi * yBinQty + yi;
@@ -369,7 +570,7 @@ function heatmap(xs: number[], ys: number[], opts?: HeatmapOpts) {
   };
 }
 
-function initBins(xQty: number, yQty: number, xMin: number, xIncr: number, yMin: number, yIncr: number) {
+function initBins(xQty: number, yQty: number, xMin: number, xIncr: number, yMin: number, yIncr: number, yExp?: number) {
   const len = xQty * yQty;
   const xs = new Array<number>(len);
   const ys = new Array<number>(len);
@@ -377,7 +578,12 @@ function initBins(xQty: number, yQty: number, xMin: number, xIncr: number, yMin:
 
   for (let i = 0, yi = 0, x = xMin; i < len; yi = ++i % yQty) {
     counts[i] = 0;
-    ys[i] = yMin + yi * yIncr;
+
+    if (yExp) {
+      ys[i] = yExp ** (yMin + yi * yIncr);
+    } else {
+      ys[i] = yMin + yi * yIncr;
+    }
 
     if (yi === 0 && i >= yQty) {
       x += xIncr;

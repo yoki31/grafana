@@ -4,16 +4,15 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/go-ldap/ldap/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"gopkg.in/ldap.v3"
-
 	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/services/login"
 )
 
-var defaultLogin = &models.LoginUserQuery{
+var defaultLogin = &login.LoginUserQuery{
 	Username:  "user",
 	Password:  "pwd",
 	IpAddress: "192.168.1.1:56433",
@@ -30,7 +29,12 @@ func TestServer_Login_UserBind_Fail(t *testing.T) {
 			ResultCode: 49,
 		}
 	}
+
+	cfg := &Config{
+		Enabled: true,
+	}
 	server := &Server{
+		cfg: cfg,
 		Config: &ServerConfig{
 			SearchBaseDNs: []string{"BaseDNHere"},
 		},
@@ -100,7 +104,13 @@ func TestServer_Login_ValidCredentials(t *testing.T) {
 	connection.BindProvider = func(username, password string) error {
 		return nil
 	}
+
+	cfg := &Config{
+		Enabled: true,
+	}
+
 	server := &Server{
+		cfg: cfg,
 		Config: &ServerConfig{
 			Attr: AttributeMap{
 				Username: "username",
@@ -132,7 +142,13 @@ func TestServer_Login_UnauthenticatedBind(t *testing.T) {
 	connection.UnauthenticatedBindProvider = func() error {
 		return nil
 	}
+
+	cfg := &Config{
+		Enabled: true,
+	}
+
 	server := &Server{
+		cfg: cfg,
 		Config: &ServerConfig{
 			SearchBaseDNs: []string{"BaseDNHere"},
 		},
@@ -174,7 +190,13 @@ func TestServer_Login_AuthenticatedBind(t *testing.T) {
 
 		return nil
 	}
+
+	cfg := &Config{
+		Enabled: true,
+	}
+
 	server := &Server{
+		cfg: cfg,
 		Config: &ServerConfig{
 			BindDN:        "killa",
 			BindPassword:  "gorilla",
@@ -212,7 +234,13 @@ func TestServer_Login_UserWildcardBind(t *testing.T) {
 		authBindPassword = pass
 		return nil
 	}
+
+	cfg := &Config{
+		Enabled: true,
+	}
+
 	server := &Server{
+		cfg: cfg,
 		Config: &ServerConfig{
 			BindDN:        "cn=%s,ou=users,dc=grafana,dc=org",
 			SearchBaseDNs: []string{"BaseDNHere"},

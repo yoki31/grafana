@@ -1,6 +1,7 @@
 import { PanelPlugin, LogsSortOrder, LogsDedupStrategy, LogsDedupDescription } from '@grafana/data';
-import { Options } from './types';
+
 import { LogsPanel } from './LogsPanel';
+import { Options } from './panelcfg.gen';
 import { LogsPanelSuggestionsSupplier } from './suggestions';
 
 export const plugin = new PanelPlugin<Options>(LogsPanel)
@@ -41,6 +42,12 @@ export const plugin = new PanelPlugin<Options>(LogsPanel)
         name: 'Enable log details',
         description: '',
         defaultValue: true,
+      })
+      .addBooleanSwitch({
+        path: 'enableInfiniteScrolling',
+        name: 'Enable infinite scrolling',
+        description: 'Experimental. Request more results by scrolling to the bottom of the logs list.',
+        defaultValue: false,
       })
       .addRadio({
         path: 'dedupStrategy',

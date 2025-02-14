@@ -1,4 +1,3 @@
-import $ from 'jquery';
 import {
   EchoBackend,
   EchoEventType,
@@ -7,6 +6,19 @@ import {
   isPageviewEvent,
   PageviewEchoEvent,
 } from '@grafana/runtime';
+
+interface ApplicationInsights {
+  trackPageView: () => void;
+  trackEvent: (event: { name: string; properties?: Record<string, unknown> }) => void;
+}
+
+declare global {
+  interface Window {
+    // We say all methods are undefined because we can't be sure they're there
+    // and we should be extra cautious
+    applicationInsights?: Partial<ApplicationInsights>;
+  }
+}
 
 export interface ApplicationInsightsBackendOptions {
   connectionString: string;
@@ -17,33 +29,33 @@ export class ApplicationInsightsBackend implements EchoBackend<PageviewEchoEvent
   supportedEvents = [EchoEventType.Pageview, EchoEventType.Interaction];
 
   constructor(public options: ApplicationInsightsBackendOptions) {
-    $.ajax({
-      url: 'https://js.monitor.azure.com/scripts/b/ai.2.min.js',
-      dataType: 'script',
-      cache: true,
-    }).done(function () {
-      var applicationInsightsOpts = {
-        config: {
-          connectionString: options.connectionString,
-          endpointUrl: options.endpointUrl,
-        },
-      };
-      var init = new (window as any).Microsoft.ApplicationInsights.ApplicationInsights(applicationInsightsOpts);
-      (window as any).applicationInsights = init.loadAppInsights();
-    });
+    const applicationInsightsOpts = {
+      config: {
+        connectionString: options.connectionString,
+        endpointUrl: options.endpointUrl,
+      },
+    };
+
+    const url = 'https://js.monitor.azure.com/scripts/b/ai.2.min.js';
+    System.import(url)
+      .then((m) => (m.default ? m.default : m))
+      .then(({ ApplicationInsights }) => {
+        const init = new ApplicationInsights(applicationInsightsOpts);
+        window.applicationInsights = init.loadAppInsights();
+      });
   }
 
   addEvent = (e: PageviewEchoEvent | InteractionEchoEvent) => {
-    if (!(window as any).applicationInsights) {
+    if (!window.applicationInsights) {
       return;
     }
 
     if (isPageviewEvent(e)) {
-      (window as any).applicationInsights.trackPageView();
+      window.applicationInsights.trackPageView?.();
     }
 
     if (isInteractionEvent(e)) {
-      (window as any).applicationInsights.trackEvent({
+      window.applicationInsights.trackEvent?.({
         name: e.payload.interactionName,
         properties: e.payload.properties,
       });

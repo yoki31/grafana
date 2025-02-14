@@ -1,20 +1,28 @@
-import { Observable } from 'rxjs';
 import { ComponentType } from 'react';
-import { GrafanaPlugin, PluginMeta } from './plugin';
-import { PanelData } from './panel';
-import { LogRowModel } from './logs';
+import { Observable } from 'rxjs';
+
+import { DataSourceRef } from '@grafana/schema';
+
+import { makeClassES5Compatible } from '../utils/makeClassES5Compatible';
+
+import { ScopedVars } from './ScopedVars';
+import { WithAccessControlMetadata } from './accesscontrol';
 import { AnnotationEvent, AnnotationQuery, AnnotationSupport } from './annotations';
+import { CoreApp } from './app';
 import { KeyValue, LoadingState, TableData, TimeSeries } from './data';
 import { DataFrame, DataFrameDTO } from './dataFrame';
-import { RawTimeRange, TimeRange } from './time';
-import { ScopedVars } from './ScopedVars';
-import { CoreApp } from './app';
-import { CustomVariableSupport, DataSourceVariableSupport, StandardVariableSupport } from './variables';
-import { makeClassES5Compatible } from '../utils/makeClassES5Compatible';
+import { PanelData } from './panel';
+import { GrafanaPlugin, PluginMeta } from './plugin';
 import { DataQuery } from './query';
-import { DataSourceRef, WithAccessControlMetadata } from '.';
+import { Scope } from './scopes';
+import { AdHocVariableFilter } from './templateVars';
+import { RawTimeRange, TimeRange } from './time';
+import { CustomVariableSupport, DataSourceVariableSupport, StandardVariableSupport } from './variables';
 
-export interface DataSourcePluginOptionsEditorProps<JSONData = DataSourceJsonData, SecureJSONData = {}> {
+export interface DataSourcePluginOptionsEditorProps<
+  JSONData extends DataSourceJsonData = DataSourceJsonData,
+  SecureJSONData = {},
+> {
   options: DataSourceSettings<JSONData, SecureJSONData>;
   onOptionsChange: (options: DataSourceSettings<JSONData, SecureJSONData>) => void;
 }
@@ -29,7 +37,7 @@ export class DataSourcePlugin<
   DSType extends DataSourceApi<TQuery, TOptions>,
   TQuery extends DataQuery = DataSourceQueryType<DSType>,
   TOptions extends DataSourceJsonData = DataSourceOptionsType<DSType>,
-  TSecureOptions = {}
+  TSecureOptions = {},
 > extends GrafanaPlugin<DataSourcePluginMeta<TOptions>> {
   components: DataSourcePluginComponents<DSType, TQuery, TOptions, TSecureOptions> = {};
 
@@ -52,6 +60,7 @@ export class DataSourcePlugin<
     return this;
   }
 
+  /** @deprecated -- register the annotation support in the instance constructor */
   setAnnotationQueryCtrl(AnnotationsQueryCtrl: any) {
     this.components.AnnotationsQueryCtrl = AnnotationsQueryCtrl;
     return this;
@@ -62,16 +71,19 @@ export class DataSourcePlugin<
     return this;
   }
 
+  /** @deprecated Use `setQueryEditor` instead. When using Explore `props.app` is equal to `CoreApp.Explore` */
   setExploreQueryField(ExploreQueryField: ComponentType<QueryEditorProps<DSType, TQuery, TOptions>>) {
     this.components.ExploreQueryField = ExploreQueryField;
     return this;
   }
 
+  /** @deprecated Use `setQueryEditor` instead. */
   setExploreMetricsQueryField(ExploreQueryField: ComponentType<QueryEditorProps<DSType, TQuery, TOptions>>) {
     this.components.ExploreMetricsQueryField = ExploreQueryField;
     return this;
   }
 
+  /** @deprecated Use `setQueryEditor` instead. */
   setExploreLogsQueryField(ExploreQueryField: ComponentType<QueryEditorProps<DSType, TQuery, TOptions>>) {
     this.components.ExploreLogsQueryField = ExploreQueryField;
     return this;
@@ -89,9 +101,9 @@ export class DataSourcePlugin<
     return this.setQueryEditorHelp(ExploreStartPage);
   }
 
-  /*
+  /**
    * @deprecated -- prefer using {@link StandardVariableSupport} or {@link CustomVariableSupport} or {@link DataSourceVariableSupport} in data source instead
-   * */
+   */
   setVariableQueryEditor(VariableQueryEditor: any) {
     this.components.VariableQueryEditor = VariableQueryEditor;
     return this;
@@ -102,7 +114,7 @@ export class DataSourcePlugin<
     return this;
   }
 
-  setComponentsFromLegacyExports(pluginExports: any) {
+  setComponentsFromLegacyExports(pluginExports: System.Module) {
     this.angularConfigCtrl = pluginExports.ConfigCtrl;
 
     this.components.QueryCtrl = pluginExports.QueryCtrl;
@@ -130,6 +142,7 @@ export interface DataSourcePluginMeta<T extends KeyValue = {}> extends PluginMet
   unlicensed?: boolean;
   backend?: boolean;
   isBackend?: boolean;
+  multiValueFilterOperators?: boolean;
 }
 
 interface PluginMetaQueryOptions {
@@ -137,19 +150,26 @@ interface PluginMetaQueryOptions {
   maxDataPoints?: boolean;
   minInterval?: boolean;
 }
+interface PluginQueryCachingConfig {
+  enabled?: boolean;
+  TTLMs?: number;
+}
 
 export interface DataSourcePluginComponents<
   DSType extends DataSourceApi<TQuery, TOptions>,
   TQuery extends DataQuery = DataQuery,
   TOptions extends DataSourceJsonData = DataSourceJsonData,
-  TSecureOptions = {}
+  TSecureOptions = {},
 > {
   QueryCtrl?: any;
   AnnotationsQueryCtrl?: any;
   VariableQueryEditor?: any;
   QueryEditor?: ComponentType<QueryEditorProps<DSType, TQuery, TOptions>>;
+  /** @deprecated it will be removed in a future release and `QueryEditor` will be used instead. */
   ExploreQueryField?: ComponentType<QueryEditorProps<DSType, TQuery, TOptions>>;
+  /** @deprecated it will be removed in a future release and `QueryEditor` will be used instead. */
   ExploreMetricsQueryField?: ComponentType<QueryEditorProps<DSType, TQuery, TOptions>>;
+  /** @deprecated it will be removed in a future release and `QueryEditor` will be used instead. */
   ExploreLogsQueryField?: ComponentType<QueryEditorProps<DSType, TQuery, TOptions>>;
   QueryEditorHelp?: ComponentType<QueryEditorHelpProps<TQuery>>;
   ConfigEditor?: ComponentType<DataSourcePluginOptionsEditorProps<TOptions, TSecureOptions>>;
@@ -160,21 +180,25 @@ export interface DataSourcePluginComponents<
 export interface DataSourceConstructor<
   DSType extends DataSourceApi<TQuery, TOptions>,
   TQuery extends DataQuery = DataQuery,
-  TOptions extends DataSourceJsonData = DataSourceJsonData
+  TOptions extends DataSourceJsonData = DataSourceJsonData,
 > {
   new (instanceSettings: DataSourceInstanceSettings<TOptions>, ...args: any[]): DSType;
 }
 
+// VariableSupport is hoisted up to its own type to fix the wonky intermittent
+// 'variables is references directly or indirectly' error
+type VariableSupport<TQuery extends DataQuery, TOptions extends DataSourceJsonData> =
+  | StandardVariableSupport<DataSourceApi<TQuery, TOptions>>
+  | CustomVariableSupport<DataSourceApi<TQuery, TOptions>>
+  | DataSourceVariableSupport<DataSourceApi<TQuery, TOptions>>;
+
 /**
  * The main data source abstraction interface, represents an instance of a data source
- *
- * Although this is a class, datasource implementations do not *yet* need to extend it.
- * As such, we can not yet add functions with default implementations.
  */
 abstract class DataSourceApi<
   TQuery extends DataQuery = DataQuery,
   TOptions extends DataSourceJsonData = DataSourceJsonData,
-  TQueryImportConfiguration extends Record<string, object> = {}
+  TQueryImportConfiguration extends Record<string, object> = {},
 > {
   /**
    *  Set in constructor
@@ -197,6 +221,11 @@ abstract class DataSourceApi<
   readonly uid: string;
 
   /**
+   *  Set in constructor
+   */
+  readonly apiVersion?: string;
+
+  /**
    *  min interval range
    */
   interval?: string;
@@ -206,7 +235,9 @@ abstract class DataSourceApi<
     this.id = instanceSettings.id;
     this.type = instanceSettings.type;
     this.meta = instanceSettings.meta;
+    this.cachingConfig = instanceSettings.cachingConfig;
     this.uid = instanceSettings.uid;
+    this.apiVersion = instanceSettings.apiVersion;
   }
 
   /**
@@ -236,16 +267,15 @@ abstract class DataSourceApi<
    * a TestingStatus object. Unknown errors and HTTP errors can be re-thrown and will be handled here:
    * public/app/features/datasources/state/actions.ts
    */
-  abstract testDatasource(): Promise<any>;
+  abstract testDatasource(): Promise<TestDataSourceResponse>;
 
   /**
-   * Override to skip executing a query
-   *
-   * @returns false if the query should be skipped
-   *
-   * @virtual
+   * Optionally, you can implement this method to prevent certain queries from being executed.
+   * Return false to prevent the query from being executed.
    */
-  filterQuery?(query: TQuery): boolean;
+  filterQuery?(query: TQuery): boolean {
+    return true;
+  }
 
   /**
    *  Get hints for query improvements
@@ -258,42 +288,19 @@ abstract class DataSourceApi<
   getQueryDisplayText?(query: TQuery): string;
 
   /**
-   * @deprecated getLogRowContext and showContextToggle in `DataSourceApi` is deprecated.
-   *
-   * DataSourceWithLogsContextSupport should be implemented instead (these methods have exactly
-   * the same signature in DataSourceWithLogsContextSupport).
-   * This method will be removed from DataSourceApi in the future. Some editors may still show
-   * a deprecation warning which can be ignored for time being.
-   */
-  getLogRowContext?: <TContextQueryOptions extends {}>(
-    row: LogRowModel,
-    options?: TContextQueryOptions
-  ) => Promise<DataQueryResponse>;
-
-  /**
-   * @deprecated getLogRowContext and showContextToggle in `DataSourceApi` is deprecated.
-   *
-   * DataSourceWithLogsContextSupport should be implemented instead (these methods have exactly
-   * the same signature in DataSourceWithLogsContextSupport).
-   * This method will be removed from DataSourceApi in the future. Some editors may still show
-   * a deprecation warning which can be ignored for time being.
-   */
-  showContextToggle?(row?: LogRowModel): boolean;
-
-  /**
    * Variable query action.
    */
-  metricFindQuery?(query: any, options?: any): Promise<MetricFindValue[]>;
+  metricFindQuery?(query: any, options?: LegacyMetricFindQueryOptions): Promise<MetricFindValue[]>;
 
   /**
    * Get tag keys for adhoc filters
    */
-  getTagKeys?(options?: any): Promise<MetricFindValue[]>;
+  getTagKeys?(options?: DataSourceGetTagKeysOptions<TQuery>): Promise<GetTagResponse> | Promise<MetricFindValue[]>;
 
   /**
    * Get tag values for adhoc filters
    */
-  getTagValues?(options: any): Promise<MetricFindValue[]>;
+  getTagValues?(options: DataSourceGetTagValuesOptions<TQuery>): Promise<GetTagResponse> | Promise<MetricFindValue[]>;
 
   /**
    * Set after constructor call, as the data source instance is the most common thing to pass around
@@ -307,6 +314,12 @@ abstract class DataSourceApi<
   meta: DataSourcePluginMeta;
 
   /**
+   * Information about the datasource's query caching configuration
+   * When the caching feature is disabled, this config will always be falsy
+   */
+  cachingConfig?: PluginQueryCachingConfig;
+
+  /**
    * Used by alerting to check if query contains template variables
    */
   targetContainsTemplate?(query: TQuery): boolean;
@@ -316,15 +329,13 @@ abstract class DataSourceApi<
    */
   modifyQuery?(query: TQuery, action: QueryFixAction): TQuery;
 
-  /**
-   * @deprecated since version 8.2.0
-   * Not used anymore.
-   */
-  getHighlighterExpression?(query: TQuery): string[];
-
   /** Get an identifier object for this datasource instance */
   getRef(): DataSourceRef {
-    return { type: this.type, uid: this.uid };
+    const ref: DataSourceRef = { type: this.type, uid: this.uid };
+    if (this.apiVersion) {
+      ref.apiVersion = this.apiVersion;
+    }
+    return ref;
   }
 
   /**
@@ -334,7 +345,7 @@ abstract class DataSourceApi<
 
   getVersion?(optionalOptions?: any): Promise<string>;
 
-  interpolateVariablesInQueries?(queries: TQuery[], scopedVars: ScopedVars | {}): TQuery[];
+  interpolateVariablesInQueries?(queries: TQuery[], scopedVars: ScopedVars, filters?: AdHocVariableFilter[]): TQuery[];
 
   /**
    * An annotation processor allows explicit control for how annotations are managed.
@@ -356,16 +367,52 @@ abstract class DataSourceApi<
    * Defines new variable support
    * @alpha -- experimental
    */
-  variables?:
-    | StandardVariableSupport<DataSourceApi<TQuery, TOptions>>
-    | CustomVariableSupport<DataSourceApi<TQuery, TOptions>>
-    | DataSourceVariableSupport<DataSourceApi<TQuery, TOptions>>;
+  variables?: VariableSupport<TQuery, TOptions>;
+
+  /*
+   * Optionally, use this method to set default values for a query
+   * @alpha -- experimental
+   */
+  getDefaultQuery?(app: CoreApp): Partial<TQuery>;
+}
+
+/**
+ * Options argument to DataSourceAPI.getTagKeys
+ */
+export interface DataSourceGetTagKeysOptions<TQuery extends DataQuery = DataQuery> {
+  /**
+   * The other existing filters or base filters. New in v10.3
+   */
+  filters: AdHocVariableFilter[];
+  /**
+   * Context time range. New in v10.3
+   */
+  timeRange?: TimeRange;
+  queries?: TQuery[];
+  scopes?: Scope[] | undefined;
+}
+
+/**
+ * Options argument to DataSourceAPI.getTagValues
+ */
+export interface DataSourceGetTagValuesOptions<TQuery extends DataQuery = DataQuery> {
+  key: string;
+  /**
+   * The other existing filters or base filters. New in v10.3
+   */
+  filters: AdHocVariableFilter[];
+  /**
+   * Context time range. New in v10.3
+   */
+  timeRange?: TimeRange;
+  queries?: TQuery[];
+  scopes?: Scope[] | undefined;
 }
 
 export interface MetadataInspectorProps<
   DSType extends DataSourceApi<TQuery, TOptions>,
   TQuery extends DataQuery = DataQuery,
-  TOptions extends DataSourceJsonData = DataSourceJsonData
+  TOptions extends DataSourceJsonData = DataSourceJsonData,
 > {
   datasource: DSType;
 
@@ -373,23 +420,30 @@ export interface MetadataInspectorProps<
   data: DataFrame[];
 }
 
+export interface LegacyMetricFindQueryOptions {
+  searchFilter?: string;
+  scopedVars?: ScopedVars;
+  range?: TimeRange;
+  variable?: { name: string };
+}
+
 export interface QueryEditorProps<
   DSType extends DataSourceApi<TQuery, TOptions>,
   TQuery extends DataQuery = DataQuery,
   TOptions extends DataSourceJsonData = DataSourceJsonData,
-  TVQuery extends DataQuery = TQuery
+  TVQuery extends DataQuery = TQuery,
 > {
   datasource: DSType;
   query: TVQuery;
   onRunQuery: () => void;
   onChange: (value: TVQuery) => void;
   onBlur?: () => void;
+  onAddQuery?: (query: TQuery) => void;
   /**
    * Contains query response filtered by refId of QueryResultBase and possible query error
    */
   data?: PanelData;
   range?: TimeRange;
-  exploreId?: any;
   history?: Array<HistoryItem<TQuery>>;
   queries?: DataQuery[];
   app?: CoreApp;
@@ -402,17 +456,9 @@ export enum ExploreMode {
   Tracing = 'Tracing',
 }
 
-/**
- * @deprecated use QueryEditorProps instead
- */
-export type ExploreQueryFieldProps<
-  DSType extends DataSourceApi<TQuery, TOptions>,
-  TQuery extends DataQuery = DataQuery,
-  TOptions extends DataSourceJsonData = DataSourceJsonData
-> = QueryEditorProps<DSType, TQuery, TOptions>;
-
 export interface QueryEditorHelpProps<TQuery extends DataQuery = DataQuery> {
   datasource: DataSourceApi<TQuery>;
+  query: TQuery;
   onClickExample: (query: TQuery) => void;
   exploreId?: any;
 }
@@ -440,14 +486,32 @@ export interface DataQueryResponse {
 
   /**
    * Optionally include error info along with the response data
+   * @deprecated use errors instead -- will be removed in Grafana 10+
    */
   error?: DataQueryError;
+
+  /**
+   * Optionally include multiple errors for different targets
+   */
+  errors?: DataQueryError[];
 
   /**
    * Use this to control which state the response should have
    * Defaults to LoadingState.Done if state is not defined
    */
   state?: LoadingState;
+
+  /**
+   * traceIds related to the response, if available
+   */
+  traceIds?: string[];
+}
+
+export interface TestDataSourceResponse {
+  status: string;
+  message: string;
+  error?: Error;
+  details?: { message?: string; verboseMessage?: string };
 }
 
 export enum DataQueryErrorType {
@@ -468,9 +532,10 @@ export interface DataQueryError {
     error?: string;
   };
   message?: string;
-  status?: string;
+  status?: number;
   statusText?: string;
   refId?: string;
+  traceId?: string;
   type?: DataQueryErrorType;
 }
 
@@ -481,17 +546,25 @@ export interface DataQueryRequest<TQuery extends DataQuery = DataQuery> {
   intervalMs: number;
   maxDataPoints?: number;
   range: TimeRange;
-  reverse?: boolean;
   scopedVars: ScopedVars;
   targets: TQuery[];
   timezone: string;
   app: CoreApp | string;
 
   cacheTimeout?: string | null;
+  queryCachingTTL?: number | null;
+  skipQueryCache?: boolean;
   rangeRaw?: RawTimeRange;
   timeInfo?: string; // The query time description (blue text in the upper right)
   panelId?: number;
-  dashboardId?: number;
+  panelName?: string;
+  panelPluginId?: string;
+  dashboardUID?: string;
+  headers?: Record<string, string>;
+
+  /** Filters to dynamically apply to all queries */
+  filters?: AdHocVariableFilter[];
+  groupByKeys?: string[];
 
   // Request Timing
   startTime: number;
@@ -499,6 +572,14 @@ export interface DataQueryRequest<TQuery extends DataQuery = DataQuery> {
 
   // Explore state used by various datasources
   liveStreaming?: boolean;
+
+  // Make it possible to hide support queries from the inspector
+  hideFromInspector?: boolean;
+
+  // Used to correlate multiple related requests
+  queryGroupId?: string;
+
+  scopes?: Scope[] | undefined;
 }
 
 export interface DataQueryTimings {
@@ -506,14 +587,27 @@ export interface DataQueryTimings {
 }
 
 export interface QueryFix {
+  title?: string;
   label: string;
   action?: QueryFixAction;
 }
 
+export type QueryFixType = 'ADD_FILTER' | 'ADD_FILTER_OUT' | 'ADD_STRING_FILTER' | 'ADD_STRING_FILTER_OUT';
 export interface QueryFixAction {
-  type: string;
   query?: string;
   preventSubmit?: boolean;
+  /**
+   * The type of action to perform. Will be passed to the data source to handle.
+   */
+  type: QueryFixType | string;
+  /**
+   * A key value map of options that will be passed. Usually used to pass e.g. the label and value.
+   */
+  options?: KeyValue<string>;
+  /**
+   * An optional single row data frame containing the row that triggered the QueryFixAction.
+   */
+  frame?: DataFrame;
 }
 
 export interface QueryHint {
@@ -525,6 +619,7 @@ export interface QueryHint {
 export interface MetricFindValue {
   text: string;
   value?: string | number;
+  group?: string;
   expandable?: boolean;
 }
 
@@ -534,6 +629,7 @@ export interface DataSourceJsonData {
   profile?: string;
   manageAlerts?: boolean;
   alertmanagerUid?: string;
+  disableGrafanaCache?: boolean;
 }
 
 /**
@@ -551,11 +647,13 @@ export interface DataSourceSettings<T extends DataSourceJsonData = DataSourceJso
   typeName: string;
   access: string;
   url: string;
-  password: string;
   user: string;
+  /**
+   *  @deprecated -- use jsonData to store information related to database.
+   *  This field should only be used by Elasticsearch and Influxdb.
+   */
   database: string;
   basicAuth: boolean;
-  basicAuthPassword: string;
   basicAuthUser: string;
   isDefault: boolean;
   jsonData: T;
@@ -564,6 +662,7 @@ export interface DataSourceSettings<T extends DataSourceJsonData = DataSourceJso
   readOnly: boolean;
   withCredentials: boolean;
   version?: number;
+  apiVersion?: string;
 }
 
 /**
@@ -576,11 +675,18 @@ export interface DataSourceInstanceSettings<T extends DataSourceJsonData = DataS
   uid: string;
   type: string;
   name: string;
+  apiVersion?: string;
   meta: DataSourcePluginMeta;
+  cachingConfig?: PluginQueryCachingConfig;
+  readOnly: boolean;
   url?: string;
   jsonData: T;
   username?: string;
   password?: string; // when access is direct, for some legacy datasources
+  /**
+   *  @deprecated -- use jsonData to store information related to database.
+   *  This field should only be used by Elasticsearch and Influxdb.
+   */
   database?: string;
   isDefault?: boolean;
   access: 'direct' | 'proxy'; // Currently we support 2 options - direct (browser) and proxy (server)
@@ -625,6 +731,11 @@ export interface HistoryItem<TQuery extends DataQuery = DataQuery> {
   query: TQuery;
 }
 
+export interface GetTagResponse {
+  data: MetricFindValue[];
+  error?: DataQueryError;
+}
+
 abstract class LanguageProvider {
   abstract datasource: DataSourceApi<any, any>;
   abstract request: (url: string, params?: any) => Promise<any>;
@@ -633,7 +744,7 @@ abstract class LanguageProvider {
    * Returns startTask that resolves with a task list when main syntax is loaded.
    * Task list consists of secondary promises that load more detailed language features.
    */
-  abstract start: () => Promise<Array<Promise<any>>>;
+  abstract start: (timeRange?: TimeRange) => Promise<Array<Promise<any>>>;
   startTask?: Promise<any[]>;
 }
 

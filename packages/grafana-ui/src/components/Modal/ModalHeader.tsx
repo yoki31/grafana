@@ -1,7 +1,9 @@
-import React from 'react';
-import { getModalStyles } from './getModalStyles';
-import { IconName } from '../../types';
+import * as React from 'react';
+
 import { useStyles2 } from '../../themes';
+import { IconName } from '../../types';
+
+import { getModalStyles } from './getModalStyles';
 
 interface Props {
   title: string;
@@ -13,7 +15,7 @@ interface Props {
 }
 
 /** @internal */
-export const ModalHeader: React.FC<Props> = ({ icon, iconTooltip, title, children, id }) => {
+export const ModalHeader = ({ icon, iconTooltip, title, children, id }: React.PropsWithChildren<Props>) => {
   const styles = useStyles2(getModalStyles);
 
   return (

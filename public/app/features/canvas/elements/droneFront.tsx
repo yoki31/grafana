@@ -1,11 +1,12 @@
-import React, { FC } from 'react';
 import { css } from '@emotion/css';
-import { GrafanaTheme2 } from '@grafana/data';
-import { useStyles2 } from '@grafana/ui';
 
+import { GrafanaTheme2 } from '@grafana/data';
+import { ScalarDimensionConfig } from '@grafana/schema';
+import { useStyles2 } from '@grafana/ui';
+import { DimensionContext } from 'app/features/dimensions';
 import { ScalarDimensionEditor } from 'app/features/dimensions/editors';
-import { CanvasElementItem, CanvasElementProps } from '../element';
-import { DimensionContext, ScalarDimensionConfig } from 'app/features/dimensions';
+
+import { CanvasElementItem, CanvasElementOptions, CanvasElementProps, defaultBgColor } from '../element';
 
 interface DroneFrontData {
   rollAngle?: number;
@@ -15,10 +16,8 @@ interface DroneFrontConfig {
   rollAngle?: ScalarDimensionConfig;
 }
 
-const DroneFrontDisplay: FC<CanvasElementProps<DroneFrontConfig, DroneFrontData>> = (props) => {
+const DroneFrontDisplay = ({ data }: CanvasElementProps<DroneFrontConfig, DroneFrontData>) => {
   const styles = useStyles2(getStyles);
-
-  const { data } = props;
 
   const droneFrontTransformStyle = `rotate(${data?.rollAngle ? data.rollAngle : 0}deg)`;
 
@@ -28,22 +27,22 @@ const DroneFrontDisplay: FC<CanvasElementProps<DroneFrontConfig, DroneFrontData>
       xmlns="http://www.w3.org/2000/svg"
       xmlnsXlink="http://www.w3.org/1999/xlink"
       viewBox="0 0 1300 290"
-      style={{ transform: droneFrontTransformStyle }}
+      style={{ transform: droneFrontTransformStyle, stroke: defaultBgColor }}
     >
-      <g className="arms" stroke="black" strokeWidth="28px">
+      <g className="arms" stroke={defaultBgColor} strokeWidth="28px">
         <line x1="510" x2="320" y1="100" y2="150" />
         <line x1="510" x2="320" y1="190" y2="210" />
         <line x1="790" x2="980" y1="190" y2="210" />
         <line x1="790" x2="980" y1="100" y2="150" />
       </g>
-      <g className="body" stroke="black" strokeWidth="28px">
+      <g className="body" stroke={defaultBgColor} strokeWidth="28px">
         <path
           fill="none"
           d=" M 510 130 C 510 124 510 110 510 100 C 510 90 530 71 540 70 C 640 61 670 60 760 70 C 770 71 790 90 790 100 Q 790 120 790 130 L 790 130 Q 790 177 790 196 C 790 207 770 225 760 226 C 670 236 640 236 540 226 C 530 226 510 206 510 196 Q 510 177 510 130 Q 510 133 510 130 Z "
         />
         <circle cx="650" cy="160" r="40" fill="none" />
       </g>
-      <g className="motors" stroke="black" strokeWidth="28px">
+      <g className="motors" stroke={defaultBgColor} strokeWidth="28px">
         <path
           className="motor"
           fill="none"
@@ -55,7 +54,7 @@ const DroneFrontDisplay: FC<CanvasElementProps<DroneFrontConfig, DroneFrontData>
           d=" M 1050 60 L 980 60 L 980 230 L 990 290 L 1040 290 L 1050 230 L 1050 60 Z "
         />
       </g>
-      <g className="propellers" fill="black">
+      <g className="propellers" fill={defaultBgColor}>
         <path
           className="prop"
           d=" M 270 60 L 300 60 L 300 20 Q 311 30 330 30 Q 349 30 570 10 L 300 10 Q 300 0 290 0 C 286 0 284 0 280 0 Q 270 0 270 10 L 0 10 Q 220 30 240 30 Q 260 30 270 20 L 270 60 Z "
@@ -69,7 +68,7 @@ const DroneFrontDisplay: FC<CanvasElementProps<DroneFrontConfig, DroneFrontData>
   );
 };
 
-export const droneFrontItem: CanvasElementItem<any, any> = {
+export const droneFrontItem: CanvasElementItem = {
   id: 'droneFront',
   name: 'Drone Front',
   description: 'Drone front',
@@ -78,17 +77,32 @@ export const droneFrontItem: CanvasElementItem<any, any> = {
 
   defaultSize: {
     width: 100,
-    height: 100,
+    height: 26,
   },
 
   getNewOptions: (options) => ({
     ...options,
+    background: {
+      color: {
+        fixed: 'transparent',
+      },
+    },
+    placement: {
+      width: options?.placement?.width ?? 100,
+      height: options?.placement?.height ?? 26,
+      top: options?.placement?.top,
+      left: options?.placement?.left,
+      rotation: options?.placement?.rotation ?? 0,
+    },
+    links: options?.links ?? [],
   }),
 
   // Called when data changes
-  prepareData: (ctx: DimensionContext, cfg: DroneFrontConfig) => {
+  prepareData: (dimensionContext: DimensionContext, elementOptions: CanvasElementOptions<DroneFrontConfig>) => {
+    const droneFrontConfig = elementOptions.config;
+
     const data: DroneFrontData = {
-      rollAngle: cfg?.rollAngle ? ctx.getScalar(cfg.rollAngle).value() : 0,
+      rollAngle: droneFrontConfig?.rollAngle ? dimensionContext.getScalar(droneFrontConfig.rollAngle).value() : 0,
     };
 
     return data;
@@ -107,7 +121,9 @@ export const droneFrontItem: CanvasElementItem<any, any> = {
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  droneFront: css`
-    transition: transform 0.4s;
-  `,
+  droneFront: css({
+    // TODO: figure out what styles to apply when prefers-reduced-motion is set
+    // eslint-disable-next-line @grafana/no-unreduced-motion
+    transition: 'transform 0.4s',
+  }),
 });

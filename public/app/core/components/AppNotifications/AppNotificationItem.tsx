@@ -1,36 +1,57 @@
-import React, { Component } from 'react';
-import { AppNotification } from 'app/types';
-import { Alert } from '@grafana/ui';
+import { css } from '@emotion/css';
+import { useEffectOnce } from 'react-use';
+
+import { GrafanaTheme2 } from '@grafana/data';
+import { Alert, useStyles2 } from '@grafana/ui';
+import { Trans } from 'app/core/internationalization';
+import { AppNotification, timeoutMap } from 'app/types';
 
 interface Props {
   appNotification: AppNotification;
   onClearNotification: (id: string) => void;
 }
 
-export default class AppNotificationItem extends Component<Props> {
-  shouldComponentUpdate(nextProps: Props) {
-    return this.props.appNotification.id !== nextProps.appNotification.id;
-  }
+export default function AppNotificationItem({ appNotification, onClearNotification }: Props) {
+  const styles = useStyles2(getStyles);
 
-  componentDidMount() {
-    const { appNotification, onClearNotification } = this.props;
+  useEffectOnce(() => {
     setTimeout(() => {
       onClearNotification(appNotification.id);
-    }, appNotification.timeout);
-  }
+    }, timeoutMap[appNotification.severity]);
+  });
 
-  render() {
-    const { appNotification, onClearNotification } = this.props;
+  const hasBody = appNotification.component || appNotification.text || appNotification.traceId;
+  const traceId = appNotification.traceId;
 
-    return (
-      <Alert
-        severity={appNotification.severity}
-        title={appNotification.title}
-        onRemove={() => onClearNotification(appNotification.id)}
-        elevated
-      >
-        {appNotification.component || appNotification.text}
-      </Alert>
-    );
-  }
+  return (
+    <Alert
+      severity={appNotification.severity}
+      title={appNotification.title}
+      onRemove={() => onClearNotification(appNotification.id)}
+      elevated
+    >
+      {hasBody && (
+        <div className={styles.wrapper}>
+          <span>{appNotification.component || appNotification.text}</span>
+          {traceId && (
+            <span className={styles.trace}>
+              <Trans i18nKey="app-notification.item.trace-id">Trace ID: {{ traceId }}</Trans>
+            </span>
+          )}
+        </div>
+      )}
+    </Alert>
+  );
+}
+
+function getStyles(theme: GrafanaTheme2) {
+  return {
+    wrapper: css({
+      display: 'flex',
+      flexDirection: 'column',
+    }),
+    trace: css({
+      fontSize: theme.typography.pxToRem(10),
+    }),
+  };
 }

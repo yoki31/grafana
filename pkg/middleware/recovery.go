@@ -19,12 +19,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
+	"os"
 	"runtime"
 
+	"github.com/grafana/grafana/pkg/api/dtos"
+	"github.com/grafana/grafana/pkg/api/webassets"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/services/contexthandler"
+	"github.com/grafana/grafana/pkg/services/licensing"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/grafana/grafana/pkg/web"
 )
@@ -54,7 +57,7 @@ func stack(skip int) []byte {
 			// We can ignore the gosec G304 warning on this one because `file`
 			// comes from the runtime.Caller() function.
 			// nolint:gosec
-			data, err := ioutil.ReadFile(file)
+			data, err := os.ReadFile(file)
 			if err != nil {
 				continue
 			}
@@ -102,69 +105,79 @@ func function(pc uintptr) []byte {
 
 // Recovery returns a middleware that recovers from any panics and writes a 500 if there was one.
 // While Martini is in development mode, Recovery will also output the panic as HTML.
-func Recovery(cfg *setting.Cfg) web.Handler {
-	return func(c *web.Context) {
-		defer func() {
-			if r := recover(); r != nil {
-				var panicLogger log.Logger
-				panicLogger = log.New("recovery")
-				// try to get request logger
-				ctx := contexthandler.FromContext(c.Req.Context())
-				if ctx != nil {
-					panicLogger = ctx.Logger
-				}
+func Recovery(cfg *setting.Cfg, license licensing.Licensing) web.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			c := web.FromContext(req.Context())
 
-				if err, ok := r.(error); ok {
-					// http.ErrAbortHandler is suppressed by default in the http package
-					// and used as a signal for aborting requests. Suppresses stacktrace
-					// since it doesn't add any important information.
-					if errors.Is(err, http.ErrAbortHandler) {
-						panicLogger.Error("Request error", "error", err)
+			defer func() {
+				if r := recover(); r != nil {
+					var panicLogger log.Logger
+					panicLogger = log.New("recovery")
+					// try to get request logger
+					ctx := contexthandler.FromContext(c.Req.Context())
+					if ctx != nil {
+						panicLogger = ctx.Logger
+					}
+
+					if err, ok := r.(error); ok {
+						// http.ErrAbortHandler is suppressed by default in the http package
+						// and used as a signal for aborting requests. Suppresses stacktrace
+						// since it doesn't add any important information.
+						if errors.Is(err, http.ErrAbortHandler) {
+							panicLogger.Error("Request error", "error", err)
+							return
+						}
+					}
+
+					stack := stack(3)
+					panicLogger.Error("Request error", "error", r, "stack", string(stack))
+
+					// if response has already been written, skip.
+					if c.Resp.Written() {
 						return
 					}
-				}
 
-				stack := stack(3)
-				panicLogger.Error("Request error", "error", r, "stack", string(stack))
-
-				// if response has already been written, skip.
-				if c.Resp.Written() {
-					return
-				}
-
-				data := struct {
-					Title     string
-					AppTitle  string
-					AppSubUrl string
-					Theme     string
-					ErrorMsg  string
-				}{"Server Error", "Grafana", cfg.AppSubURL, cfg.DefaultTheme, ""}
-
-				if setting.Env == setting.Dev {
-					if err, ok := r.(error); ok {
-						data.Title = err.Error()
+					assets, _ := webassets.GetWebAssets(req.Context(), cfg, license)
+					if assets == nil {
+						assets = &dtos.EntryPointAssets{JSFiles: []dtos.EntryPointAsset{}}
 					}
 
-					data.ErrorMsg = string(stack)
-				}
+					data := struct {
+						Title     string
+						AppTitle  string
+						AppSubUrl string
+						ThemeType string
+						ErrorMsg  string
+						Assets    *dtos.EntryPointAssets
+					}{"Server Error", "Grafana", cfg.AppSubURL, cfg.DefaultTheme, "", assets}
 
-				if ctx != nil && ctx.IsApiRequest() {
-					resp := make(map[string]interface{})
-					resp["message"] = "Internal Server Error - Check the Grafana server logs for the detailed error message."
+					if cfg.Env == setting.Dev {
+						if err, ok := r.(error); ok {
+							data.Title = err.Error()
+						}
 
-					if data.ErrorMsg != "" {
-						resp["error"] = fmt.Sprintf("%v - %v", data.Title, data.ErrorMsg)
+						data.ErrorMsg = string(stack)
+					}
+
+					if ctx != nil && ctx.IsApiRequest() {
+						resp := make(map[string]any)
+						resp["message"] = fmt.Sprintf("Internal Server Error - %s", cfg.UserFacingDefaultError)
+
+						if data.ErrorMsg != "" {
+							resp["error"] = fmt.Sprintf("%v - %v", data.Title, data.ErrorMsg)
+						} else {
+							resp["error"] = data.Title
+						}
+
+						ctx.JSON(http.StatusInternalServerError, resp)
 					} else {
-						resp["error"] = data.Title
+						ctx.HTML(http.StatusInternalServerError, cfg.ErrTemplateName, data)
 					}
-
-					c.JSON(500, resp)
-				} else {
-					c.HTML(500, cfg.ErrTemplateName, data)
 				}
-			}
-		}()
+			}()
 
-		c.Next()
+			next.ServeHTTP(w, req)
+		})
 	}
 }

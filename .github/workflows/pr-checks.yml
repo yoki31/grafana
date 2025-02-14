@@ -5,22 +5,33 @@ on:
       - opened
       - reopened
       - synchronize
-      - ready_for_review      
+      - ready_for_review
       - labeled
       - unlabeled
+      - edited
+      - auto_merge_enabled
   issues:
     types:
       - milestoned
       - demilestoned
+
 concurrency:
   group: pr-checks-${{ github.event.number }}
+
+permissions:
+  statuses: write
+  checks: write
+  actions: write
+  contents: read
+  pull-requests: read
+
 jobs:
   main:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout Actions
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           repository: "grafana/grafana-github-actions"
           path: ./actions

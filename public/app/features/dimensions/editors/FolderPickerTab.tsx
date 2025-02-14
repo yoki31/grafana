@@ -1,11 +1,13 @@
-import React, { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import { css } from '@emotion/css';
-import { Field, FilterInput, Select, useStyles2 } from '@grafana/ui';
+import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+
 import { GrafanaTheme2, SelectableValue } from '@grafana/data';
+import { Field, FilterInput, Select, useStyles2 } from '@grafana/ui';
+import { getDatasourceSrv } from 'app/features/plugins/datasource_srv';
+import { FileElement, GrafanaDatasource } from 'app/plugins/datasource/grafana/datasource';
 
 import { MediaType, ResourceFolderName } from '../types';
-import { FileElement, GrafanaDatasource } from 'app/plugins/datasource/grafana/datasource';
-import { getDatasourceSrv } from 'app/features/plugins/datasource_srv';
+
 import { ResourceCards } from './ResourceCards';
 
 const getFolders = (mediaType: MediaType) => {
@@ -33,10 +35,11 @@ interface Props {
   folderName: ResourceFolderName;
   newValue: string;
   setNewValue: Dispatch<SetStateAction<string>>;
+  maxFiles?: number;
 }
 
 export const FolderPickerTab = (props: Props) => {
-  const { value, mediaType, folderName, newValue, setNewValue } = props;
+  const { value, mediaType, folderName, newValue, setNewValue, maxFiles } = props;
   const styles = useStyles2(getStyles);
 
   const folders = getFolders(mediaType).map((v) => ({
@@ -73,7 +76,7 @@ export const FolderPickerTab = (props: Props) => {
       getDatasourceSrv()
         .get('-- Grafana --')
         .then((ds) => {
-          (ds as GrafanaDatasource).listFiles(folder).subscribe({
+          (ds as GrafanaDatasource).listFiles(folder, maxFiles).subscribe({
             next: (frame) => {
               const cards: ResourceItem[] = [];
               frame.forEach((item) => {
@@ -82,7 +85,7 @@ export const FolderPickerTab = (props: Props) => {
                   cards.push({
                     value: `${folder}/${item.name}`,
                     label: item.name,
-                    search: (idx ? item.name.substr(0, idx) : item.name).toLowerCase(),
+                    search: (idx ? item.name.substring(0, idx) : item.name).toLowerCase(),
                     imgUrl: `public/${folder}/${item.name}`,
                   });
                 }
@@ -93,12 +96,12 @@ export const FolderPickerTab = (props: Props) => {
           });
         });
     }
-  }, [mediaType, currentFolder]);
+  }, [mediaType, currentFolder, maxFiles]);
 
   return (
     <>
       <Field>
-        <Select options={folders} onChange={setCurrentFolder} value={currentFolder} />
+        <Select options={folders} onChange={setCurrentFolder} value={currentFolder} menuShouldPortal={false} />
       </Field>
       <Field>
         <FilterInput
@@ -120,10 +123,10 @@ export const FolderPickerTab = (props: Props) => {
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  cardsWrapper: css`
-    height: 30vh;
-    min-height: 50px;
-    margin-top: 5px;
-    max-width: 680px;
-  `,
+  cardsWrapper: css({
+    height: '30vh',
+    minHeight: '50px',
+    marginTop: '5px',
+    maxWidth: '680px',
+  }),
 });
